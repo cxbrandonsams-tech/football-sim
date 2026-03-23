@@ -573,7 +573,10 @@ export function simulateGame(game: Game): GameResult {
     }
 
     quarterPlays++;
-    if (quarterPlays >= cfg.game.playsPerQuarter) {
+    // Tempo: offensive team's setting shifts plays per quarter up or down
+    const offTempo   = (offRaw.gameplan?.tempo ?? 'normal') as keyof typeof cfg.gameplan.tempo;
+    const playsThisQ = cfg.game.playsPerQuarter + cfg.gameplan.tempo[offTempo];
+    if (quarterPlays >= playsThisQ) {
       quarter++;
       quarterPlays = 0;
       if (quarter === 3) changePoss(); // halftime flip

@@ -13,6 +13,7 @@ import { createTradeProposal, applyTrade, shouldAIAcceptTrade, runAITrades, desc
 import { newsForGame, newsForTrade, newsForSigning, addNewsItems } from './engine/news';
 import { getUserTeam } from './models/League';
 import { type DepthChart } from './models/DepthChart';
+import { type GameplanSettings, DEFAULT_GAMEPLAN, derivePlaycalling } from './models/Team';
 import * as crypto from 'crypto';
 import {
   getLeague as dbGetLeague,
@@ -599,6 +600,28 @@ app.post('/league/:id/set-depth-chart', requireAuth, (req: Request, res: Respons
   const newSlot = playerIds.map(pid => userTeam.roster.find(p => p.id === pid) ?? null);
   const newChart = { ...userTeam.depthChart, [slot]: newSlot } as DepthChart;
   const updatedTeam = { ...userTeam, depthChart: newChart };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  res.json(updated);
+});
+
+// POST /league/:id/set-gameplan — update the user's team gameplan and derived playcalling.
+app.post('/league/:id/set-gameplan', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const body = req.body as Partial<GameplanSettings>;
+  const userTeam = getUserTeam(league);
+  const current: GameplanSettings = userTeam.gameplan ?? DEFAULT_GAMEPLAN;
+  const gameplan: GameplanSettings = {
+    passEmphasis:      body.passEmphasis      ?? current.passEmphasis,
+    runEmphasis:       body.runEmphasis       ?? current.runEmphasis,
+    tempo:             body.tempo             ?? current.tempo,
+    playAction:        body.playAction        ?? current.playAction,
+    defensiveFocus:    body.defensiveFocus    ?? current.defensiveFocus,
+    offensivePlaybook: body.offensivePlaybook ?? current.offensivePlaybook,
+    defensivePlaybook: body.defensivePlaybook ?? current.defensivePlaybook,
+  };
+  const updatedTeam = { ...userTeam, gameplan, playcalling: derivePlaycalling(gameplan) };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
   res.json(updated);

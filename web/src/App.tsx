@@ -7,14 +7,14 @@ import {
   claimTeam as claimTeamApi, proposeTrade as proposeTradeApi, respondTrade as respondTradeApi,
   markNotificationsRead as markReadApi,
   extendPlayer as extendPlayerApi, releasePlayer as releasePlayerApi,
-  signFreeAgent as signFreeAgentApi, setDepthChart as setDepthChartApi,
+  signFreeAgent as signFreeAgentApi, setDepthChart as setDepthChartApi, setGameplan as setGameplanApi,
   draftPick as draftPickApi, simDraft as simDraftApi,
   signup, login, getMyLeagues,
   getLeagueMembers as getLeagueMembersApi, updateLeagueSettings as updateLeagueSettingsApi, kickMember as kickMemberApi,
   setAuthToken, authToken,
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
-import { computeStandings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem } from './types';
+import { computeStandings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook } from './types';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -564,7 +564,6 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
   const [showNotifs, setShowNotifs] = useState(false);
 
   const standings = computeStandings(league);
-  const weekGames = league.currentSeason.games.filter(g => g.week === league.currentWeek);
   const maxWeek   = Math.max(...league.currentSeason.games.map(g => g.week));
   const rosterTeam = league.teams.find(t => t.id === rosterTeamId) ?? league.teams[0]!;
   const seasonStats = useMemo(
@@ -785,8 +784,8 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           onLeagueUpdated={setLeague}
         />
       )}
-      {tab === 'gameplan'  && <GameplanView  team={league.teams.find(t => t.id === myTeamId)!} />}
-      {tab === 'playbooks' && <PlaybooksView team={league.teams.find(t => t.id === myTeamId)!} />}
+      {tab === 'gameplan'  && <GameplanView  team={league.teams.find(t => t.id === myTeamId)!} leagueId={leagueId} onLeagueUpdated={setLeague} />}
+      {tab === 'playbooks' && <PlaybooksView team={league.teams.find(t => t.id === myTeamId)!} leagueId={leagueId} onLeagueUpdated={setLeague} />}
       {tab === 'coaching'  && <CoachingView  team={league.teams.find(t => t.id === myTeamId)!} />}
 
       {detailPlayerId && (() => {
@@ -910,77 +909,260 @@ function SeasonTimeline({ league, busy, advanceBtnLabel, onAdvance }: {
   );
 }
 
-// ── Gameplan / Playbooks / Coaching (stubs ready for future work) ──────────────
+// ── Gameplan View ──────────────────────────────────────────────────────────────
 
-function GameplanView({ team }: { team: League['teams'][0] }) {
+function GameplanView({ team, leagueId, onLeagueUpdated }: {
+  team: League['teams'][0];
+  leagueId: string;
+  onLeagueUpdated: (l: League) => void;
+}) {
+  const gp: GameplanSettings = team.gameplan ?? DEFAULT_GAMEPLAN;
+  const [draft, setDraft] = useState<GameplanSettings>(gp);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState('');
+  const [saved, setSaved]   = useState(false);
+
   const pc = team.playcalling;
-  return (
-    <section className="placeholder-view">
-      <h2>Gameplan — {team.name}</h2>
-      <p className="muted">Adjust your team's playcalling tendencies. Full gameplan editor coming in a future update.</p>
-      <div className="placeholder-stats">
-        <div className="ph-stat"><span className="ph-val">{pc.runPct}%</span><span className="ph-lbl">Run Rate</span></div>
-        <div className="ph-stat"><span className="ph-val">{pc.insideRunPct}%</span><span className="ph-lbl">Inside Run %</span></div>
-        <div className="ph-stat"><span className="ph-val">{pc.shortPassPct}%</span><span className="ph-lbl">Short Pass %</span></div>
-        <div className="ph-stat"><span className="ph-val">{pc.mediumPassPct}%</span><span className="ph-lbl">Medium Pass %</span></div>
-        <div className="ph-stat"><span className="ph-val">{100 - pc.shortPassPct - pc.mediumPassPct}%</span><span className="ph-lbl">Deep Pass %</span></div>
+  const deepPct = Math.max(0, 100 - pc.shortPassPct - pc.mediumPassPct);
+
+  function set<K extends keyof GameplanSettings>(k: K, v: GameplanSettings[K]) {
+    setDraft(d => ({ ...d, [k]: v }));
+    setSaved(false);
+  }
+
+  async function handleSave() {
+    setSaving(true); setSaveErr(''); setSaved(false);
+    try {
+      const updated = await setGameplanApi(leagueId, draft);
+      onLeagueUpdated(updated);
+      setSaved(true);
+    } catch (e) { setSaveErr(friendlyError(e)); }
+    finally { setSaving(false); }
+  }
+
+  const btnRow = (
+    label: string,
+    options: { value: string; label: string }[],
+    current: string,
+    onChange: (v: string) => void,
+  ) => (
+    <div className="gp-row">
+      <span className="gp-label">{label}</span>
+      <div className="gp-btns">
+        {options.map(o => (
+          <button
+            key={o.value}
+            className={`gp-opt${current === o.value ? ' gp-opt-active' : ''}`}
+            onClick={() => onChange(o.value)}
+          >{o.label}</button>
+        ))}
       </div>
-      <p className="muted" style={{ marginTop: '1.5rem', fontSize: '0.85rem' }}>
-        ⚙ Gameplan editing (run/pass balance, red-zone tendencies, two-minute drill) will be added in Phase 20.
-      </p>
+    </div>
+  );
+
+  return (
+    <section className="gp-view">
+      <h2>Gameplan — {team.name}</h2>
+
+      <div className="gp-section">
+        <h3>Offense</h3>
+        {btnRow('Pass Emphasis', [
+          { value: 'conservative', label: 'Conservative' },
+          { value: 'balanced',     label: 'Balanced' },
+          { value: 'aggressive',   label: 'Aggressive' },
+        ], draft.passEmphasis, v => set('passEmphasis', v as PassEmphasis))}
+
+        {btnRow('Run Style', [
+          { value: 'light',    label: 'Outside' },
+          { value: 'balanced', label: 'Balanced' },
+          { value: 'heavy',    label: 'Inside' },
+        ], draft.runEmphasis, v => set('runEmphasis', v as RunEmphasis))}
+
+        {btnRow('Tempo', [
+          { value: 'slow',   label: 'Slow' },
+          { value: 'normal', label: 'Normal' },
+          { value: 'fast',   label: 'Hurry-Up' },
+        ], draft.tempo, v => set('tempo', v as Tempo))}
+
+        {btnRow('Play Action', [
+          { value: 'low',    label: 'Rarely' },
+          { value: 'medium', label: 'Moderate' },
+          { value: 'high',   label: 'Often' },
+        ], draft.playAction, v => set('playAction', v as PlayActionUsage))}
+      </div>
+
+      <div className="gp-section">
+        <h3>Defense</h3>
+        {btnRow('Defensive Focus', [
+          { value: 'balanced',          label: 'Balanced' },
+          { value: 'stop_inside_run',   label: 'Stop Inside Run' },
+          { value: 'stop_outside_run',  label: 'Stop Outside Run' },
+          { value: 'stop_short_pass',   label: 'Stop Short Pass' },
+          { value: 'stop_deep_pass',    label: 'Stop Deep Pass' },
+        ], draft.defensiveFocus, v => set('defensiveFocus', v as DefensiveFocus))}
+      </div>
+
+      <div className="gp-derived">
+        <span className="gp-derived-label">Derived playcalling:</span>
+        <span>Run {pc.runPct}%</span>
+        <span>Inside {pc.insideRunPct}%</span>
+        <span>Short {pc.shortPassPct}%</span>
+        <span>Med {pc.mediumPassPct}%</span>
+        <span>Deep {deepPct}%</span>
+      </div>
+
+      <div className="gp-save-row">
+        <button className="btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : 'Save Gameplan'}
+        </button>
+        {saved   && <span className="gp-saved">Saved!</span>}
+        {saveErr && <span className="gp-err">{saveErr}</span>}
+      </div>
     </section>
   );
 }
 
-function PlaybooksView({ team }: { team: League['teams'][0] }) {
-  const hc = team.coaches.hc;
-  const oc = team.coaches.oc;
-  const dc = team.coaches.dc;
+// ── Playbooks View ─────────────────────────────────────────────────────────────
+
+const OFF_PLAYBOOK_INFO: Record<string, { label: string; desc: string }> = {
+  balanced:   { label: 'Balanced',   desc: 'Even mix of runs and passes. No single weakness.' },
+  spread:     { label: 'Spread',     desc: 'Multiple WR sets. Emphasizes short-to-medium passing.' },
+  power_run:  { label: 'Power Run',  desc: 'Physical run-first attack with strong OL play.' },
+  vertical:   { label: 'Vertical',   desc: 'Stretches the field deep. High risk, high reward.' },
+  west_coast: { label: 'West Coast', desc: 'Short, precise passing game. Rhythm and timing.' },
+};
+
+const DEF_PLAYBOOK_INFO: Record<string, { label: string; desc: string }> = {
+  balanced:      { label: 'Balanced',      desc: 'Sound fundamentals against all play types.' },
+  four_three:    { label: '4-3',           desc: 'Four down linemen. Strong vs. the run.' },
+  three_four:    { label: '3-4',           desc: 'Three linemen, four LBs. Versatile blitz packages.' },
+  nickel_heavy:  { label: 'Nickel Heavy',  desc: 'Extra DBs on the field. Great vs. passing teams.' },
+  zone_heavy:    { label: 'Zone Heavy',    desc: 'Disciplined zone coverage. Limits big plays.' },
+};
+
+function PlaybooksView({ team, leagueId, onLeagueUpdated }: {
+  team: League['teams'][0];
+  leagueId: string;
+  onLeagueUpdated: (l: League) => void;
+}) {
+  const gp: GameplanSettings = team.gameplan ?? DEFAULT_GAMEPLAN;
+  const [offBook, setOffBook] = useState<OffensivePlaybook>(gp.offensivePlaybook);
+  const [defBook, setDefBook] = useState<DefensivePlaybook>(gp.defensivePlaybook);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState('');
+  const [saved, setSaved]   = useState(false);
+
+  async function handleSave() {
+    setSaving(true); setSaveErr(''); setSaved(false);
+    try {
+      const updated = await setGameplanApi(leagueId, { offensivePlaybook: offBook, defensivePlaybook: defBook });
+      onLeagueUpdated(updated);
+      setSaved(true);
+    } catch (e) { setSaveErr(friendlyError(e)); }
+    finally { setSaving(false); }
+  }
+
   return (
-    <section className="placeholder-view">
+    <section className="gp-view">
       <h2>Playbooks — {team.name}</h2>
-      <p className="muted">Offensive and defensive scheme selection. Full playbook editor coming in a future update.</p>
-      <div className="placeholder-stats">
-        <div className="ph-stat"><span className="ph-val">{oc.offensiveScheme ?? 'balanced'}</span><span className="ph-lbl">Off. Scheme</span></div>
-        <div className="ph-stat"><span className="ph-val">{dc.defensiveScheme ?? 'balanced'}</span><span className="ph-lbl">Def. Scheme</span></div>
-        <div className="ph-stat"><span className="ph-val">{hc.overall}</span><span className="ph-lbl">HC Rating</span></div>
+
+      <div className="gp-section">
+        <h3>Offensive Playbook</h3>
+        <div className="pb-grid">
+          {(Object.keys(OFF_PLAYBOOK_INFO) as OffensivePlaybook[]).map(key => {
+            const info = OFF_PLAYBOOK_INFO[key]!;
+            return (
+              <button
+                key={key}
+                className={`pb-card${offBook === key ? ' pb-card-active' : ''}`}
+                onClick={() => { setOffBook(key); setSaved(false); }}
+              >
+                <span className="pb-card-name">{info.label}</span>
+                <span className="pb-card-desc">{info.desc}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <p className="muted" style={{ marginTop: '1.5rem', fontSize: '0.85rem' }}>
-        ⚙ Scheme selection and playbook customization will be added in Phase 20.
-      </p>
+
+      <div className="gp-section">
+        <h3>Defensive Playbook</h3>
+        <div className="pb-grid">
+          {(Object.keys(DEF_PLAYBOOK_INFO) as DefensivePlaybook[]).map(key => {
+            const info = DEF_PLAYBOOK_INFO[key]!;
+            return (
+              <button
+                key={key}
+                className={`pb-card${defBook === key ? ' pb-card-active' : ''}`}
+                onClick={() => { setDefBook(key); setSaved(false); }}
+              >
+                <span className="pb-card-name">{info.label}</span>
+                <span className="pb-card-desc">{info.desc}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="gp-save-row">
+        <button className="btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : 'Save Playbooks'}
+        </button>
+        {saved   && <span className="gp-saved">Saved!</span>}
+        {saveErr && <span className="gp-err">{saveErr}</span>}
+      </div>
     </section>
   );
 }
+
+// ── Coaching View ──────────────────────────────────────────────────────────────
 
 function CoachingView({ team }: { team: League['teams'][0] }) {
   const { hc, oc, dc } = team.coaches;
-  const coaches = [
-    { role: 'Head Coach',         coach: hc, scheme: null },
-    { role: 'Offensive Coord.',   coach: oc, scheme: oc.offensiveScheme ?? 'balanced' },
-    { role: 'Defensive Coord.',   coach: dc, scheme: dc.defensiveScheme ?? 'balanced' },
-  ] as const;
+  const ocScheme = oc.offensiveScheme ?? 'balanced';
+  const dcScheme = dc.defensiveScheme ?? 'balanced';
+  const hcOffMatch = hc.offensiveScheme === ocScheme;
+  const hcDefMatch = hc.defensiveScheme === dcScheme;
+
   return (
-    <section className="placeholder-view">
+    <section className="gp-view">
       <h2>Coaching Staff — {team.name}</h2>
       <div className="coaching-table-wrap">
         <table>
           <thead>
-            <tr><th>Role</th><th>Name</th><th>OVR</th><th>Scheme</th></tr>
+            <tr><th>Role</th><th>Name</th><th>OVR</th><th>Scheme</th><th>Alignment</th></tr>
           </thead>
           <tbody>
-            {coaches.map(({ role, coach, scheme }) => (
-              <tr key={coach.id}>
-                <td className="muted">{role}</td>
-                <td>{coach.name}</td>
-                <td className="ovr-cell">{coach.overall}</td>
-                <td className="muted">{scheme ?? '—'}</td>
-              </tr>
-            ))}
+            <tr>
+              <td className="muted">Head Coach</td>
+              <td>{hc.name}</td>
+              <td className="ovr-cell">{hc.overall}</td>
+              <td className="muted">—</td>
+              <td>
+                <span className={`align-badge${hcOffMatch ? ' align-yes' : ' align-no'}`}>OFF {hcOffMatch ? '✓' : '✗'}</span>
+                {' '}
+                <span className={`align-badge${hcDefMatch ? ' align-yes' : ' align-no'}`}>DEF {hcDefMatch ? '✓' : '✗'}</span>
+              </td>
+            </tr>
+            <tr>
+              <td className="muted">Offensive Coord.</td>
+              <td>{oc.name}</td>
+              <td className="ovr-cell">{oc.overall}</td>
+              <td className="muted">{ocScheme.replace(/_/g, ' ')}</td>
+              <td><span className={`align-badge${hcOffMatch ? ' align-yes' : ' align-no'}`}>{hcOffMatch ? 'HC match ✓' : 'No HC match'}</span></td>
+            </tr>
+            <tr>
+              <td className="muted">Defensive Coord.</td>
+              <td>{dc.name}</td>
+              <td className="ovr-cell">{dc.overall}</td>
+              <td className="muted">{dcScheme.replace(/_/g, ' ')}</td>
+              <td><span className={`align-badge${hcDefMatch ? ' align-yes' : ' align-no'}`}>{hcDefMatch ? 'HC match ✓' : 'No HC match'}</span></td>
+            </tr>
           </tbody>
         </table>
       </div>
-      <p className="muted" style={{ marginTop: '1.5rem', fontSize: '0.85rem' }}>
-        ⚙ Coach hiring, firing, and development will be added in Phase 20.
+      <p className="muted coaching-note">
+        When the HC's scheme preferences match the OC or DC, your team earns a small bonus to success probability each play. Green badges indicate an active alignment bonus.
       </p>
     </section>
   );
@@ -1871,49 +2053,6 @@ function PlayoffView({ playoff, teams, seasonHistory, busy, advanceBtnLabel, onA
         </div>
       )}
     </section>
-  );
-}
-
-// ── Week View ──────────────────────────────────────────────────────────────────
-
-function WeekView({ games, week, busy, advanceBtnLabel, onAdvance }: {
-  games: Game[]; week: number; busy: boolean; advanceBtnLabel: string; onAdvance: () => void;
-}) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selectedGame = games.find(g => g.id === selectedId) ?? null;
-  const done = advanceBtnLabel === 'Season Complete' || advanceBtnLabel === 'Draft In Progress';
-
-  return (
-    <div className="week-layout">
-      <section className="week-section">
-        <div className="week-header">
-          <h2>Week {week}</h2>
-          <button onClick={onAdvance} disabled={busy || done} className="advance-btn">
-            {busy ? 'Simulating…' : advanceBtnLabel}
-          </button>
-        </div>
-        <table>
-          <thead><tr><th>Away</th><th></th><th>Home</th><th>Status</th></tr></thead>
-          <tbody>
-            {games.map(g => (
-              <tr
-                key={g.id}
-                className={`game-row${selectedId === g.id ? ' selected' : ''}`}
-                onClick={() => setSelectedId(prev => prev === g.id ? null : g.id)}
-              >
-                <td className="team-cell">{g.awayTeam.abbreviation}</td>
-                <td className="score-cell">
-                  {g.status === 'final' ? `${g.awayScore} – ${g.homeScore}` : 'vs'}
-                </td>
-                <td className="team-cell">{g.homeTeam.abbreviation}</td>
-                <td className={`status-cell ${g.status}`}>{g.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-      {selectedGame && <GameDetail key={selectedGame.id} game={selectedGame} />}
-    </div>
   );
 }
 

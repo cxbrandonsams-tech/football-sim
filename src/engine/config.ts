@@ -122,6 +122,19 @@ export const TUNING = {
       runCost:          -0.05,
       shortPassCost:    -0.04,   // short pass defense also softened
     },
+    // ── Offensive play-action bonus ─────────────────────────────────────────
+    // Added to separation on pass plays when play-action usage is medium/high.
+    playAction: {
+      low:    0,
+      medium: 0.04,   // half the full play-action deception base
+      high:   0.08,   // = pass.playActionDeceptionBase
+    },
+    // ── Tempo: delta to playsPerQuarter from the offensive team's setting ───
+    tempo: {
+      slow:   -5,   // 35 plays/quarter
+      normal:  0,   // 40 plays/quarter (default)
+      fast:   +5,   // 45 plays/quarter
+    },
   },
 
   // ── Coaching modifiers ────────────────────────────────────────────────────

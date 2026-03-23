@@ -1,4 +1,4 @@
-import { type League, type TradeAsset } from './types';
+import { type League, type TradeAsset, type GameplanSettings } from './types';
 
 // In dev, Vite proxies /league, /leagues, /auth, /my-leagues → localhost:3000
 // In production (Vercel), requests go directly to the Render backend.
@@ -98,6 +98,8 @@ export const signFreeAgent = (id: string, playerId: string) =>
   request<League>(`/league/${id}/sign-free-agent`, 'POST', { playerId });
 export const setDepthChart = (id: string, slot: string, playerIds: string[]) =>
   request<League>(`/league/${id}/set-depth-chart`, 'POST', { slot, playerIds });
+export const setGameplan = (id: string, gameplan: Partial<GameplanSettings>) =>
+  request<League>(`/league/${id}/set-gameplan`, 'POST', gameplan);
 export const draftPick = (id: string, playerId: string) =>
   request<League>(`/league/${id}/draft-pick`, 'POST', { playerId });
 export const simDraft = (id: string) =>

@@ -280,6 +280,38 @@ export interface CoachingStaff {
   dc: Coach;
 }
 
+// ── Gameplan ──────────────────────────────────────────────────────────────────
+
+export type DefensiveFocus    = 'balanced' | 'stop_inside_run' | 'stop_outside_run' | 'stop_short_pass' | 'stop_deep_pass';
+export type OffensivePlaybook = 'balanced' | 'spread' | 'power_run' | 'vertical' | 'west_coast';
+export type DefensivePlaybook = 'balanced' | 'four_three' | 'three_four' | 'nickel_heavy' | 'zone_heavy';
+export type Tempo             = 'slow' | 'normal' | 'fast';
+export type PlayActionUsage   = 'low' | 'medium' | 'high';
+export type PassEmphasis      = 'conservative' | 'balanced' | 'aggressive';
+export type RunEmphasis       = 'light' | 'balanced' | 'heavy';
+
+export interface GameplanSettings {
+  passEmphasis:      PassEmphasis;
+  runEmphasis:       RunEmphasis;
+  tempo:             Tempo;
+  playAction:        PlayActionUsage;
+  defensiveFocus:    DefensiveFocus;
+  offensivePlaybook: OffensivePlaybook;
+  defensivePlaybook: DefensivePlaybook;
+}
+
+export const DEFAULT_GAMEPLAN: GameplanSettings = {
+  passEmphasis:      'balanced',
+  runEmphasis:       'balanced',
+  tempo:             'normal',
+  playAction:        'medium',
+  defensiveFocus:    'balanced',
+  offensivePlaybook: 'balanced',
+  defensivePlaybook: 'balanced',
+};
+
+// ── Team ──────────────────────────────────────────────────────────────────────
+
 export interface Team {
   id:           string;
   name:         string;
@@ -289,6 +321,7 @@ export interface Team {
   depthChart?:  Record<string, (Player | null)[]>;
   coaches:      CoachingStaff;
   playcalling:  PlaycallingWeights;
+  gameplan?:    GameplanSettings;
 }
 
 // ── Game events ───────────────────────────────────────────────────────────────

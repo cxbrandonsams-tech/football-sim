@@ -2270,3 +2270,179 @@ tr:hover td { background: #232c3d; }
   width: 100%;
   max-width: 36rem;
 }
+
+/* ── Gameplan / Playbooks views ──────────────────────────────────────────── */
+
+.gp-view {
+  padding: 1.5rem;
+  max-width: 44rem;
+}
+
+.gp-view h2 {
+  margin-bottom: 1rem;
+}
+
+.gp-section {
+  margin-bottom: 1.5rem;
+}
+
+.gp-section h3 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #64748b;
+  margin-bottom: 0.75rem;
+}
+
+.gp-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.gp-label {
+  width: 10rem;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.gp-btns {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.gp-opt {
+  background: #111827;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  border-radius: 6px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.gp-opt:hover:not(.gp-opt-active) {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.gp-opt-active {
+  background: #1d4ed8;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+.gp-derived {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.gp-derived-label {
+  color: #475569;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gp-save-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.gp-saved {
+  color: #4ade80;
+  font-size: 0.85rem;
+}
+
+.gp-err {
+  color: #f87171;
+  font-size: 0.85rem;
+}
+
+/* ── Playbooks grid ──────────────────────────────────────────────────────── */
+
+.pb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.6rem;
+}
+
+.pb-card {
+  background: #111827;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pb-card:hover:not(.pb-card-active) {
+  background: #1e293b;
+  border-color: #475569;
+}
+
+.pb-card-active {
+  background: #1e3a5f;
+  border-color: #3b82f6;
+}
+
+.pb-card-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.pb-card-active .pb-card-name {
+  color: #93c5fd;
+}
+
+.pb-card-desc {
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+/* ── Coaching alignment badges ───────────────────────────────────────────── */
+
+.align-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.align-yes {
+  background: #14532d;
+  color: #4ade80;
+}
+
+.align-no {
+  background: #1c1917;
+  color: #64748b;
+}
+
+.coaching-note {
+  margin-top: 1rem;
+  font-size: 0.8rem;
+  max-width: 36rem;
+  line-height: 1.5;
+}

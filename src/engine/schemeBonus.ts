@@ -9,8 +9,8 @@
  *  net           = offSchemeAdj − defSchemeAdj
  */
 
-import { type Team }        from '../models/Team';
-import { type PlayType }    from '../models/PlayEvent';
+import { type Team, DEFAULT_GAMEPLAN } from '../models/Team';
+import { type PlayType }               from '../models/PlayEvent';
 import {
   type OffensiveScheme,
   type DefensiveScheme,
@@ -118,6 +118,25 @@ export function computeSchemeAdjustment(
     offAdj += cfg.alignmentBonus;
   }
 
-  // Net: offense gains offAdj + overalls; defense gains defAdj + overalls
-  return (offAdj + ocBoost + offHCBoost) - (defAdj + dcBoost + defHCBoost);
+  // 9. Defensive focus (gameplan) — targeted resistance at the cost of other play types
+  const defFocus = (def.gameplan ?? DEFAULT_GAMEPLAN).defensiveFocus;
+  let defFocusAdj = 0;
+  const gp = TUNING.gameplan;
+  if (defFocus === 'stop_inside_run' && type === 'inside_run')  defFocusAdj = gp.stopInsideRun.defResistBonus;
+  if (defFocus === 'stop_inside_run' && (type === 'short_pass' || type === 'medium_pass' || type === 'deep_pass')) defFocusAdj = gp.stopInsideRun.passCost;
+  if (defFocus === 'stop_outside_run' && type === 'outside_run') defFocusAdj = gp.stopOutsideRun.defResistBonus;
+  if (defFocus === 'stop_outside_run' && (type === 'short_pass' || type === 'medium_pass' || type === 'deep_pass')) defFocusAdj = gp.stopOutsideRun.passCost;
+  if (defFocus === 'stop_short_pass' && type === 'short_pass')  defFocusAdj = gp.stopShortPass.defResistBonus;
+  if (defFocus === 'stop_short_pass' && (type === 'inside_run' || type === 'outside_run')) defFocusAdj = gp.stopShortPass.runCost;
+  if (defFocus === 'stop_deep_pass' && type === 'deep_pass')    defFocusAdj = gp.stopDeepPass.defResistBonus;
+  if (defFocus === 'stop_deep_pass' && (type === 'inside_run' || type === 'outside_run')) defFocusAdj = gp.stopDeepPass.runCost;
+  if (defFocus === 'stop_deep_pass' && type === 'short_pass')   defFocusAdj = gp.stopDeepPass.shortPassCost;
+
+  // 10. Offensive play-action bonus — adds separation on pass plays
+  const playAction = (off.gameplan ?? DEFAULT_GAMEPLAN).playAction;
+  const isPass = type === 'short_pass' || type === 'medium_pass' || type === 'deep_pass';
+  const playActionAdj = isPass ? gp.playAction[playAction] : 0;
+
+  // Net: offense gains offAdj + overalls + play action; defense gains defAdj + overalls + focus
+  return (offAdj + ocBoost + offHCBoost + playActionAdj) - (defAdj + dcBoost + defHCBoost + defFocusAdj);
 }
