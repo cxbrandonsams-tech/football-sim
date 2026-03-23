@@ -233,6 +233,7 @@ export interface Player {
   injuryWeeksRemaining: number;
   scoutingLevel:        number;
   stamina:              number;
+  isRookie?:            boolean;
   contractDemand?:      { salary: number; years: number };
 }
 

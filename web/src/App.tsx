@@ -1376,7 +1376,6 @@ function DashboardView({ league, myTeamId, standings, onNavTo }: {
   }
 
   // Standings rank
-  const myStanding = standings.find(s => s.team.id === myTeamId);
   const overallRank = standings.findIndex(s => s.team.id === myTeamId) + 1;
 
   // My division
