@@ -1,13 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { deriveBoxScore } from './boxScore';
 import { aggregateSeasonStats } from './seasonStats';
+import { DashboardSchedule } from './DashboardSchedule';
 import {
-  listLeagues, createLeague, joinLeague, fetchLeague, advanceWeek, saveLeague, loadLeague,
+  listLeagues, createLeague, joinLeague, fetchLeague, advanceWeek,
   claimTeam as claimTeamApi, proposeTrade as proposeTradeApi, respondTrade as respondTradeApi,
   markNotificationsRead as markReadApi,
-  type LeagueSummary, type CreateLeagueParams,
+  extendPlayer as extendPlayerApi, releasePlayer as releasePlayerApi,
+  signFreeAgent as signFreeAgentApi, setDepthChart as setDepthChartApi,
+  draftPick as draftPickApi, simDraft as simDraftApi,
+  signup, login, getMyLeagues,
+  getLeagueMembers as getLeagueMembersApi, updateLeagueSettings as updateLeagueSettingsApi, kickMember as kickMemberApi,
+  setAuthToken, authToken,
+  type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
-import { computeStandings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord } from './types';
+import { computeStandings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem } from './types';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -28,23 +35,30 @@ function fmtTime(ts: number): string {
 
 // ── Top-level screen ───────────────────────────────────────────────────────────
 
-type Screen = 'landing' | 'create' | 'join' | 'browse' | 'team-select' | 'league';
-
-function getGmId(): string {
-  let id = localStorage.getItem('gmId');
-  if (!id) { id = crypto.randomUUID(); localStorage.setItem('gmId', id); }
-  return id;
-}
+type Screen = 'auth' | 'my-leagues' | 'create' | 'join' | 'browse' | 'team-select' | 'league';
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>('landing');
-  const [leagueId, setLeagueId] = useState<string | null>(null);
-  const [league, setLeague] = useState<League | null>(null);
-  const [myTeamId, setMyTeamId] = useState<string | null>(null);
-  const [gmId] = useState(getGmId);
+  // Auth state
+  const [userId, setUserId]     = useState<string | null>(null);
+  const [username, setUsername] = useState<string | null>(null);
 
-  function enterLeague(id: string, data: League) {
-    const myTeam = data.teams.find(t => t.ownerId === gmId);
+  // Screen/league state
+  const [screen, setScreen]     = useState<Screen>(() => authToken ? 'my-leagues' : 'auth');
+  const [leagueId, setLeagueId] = useState<string | null>(null);
+  const [league, setLeague]     = useState<League | null>(null);
+  const [myTeamId, setMyTeamId] = useState<string | null>(null);
+
+  function handleAuthSuccess(result: AuthResult) {
+    setAuthToken(result.token);
+    setUserId(result.userId);
+    setUsername(result.username);
+    setScreen('my-leagues');
+  }
+
+  function enterLeague(id: string, data: League, knownTeamId?: string) {
+    const myTeam = knownTeamId
+      ? data.teams.find(t => t.id === knownTeamId)
+      : data.teams.find(t => t.ownerId === userId);
     setLeagueId(id);
     setLeague(data);
     if (myTeam) {
@@ -56,20 +70,30 @@ export default function App() {
   }
 
   async function handleClaimTeam(teamId: string) {
-    const updated = await claimTeamApi(leagueId!, teamId, gmId);
+    const updated = await claimTeamApi(leagueId!, teamId);
     setLeague(updated);
     setMyTeamId(teamId);
     setScreen('league');
   }
 
   function leaveLeague() {
-    setLeague(null); setLeagueId(null); setMyTeamId(null); setScreen('landing');
+    setLeague(null); setLeagueId(null); setMyTeamId(null);
+    setScreen(username ? 'my-leagues' : 'auth');
   }
 
-  if (screen === 'landing') return <Landing onNav={setScreen} />;
-  if (screen === 'create')  return <CreateForm onBack={() => setScreen('landing')} onEnter={enterLeague} />;
-  if (screen === 'join')    return <JoinForm onBack={() => setScreen('landing')} onEnter={enterLeague} />;
-  if (screen === 'browse')  return <BrowseLeagues onBack={() => setScreen('landing')} onEnter={enterLeague} />;
+  if (screen === 'auth') return <AuthScreen onSuccess={handleAuthSuccess} />;
+
+  if (screen === 'my-leagues') return (
+    <MyLeaguesScreen
+      username={username ?? ''}
+      onNav={setScreen}
+      onEnterLeague={enterLeague}
+    />
+  );
+
+  if (screen === 'create') return <CreateForm onBack={() => setScreen('my-leagues')} onEnter={enterLeague} />;
+  if (screen === 'join')   return <JoinForm onBack={() => setScreen('my-leagues')} onEnter={enterLeague} />;
+  if (screen === 'browse') return <BrowseLeagues onBack={() => setScreen('my-leagues')} onEnter={enterLeague} />;
 
   if (!league || !leagueId) return null;
 
@@ -77,7 +101,7 @@ export default function App() {
     return (
       <TeamSelect
         league={league}
-        gmId={gmId}
+        userId={userId ?? ''}
         onClaim={handleClaimTeam}
         onBack={leaveLeague}
       />
@@ -92,20 +116,100 @@ export default function App() {
       league={league}
       setLeague={setLeague}
       myTeamId={myTeamId}
-      gmId={gmId}
+      userId={userId ?? ''}
+      username={username ?? ''}
       onLeave={leaveLeague}
+      onMyLeagues={() => setScreen('my-leagues')}
     />
   );
 }
 
-// ── Landing ────────────────────────────────────────────────────────────────────
+// ── Auth Screen ────────────────────────────────────────────────────────────────
 
-function Landing({ onNav }: { onNav: (s: Screen) => void }) {
+function AuthScreen({ onSuccess }: { onSuccess: (r: AuthResult) => void }) {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try {
+      const result = mode === 'login' ? await login(username, password) : await signup(username, password);
+      onSuccess(result);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
   return (
-    <div className="landing">
-      <div className="landing-card">
+    <div className="form-screen">
+      <div className="form-card">
         <h1>Gridiron</h1>
         <p className="landing-sub">Football simulation league manager</p>
+        <div className="auth-mode-toggle">
+          <button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Log In</button>
+          <button className={mode === 'signup' ? 'active' : ''} onClick={() => setMode('signup')}>Sign Up</button>
+        </div>
+        <form onSubmit={submit}>
+          <label>Username<input value={username} onChange={e => setUsername(e.target.value)} autoFocus /></label>
+          <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} /></label>
+          {error && <div className="form-error">{error}</div>}
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? '…' : mode === 'login' ? 'Log In' : 'Sign Up'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── My Leagues Screen ──────────────────────────────────────────────────────────
+
+function MyLeaguesScreen({ username, onNav, onEnterLeague }: {
+  username: string;
+  onNav: (s: Screen) => void;
+  onEnterLeague: (id: string, data: League, teamId?: string) => void;
+}) {
+  const [summaries, setSummaries] = useState<MyLeagueSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getMyLeagues().then(setSummaries).catch(e => setError(String(e)));
+  }, []);
+
+  async function enter(s: MyLeagueSummary) {
+    const data = await fetchLeague(s.leagueId);
+    onEnterLeague(s.leagueId, data, s.teamId || undefined);
+  }
+
+  return (
+    <div className="form-screen">
+      <div className="form-card wide">
+        <div className="my-leagues-header">
+          <h2>My Leagues</h2>
+          <span className="muted">Welcome, {username}</span>
+        </div>
+        {error && <div className="form-error">{error}</div>}
+        {summaries === null && <p className="muted">Loading…</p>}
+        {summaries?.length === 0 && <p className="muted">No leagues yet.</p>}
+        {summaries && summaries.length > 0 && (
+          <table>
+            <thead><tr><th>League</th><th>Season</th><th>Phase</th><th>Your Team</th><th></th></tr></thead>
+            <tbody>
+              {summaries.map(s => (
+                <tr key={s.leagueId}>
+                  <td>{s.displayName}</td>
+                  <td>{s.currentYear}</td>
+                  <td>{s.phase.replace('_', ' ')}</td>
+                  <td>{s.teamName || '—'}</td>
+                  <td><button className="btn-sm" onClick={() => enter(s)}>Enter</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
         <div className="landing-actions">
           <button className="btn-primary" onClick={() => onNav('create')}>Create League</button>
           <button className="btn-secondary" onClick={() => onNav('join')}>Join by ID</button>
@@ -120,25 +224,19 @@ function Landing({ onNav }: { onNav: (s: Screen) => void }) {
 
 function CreateForm({ onBack, onEnter }: {
   onBack: () => void;
-  onEnter: (id: string, league: League) => void;
+  onEnter: (id: string, league: League, teamId?: string) => void;
 }) {
   const [displayName, setDisplayName] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!displayName.trim()) { setError('League name is required.'); return; }
-    if (visibility === 'private' && !password) { setError('Password is required for private leagues.'); return; }
     setBusy(true); setError(null);
     try {
-      const params: CreateLeagueParams = {
-        displayName: displayName.trim(),
-        visibility,
-        ...(visibility === 'private' && { password }),
-      };
+      const params: CreateLeagueParams = { displayName: displayName.trim(), visibility };
       const { id } = await createLeague(params);
       const data = await fetchLeague(id);
       onEnter(id, data);
@@ -178,14 +276,9 @@ function CreateForm({ onBack, onEnter }: {
             </div>
           </label>
           {visibility === 'private' && (
-            <label>
-              Password
-              <input
-                type="password" value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="League password"
-              />
-            </label>
+            <p className="muted" style={{ fontSize: '0.83rem' }}>
+              An invite code will be generated automatically. Share it from the Commissioner panel.
+            </p>
           )}
           {error && <div className="form-error">{error}</div>}
           <button type="submit" className="btn-primary" disabled={busy}>
@@ -201,7 +294,7 @@ function CreateForm({ onBack, onEnter }: {
 
 function JoinForm({ onBack, onEnter }: {
   onBack: () => void;
-  onEnter: (id: string, league: League) => void;
+  onEnter: (id: string, league: League, teamId?: string) => void;
 }) {
   const [id, setId] = useState('');
   const [password, setPassword] = useState('');
@@ -220,7 +313,7 @@ function JoinForm({ onBack, onEnter }: {
       const msg = String(e);
       if (msg.includes('password') || msg.includes('403')) {
         setNeedsPassword(true);
-        setError('This is a private league. Enter the password.');
+        setError('This is a private league. Enter the invite code.');
       } else {
         setError(msg);
       }
@@ -245,11 +338,11 @@ function JoinForm({ onBack, onEnter }: {
           </label>
           {needsPassword && (
             <label>
-              Password
+              Invite Code
               <input
-                type="password" value={password} autoFocus
+                type="text" value={password} autoFocus
                 onChange={e => setPassword(e.target.value)}
-                placeholder="League password"
+                placeholder="e.g. A1B2C3D4"
               />
             </label>
           )}
@@ -267,7 +360,7 @@ function JoinForm({ onBack, onEnter }: {
 
 function BrowseLeagues({ onBack, onEnter }: {
   onBack: () => void;
-  onEnter: (id: string, league: League) => void;
+  onEnter: (id: string, league: League, teamId?: string) => void;
 }) {
   const [leagues, setLeagues] = useState<LeagueSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -302,14 +395,14 @@ function BrowseLeagues({ onBack, onEnter }: {
         {leagues && leagues.length > 0 && (
           <table>
             <thead>
-              <tr><th>Name</th><th>Year</th><th>Week</th><th></th></tr>
+              <tr><th>Name</th><th>Year</th><th>Phase</th><th></th></tr>
             </thead>
             <tbody>
               {leagues.map(l => (
                 <tr key={l.id}>
                   <td>{l.displayName}</td>
-                  <td>{l.year}</td>
-                  <td>{l.currentWeek}</td>
+                  <td>{l.currentYear}</td>
+                  <td>{l.phase.replace('_', ' ')}</td>
                   <td>
                     <button
                       className="btn-sm"
@@ -331,9 +424,9 @@ function BrowseLeagues({ onBack, onEnter }: {
 
 // ── Team selection ─────────────────────────────────────────────────────────────
 
-function TeamSelect({ league, gmId, onClaim, onBack }: {
+function TeamSelect({ league, userId, onClaim, onBack }: {
   league: League;
-  gmId: string;
+  userId: string;
   onClaim: (teamId: string) => Promise<void>;
   onBack: () => void;
 }) {
@@ -358,7 +451,7 @@ function TeamSelect({ league, gmId, onClaim, onBack }: {
           <thead><tr><th>Team</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {league.teams.map(t => {
-              const claimed = !!t.ownerId && t.ownerId !== gmId;
+              const claimed = !!t.ownerId && t.ownerId !== userId;
               return (
                 <tr key={t.id}>
                   <td>{t.name}</td>
@@ -382,17 +475,19 @@ function TeamSelect({ league, gmId, onClaim, onBack }: {
 
 // ── League app (existing UI) ───────────────────────────────────────────────────
 
-function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
+function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, onLeave, onMyLeagues }: {
   leagueId: string;
   league: League;
   setLeague: (l: League) => void;
   myTeamId: string;
-  gmId: string;
+  userId: string;
+  username: string;
   onLeave: () => void;
+  onMyLeagues: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'standings' | 'week' | 'roster' | 'trades' | 'activity' | 'leaders'>('standings');
+  const [tab, setTab] = useState<'dashboard' | 'standings' | 'schedule' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner'>('dashboard');
   const [rosterTeamId, setRosterTeamId] = useState(myTeamId);
 
   async function action(fn: (id: string) => Promise<League>) {
@@ -402,23 +497,60 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
     finally { setBusy(false); }
   }
 
-  async function save() {
+  async function handleProposeTrade(
+    toTeamId: string, fromAssets: TradeAsset[], toAssets: TradeAsset[],
+  ) {
+    setLeague(await proposeTradeApi(leagueId, myTeamId, toTeamId, fromAssets, toAssets));
+  }
+
+  async function handleRespondTrade(proposalId: string, accept: boolean) {
+    setLeague(await respondTradeApi(leagueId, proposalId, accept));
+  }
+
+  async function handleMarkRead() {
+    setLeague(await markReadApi(leagueId));
+  }
+
+  async function handleExtendPlayer(playerId: string) {
     setBusy(true); setError(null);
-    try { await saveLeague(leagueId); }
+    try { setLeague(await extendPlayerApi(leagueId, playerId)); }
     catch (e) { setError(friendlyError(e)); }
     finally { setBusy(false); }
   }
 
-  async function handleProposeTrade(playerId: string, toTeamId: string) {
-    setLeague(await proposeTradeApi(leagueId, myTeamId, toTeamId, playerId, gmId));
+  async function handleReleasePlayer(playerId: string) {
+    setBusy(true); setError(null);
+    try { setLeague(await releasePlayerApi(leagueId, playerId)); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
   }
 
-  async function handleRespondTrade(proposalId: string, accept: boolean) {
-    setLeague(await respondTradeApi(leagueId, proposalId, gmId, accept));
+  async function handleSignFreeAgent(playerId: string) {
+    setBusy(true); setError(null);
+    try { setLeague(await signFreeAgentApi(leagueId, playerId)); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
   }
 
-  async function handleMarkRead() {
-    setLeague(await markReadApi(leagueId, gmId));
+  async function handleSetDepthChart(slot: string, playerIds: string[]) {
+    setBusy(true); setError(null);
+    try { setLeague(await setDepthChartApi(leagueId, slot, playerIds)); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function handleDraftPick(playerId: string) {
+    setBusy(true); setError(null);
+    try { setLeague(await draftPickApi(leagueId, playerId)); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function handleSimDraft() {
+    setBusy(true); setError(null);
+    try { setLeague(await simDraftApi(leagueId)); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
   }
 
   const myNotifications = league.notifications.filter(n => n.teamId === myTeamId);
@@ -430,14 +562,19 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
   const maxWeek   = Math.max(...league.currentSeason.games.map(g => g.week));
   const rosterTeam = league.teams.find(t => t.id === rosterTeamId) ?? league.teams[0]!;
 
-  const isRegularSeason = league.phase === 'regular_season';
-  const weekTabLabel = isRegularSeason ? 'Week View' : 'Playoffs';
+  const isRegularSeason  = league.phase === 'regular_season';
+  const hasPlayoffs      = !!(league.playoff || league.phase === 'postseason' || league.phase === 'offseason' || league.phase === 'draft');
+  const pendingTrades    = league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length;
+  const isCommissioner   = !!league.commissionerId && league.commissionerId === userId;
 
   function advanceBtnLabel(): string {
-    if (league.phase === 'offseason') return 'Season Complete';
+    if (league.phase === 'offseason') return 'Start Draft';
+    if (league.phase === 'draft') return league.draft?.complete ? 'Start Season' : 'Draft In Progress';
     if (league.phase === 'postseason') {
       const round = league.playoff?.currentRound;
-      if (round === 'semifinal')    return 'Sim Semifinals';
+      if (round === 'wildcard')     return 'Sim Wild Card';
+      if (round === 'divisional')   return 'Sim Divisional';
+      if (round === 'conference')   return 'Sim Conference';
       if (round === 'championship') return 'Sim Championship';
       return 'Season Complete';
     }
@@ -447,6 +584,12 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
   function phaseLabel(): string {
     if (league.phase === 'postseason') return 'Playoffs';
     if (league.phase === 'offseason')  return 'Offseason';
+    if (league.phase === 'draft') {
+      const d = league.draft;
+      if (!d) return 'Draft';
+      if (d.complete) return 'Draft Complete';
+      return `Draft — Rd ${d.slots[d.currentSlotIdx]?.round ?? '?'}, Pk ${d.slots[d.currentSlotIdx]?.pick ?? '?'}`;
+    }
     return `Week ${league.currentWeek}`;
   }
 
@@ -460,8 +603,8 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
         </div>
         <span className="season">Season {league.currentSeason.year} — {phaseLabel()}</span>
         <div className="header-actions">
-          <button onClick={save} disabled={busy}>Save</button>
-          <button onClick={() => action(loadLeague)} disabled={busy}>Load</button>
+          <span className="muted" style={{ fontSize: '0.85rem' }}>{username}</span>
+          <button onClick={onMyLeagues}>My Leagues</button>
           <span className="league-id">{leagueId.slice(0, 8)}</span>
           <button className="notif-btn" onClick={() => setShowNotifs(v => !v)}>
             Notif{unreadCount > 0 && <span className="badge">{unreadCount}</span>}
@@ -479,22 +622,61 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
 
       {error && <div className="error">{error}</div>}
 
-      <nav>
-        {(['standings', 'week', 'leaders', 'roster', 'trades', 'activity'] as const).map(t => {
-          const label = t === 'week' ? weekTabLabel
-            : t === 'standings' ? 'Standings' : t === 'leaders' ? 'Leaders'
-            : t === 'roster' ? 'Roster' : t === 'trades' ? 'Trades' : 'Activity';
-          const pending = t === 'trades' ? league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length : 0;
-          return (
-            <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-              {label}{pending > 0 && <span className="badge">{pending}</span>}
+      <nav className="app-nav">
+        <div className="nav-group">
+          <span className="nav-group-label">League</span>
+          <button className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>Dashboard</button>
+          <button className={tab === 'standings' ? 'active' : ''} onClick={() => setTab('standings')}>Standings</button>
+          {isRegularSeason && (
+            <button className={tab === 'schedule' ? 'active' : ''} onClick={() => setTab('schedule')}>Schedule</button>
+          )}
+          {hasPlayoffs && (
+            <button className={tab === 'playoffs' ? 'active' : ''} onClick={() => setTab('playoffs')}>
+              {league.phase === 'postseason' ? 'Playoffs' : league.phase === 'offseason' || league.phase === 'draft' ? 'Offseason' : 'Playoffs'}
             </button>
-          );
-        })}
+          )}
+          <button className={tab === 'news'    ? 'active' : ''} onClick={() => setTab('news')}>News</button>
+          <button className={tab === 'leaders' ? 'active' : ''} onClick={() => setTab('leaders')}>Leaders</button>
+          {(league.phase === 'draft' || league.draft) && (
+            <button className={tab === 'draft' ? 'active' : ''} onClick={() => setTab('draft')}>
+              Draft{league.draft && !league.draft.complete && <span className="badge">!</span>}
+            </button>
+          )}
+        </div>
+        <div className="nav-group">
+          <span className="nav-group-label">Roster</span>
+          <button className={tab === 'roster'      ? 'active' : ''} onClick={() => setTab('roster')}>Roster</button>
+          <button className={tab === 'depth'       ? 'active' : ''} onClick={() => setTab('depth')}>Depth Chart</button>
+          <button className={tab === 'injuries'    ? 'active' : ''} onClick={() => setTab('injuries')}>Injuries</button>
+          <button className={tab === 'free-agents' ? 'active' : ''} onClick={() => setTab('free-agents')}>Free Agents</button>
+        </div>
+        <div className="nav-group">
+          <span className="nav-group-label">Team</span>
+          <button className={tab === 'team'      ? 'active' : ''} onClick={() => setTab('team')}>Overview</button>
+          <button className={tab === 'contracts' ? 'active' : ''} onClick={() => setTab('contracts')}>Contracts</button>
+          <button className={tab === 'trades'    ? 'active' : ''} onClick={() => setTab('trades')}>
+            Trades{pendingTrades > 0 && <span className="badge">{pendingTrades}</span>}
+          </button>
+          {isCommissioner && (
+            <button className={tab === 'commissioner' ? 'active' : ''} onClick={() => setTab('commissioner')}>
+              Commissioner
+            </button>
+          )}
+        </div>
       </nav>
 
-      {tab === 'standings' && <StandingsView standings={standings} userTeamId={myTeamId} />}
-      {tab === 'week' && isRegularSeason && (
+      {tab === 'dashboard' && (
+        <DashboardView
+          league={league}
+          myTeamId={myTeamId}
+          standings={standings}
+          onNavTo={setTab as (t: string) => void}
+        />
+      )}
+      {tab === 'standings' && (
+        <StandingsView standings={standings} userTeamId={myTeamId} divisions={league.divisions ?? []} />
+      )}
+      {tab === 'schedule' && isRegularSeason && (
         <WeekView
           games={weekGames}
           week={league.currentWeek}
@@ -503,7 +685,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
           onAdvance={() => action(advanceWeek)}
         />
       )}
-      {tab === 'week' && !isRegularSeason && (
+      {tab === 'playoffs' && !isRegularSeason && (
         <PlayoffView
           playoff={league.playoff}
           teams={league.teams}
@@ -520,23 +702,249 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
           userTeamId={myTeamId}
           onSelect={setRosterTeamId}
           team={rosterTeam}
-          scoutingBudget={league.scoutingBudget}
-          developmentBudget={league.developmentBudget}
-          onTrade={handleProposeTrade}
+          isOffseason={league.phase === 'offseason'}
+          busy={busy}
+          onRelease={handleReleasePlayer}
+          onExtend={handleExtendPlayer}
         />
       )}
       {tab === 'trades' && (
         <TradesView
           league={league}
           myTeamId={myTeamId}
+          onPropose={handleProposeTrade}
           onRespond={handleRespondTrade}
         />
       )}
       {tab === 'activity' && <ActivityFeed activities={league.activities} />}
+      {tab === 'news' && <NewsView news={league.news ?? []} />}
       {tab === 'leaders' && (
         <LeadersView games={league.currentSeason.games} teams={league.teams} />
       )}
+      {tab === 'depth' && (
+        <DepthChartView
+          team={league.teams.find(t => t.id === myTeamId)!}
+          busy={busy}
+          onReorder={handleSetDepthChart}
+        />
+      )}
+      {tab === 'injuries' && (
+        <InjuryReportView teams={league.teams} userTeamId={myTeamId} />
+      )}
+      {tab === 'free-agents' && (
+        <FreeAgentsView
+          freeAgents={league.freeAgents}
+          isOffseason={league.phase === 'offseason'}
+          busy={busy}
+          onSign={handleSignFreeAgent}
+        />
+      )}
+      {tab === 'team' && (
+        <TeamOverviewView
+          league={league}
+          myTeamId={myTeamId}
+        />
+      )}
+      {tab === 'contracts' && (
+        <ContractsView
+          team={league.teams.find(t => t.id === myTeamId)!}
+          isOffseason={league.phase === 'offseason'}
+          busy={busy}
+          onExtend={handleExtendPlayer}
+          onRelease={handleReleasePlayer}
+        />
+      )}
+      {tab === 'draft' && (
+        <DraftView
+          league={league}
+          myTeamId={myTeamId}
+          busy={busy}
+          onPick={handleDraftPick}
+          onSimDraft={handleSimDraft}
+          onAdvance={() => action(advanceWeek)}
+        />
+      )}
+      {tab === 'commissioner' && isCommissioner && (
+        <CommissionerView
+          league={league}
+          leagueId={leagueId}
+          userId={userId}
+          onLeagueUpdated={setLeague}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Commissioner View ──────────────────────────────────────────────────────────
+
+function CommissionerView({ league, leagueId, userId, onLeagueUpdated }: {
+  league: League;
+  leagueId: string;
+  userId: string;
+  onLeagueUpdated: (l: League) => void;
+}) {
+  const [members, setMembers] = useState<LeagueMember[] | null>(null);
+  const [membersError, setMembersError] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState(league.displayName);
+  const [maxUsers, setMaxUsers] = useState(String(league.maxUsers ?? ''));
+  const [visibility, setVisibility] = useState<'public' | 'private'>(league.visibility);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [kickBusy, setKickBusy] = useState<string | null>(null);
+  const [kickError, setKickError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    getLeagueMembersApi(leagueId)
+      .then(setMembers)
+      .catch(e => setMembersError(friendlyError(e)));
+  }, [leagueId]);
+
+  async function saveSettings(e: React.FormEvent) {
+    e.preventDefault();
+    setSettingsBusy(true); setSettingsError(null); setSettingsSaved(false);
+    try {
+      const updated = await updateLeagueSettingsApi(leagueId, {
+        displayName: displayName.trim(),
+        maxUsers: maxUsers ? Number(maxUsers) : 0,
+        visibility,
+      });
+      onLeagueUpdated(updated);
+      setSettingsSaved(true);
+    } catch (e) {
+      setSettingsError(friendlyError(e));
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
+
+  async function kick(targetId: string) {
+    setKickBusy(targetId); setKickError(null);
+    try {
+      await kickMemberApi(leagueId, targetId);
+      setMembers(prev => prev ? prev.filter(m => m.userId !== targetId) : prev);
+    } catch (e) {
+      setKickError(friendlyError(e));
+    } finally {
+      setKickBusy(null);
+    }
+  }
+
+  function copyInviteCode() {
+    if (league.inviteCode) {
+      navigator.clipboard.writeText(league.inviteCode).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    }
+  }
+
+  return (
+    <section className="commissioner-view">
+      <h2>Commissioner Panel</h2>
+
+      {/* League settings */}
+      <div className="comm-card">
+        <h3>League Settings</h3>
+        <form onSubmit={saveSettings} className="comm-settings-form">
+          <label>
+            League Name
+            <input
+              type="text" value={displayName} maxLength={50}
+              onChange={e => setDisplayName(e.target.value)}
+            />
+          </label>
+          <label>
+            Max Users <span className="muted">(0 = unlimited)</span>
+            <input
+              type="number" min={0} max={32} value={maxUsers}
+              onChange={e => setMaxUsers(e.target.value)}
+              style={{ width: '5rem' }}
+            />
+          </label>
+          <label>
+            Visibility
+            <div className="toggle-group">
+              {(['public', 'private'] as const).map(v => (
+                <button
+                  key={v} type="button"
+                  className={visibility === v ? 'toggle active' : 'toggle'}
+                  onClick={() => setVisibility(v)}
+                >
+                  {v === 'public' ? 'Public' : 'Private'}
+                </button>
+              ))}
+            </div>
+          </label>
+          {settingsError && <div className="form-error">{settingsError}</div>}
+          {settingsSaved && <div className="form-success">Settings saved.</div>}
+          <button type="submit" className="btn-primary" disabled={settingsBusy}>
+            {settingsBusy ? 'Saving…' : 'Save Settings'}
+          </button>
+        </form>
+      </div>
+
+      {/* Invite code */}
+      {league.visibility === 'private' && league.inviteCode && (
+        <div className="comm-card">
+          <h3>Invite Code</h3>
+          <p className="muted">Share this code with players to join your private league.</p>
+          <div className="invite-code-row">
+            <code className="invite-code">{league.inviteCode}</code>
+            <button className="btn-sm" onClick={copyInviteCode}>
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <p className="muted" style={{ fontSize: '0.8rem' }}>
+            League ID: <code>{leagueId}</code>
+          </p>
+        </div>
+      )}
+
+      {/* Members */}
+      <div className="comm-card">
+        <h3>Members</h3>
+        {membersError && <div className="form-error">{membersError}</div>}
+        {kickError && <div className="form-error">{kickError}</div>}
+        {members === null && !membersError && <p className="muted">Loading…</p>}
+        {members && members.length === 0 && <p className="muted">No members yet.</p>}
+        {members && members.length > 0 && (
+          <table>
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Team</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {members.map(m => (
+                <tr key={m.userId}>
+                  <td>
+                    {m.username}
+                    {m.userId === userId && <span className="comm-badge"> (you)</span>}
+                  </td>
+                  <td>{m.teamName || <span className="muted">—</span>}</td>
+                  <td>
+                    {m.userId !== userId && (
+                      <button
+                        className="btn-sm btn-danger"
+                        disabled={kickBusy === m.userId}
+                        onClick={() => kick(m.userId)}
+                      >
+                        {kickBusy === m.userId ? '…' : 'Remove'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -939,27 +1347,242 @@ function PlayerDetail({ player, games, allTeams, onClose }: {
   );
 }
 
+// ── Dashboard ──────────────────────────────────────────────────────────────────
+
+function DashboardView({ league, myTeamId, standings, onNavTo }: {
+  league: League;
+  myTeamId: string;
+  standings: Standing[];
+  onNavTo: (t: string) => void;
+}) {
+  const team    = league.teams.find(t => t.id === myTeamId)!;
+  const games   = league.currentSeason.games;
+  const payroll = team.roster.reduce((s, p) => s + p.salary, 0);
+  const injured = team.roster.filter(p => p.injuryWeeksRemaining > 0).length;
+
+  // Record
+  let w = 0, l = 0, ties = 0, pf = 0, pa = 0;
+  for (const g of games) {
+    if (g.status !== 'final') continue;
+    const isHome = g.homeTeam.id === myTeamId;
+    const isAway = g.awayTeam.id === myTeamId;
+    if (!isHome && !isAway) continue;
+    const myScore  = isHome ? g.homeScore : g.awayScore;
+    const oppScore = isHome ? g.awayScore : g.homeScore;
+    pf += myScore; pa += oppScore;
+    if (myScore > oppScore) w++;
+    else if (myScore < oppScore) l++;
+    else ties++;
+  }
+
+  // Standings rank
+  const myStanding = standings.find(s => s.team.id === myTeamId);
+  const overallRank = standings.findIndex(s => s.team.id === myTeamId) + 1;
+
+  // My division
+  const myDivision = (league.divisions ?? []).find(d => d.teamIds.includes(myTeamId));
+  const divStandings = myDivision
+    ? standings.filter(s => myDivision.teamIds.includes(s.team.id))
+        .sort((a, b) => b.w - a.w || (b.pf - b.pa) - (a.pf - a.pa))
+    : standings.slice(0, 6);
+
+  // Next game
+  const nextGame = games.find(g => g.status !== 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId));
+
+  // Recent results
+  const recentGames = games
+    .filter(g => g.status === 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId))
+    .slice(-4).reverse();
+
+  // Latest news
+  const latestNews = (league.news ?? []).slice(0, 4);
+
+  return (
+    <div className="dashboard">
+      {/* Top: Record + Next Game + Recent */}
+      <div className="dash-top">
+        <div className="dash-card">
+          <div className="dash-card-title">Season Record</div>
+          <div className="dash-record-big">{w}–{l}{ties > 0 ? `–${ties}` : ''}</div>
+          <div className="dash-record-sub">
+            PF {pf} · PA {pa} ·
+            <span className={pf - pa >= 0 ? ' pos' : ' neg'}> {pf - pa >= 0 ? '+' : ''}{pf - pa}</span>
+          </div>
+          {overallRank > 0 && (
+            <div className="dash-rank">#{overallRank} overall{myDivision ? ` · ${myDivision.division}` : ''}</div>
+          )}
+        </div>
+
+        <div className="dash-card">
+          <div className="dash-card-title">Next Game</div>
+          {nextGame ? (
+            <>
+              <div className="dash-next-week">Week {nextGame.week}</div>
+              <div className="dash-next-opp">
+                {nextGame.homeTeam.id === myTeamId
+                  ? <>vs <strong>{nextGame.awayTeam.name}</strong></>
+                  : <>@ <strong>{nextGame.homeTeam.name}</strong></>}
+              </div>
+              <div className="dash-next-ha muted">{nextGame.homeTeam.id === myTeamId ? 'Home' : 'Away'}</div>
+            </>
+          ) : (
+            <div className="muted">{league.phase === 'offseason' ? 'Offseason' : league.phase === 'draft' ? 'Draft' : 'Season complete'}</div>
+          )}
+        </div>
+
+        <div className="dash-card">
+          <div className="dash-card-title">Roster Status</div>
+          <div className="dash-roster-stat">{team.roster.length} <span className="dash-roster-label">players</span></div>
+          <div className="muted">Cap: ${payroll}M used</div>
+          {injured > 0 && <div className="dash-injured-note">{injured} injured</div>}
+        </div>
+
+        {recentGames.length > 0 && (
+          <div className="dash-card">
+            <div className="dash-card-title">Recent Results</div>
+            {recentGames.map(g => {
+              const isHome = g.homeTeam.id === myTeamId;
+              const myScore  = isHome ? g.homeScore : g.awayScore;
+              const oppScore = isHome ? g.awayScore : g.homeScore;
+              const result   = myScore > oppScore ? 'W' : myScore < oppScore ? 'L' : 'T';
+              const opp      = isHome ? g.awayTeam.abbreviation : g.homeTeam.abbreviation;
+              return (
+                <div key={g.id} className="dash-result-row">
+                  <span className={`dash-result-badge ${result === 'W' ? 'pos' : result === 'L' ? 'neg' : ''}`}>{result}</span>
+                  <span className="dash-result-opp">{isHome ? 'vs' : '@'} {opp}</span>
+                  <span className="dash-result-score">{myScore}–{oppScore}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Schedule timeline */}
+      <DashboardSchedule games={games} myTeamId={myTeamId} currentWeek={league.currentWeek} />
+
+      {/* Bottom: Standings snapshot + News + Quick Links */}
+      <div className="dash-bottom">
+        <div className="dash-panel">
+          <div className="dash-panel-header">
+            <span className="dash-panel-title">{myDivision ? `${myDivision.division} Standings` : 'Standings'}</span>
+            <button className="dash-panel-link" onClick={() => onNavTo('standings')}>All →</button>
+          </div>
+          {divStandings.slice(0, 5).map((s, i) => (
+            <div key={s.team.id} className={`dash-stand-row${s.team.id === myTeamId ? ' dash-my-team' : ''}`}>
+              <span className="dash-stand-rank">{i + 1}</span>
+              <span className="dash-stand-abbr">{s.team.abbreviation}</span>
+              <span className="dash-stand-rec">{s.w}–{s.l}</span>
+              <span className={`dash-stand-diff ${s.pf - s.pa >= 0 ? 'pos' : 'neg'}`}>
+                {s.pf - s.pa >= 0 ? '+' : ''}{s.pf - s.pa}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {latestNews.length > 0 && (
+          <div className="dash-panel dash-panel-news">
+            <div className="dash-panel-header">
+              <span className="dash-panel-title">Latest News</span>
+              <button className="dash-panel-link" onClick={() => onNavTo('news')}>All →</button>
+            </div>
+            {latestNews.map(n => (
+              <div key={n.id} className="dash-news-row">
+                <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>{NEWS_TYPE_LABEL[n.type] ?? n.type}</span>
+                <span className="dash-news-headline">{n.headline}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="dash-panel dash-panel-links">
+          <div className="dash-panel-header"><span className="dash-panel-title">Quick Access</span></div>
+          <button className="dash-link-btn" onClick={() => onNavTo('roster')}>View Roster</button>
+          <button className="dash-link-btn" onClick={() => onNavTo('contracts')}>Contracts</button>
+          <button className="dash-link-btn" onClick={() => onNavTo('free-agents')}>Free Agents</button>
+          <button className="dash-link-btn" onClick={() => onNavTo('trades')}>
+            Trades{league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length > 0
+              ? ` (${league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length})`
+              : ''}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Standings ──────────────────────────────────────────────────────────────────
 
-function StandingsView({ standings, userTeamId }: { standings: Standing[]; userTeamId: string }) {
+function StandingsView({ standings, userTeamId, divisions }: {
+  standings: Standing[];
+  userTeamId: string;
+  divisions: Division[];
+}) {
+  const standingMap = new Map(standings.map(s => [s.team.id, s]));
+
+  function DivTable({ div }: { div: Division }) {
+    const rows = div.teamIds.map(id => standingMap.get(id)).filter(Boolean) as Standing[];
+    rows.sort((a, b) => b.w - a.w || (b.pf - b.pa) - (a.pf - a.pa));
+    return (
+      <div className="div-block">
+        <div className="div-header">{div.conference} — {div.division}</div>
+        <table className="standings-table">
+          <thead>
+            <tr><th>Team</th><th>W</th><th>L</th><th>T</th><th>PF</th><th>PA</th><th>Diff</th></tr>
+          </thead>
+          <tbody>
+            {rows.map(s => (
+              <tr key={s.team.id} className={s.team.id === userTeamId ? 'user-row' : ''}>
+                <td>{s.team.name} {s.team.id === userTeamId && <span className="you">YOU</span>}</td>
+                <td>{s.w}</td><td>{s.l}</td><td>{s.t}</td>
+                <td>{s.pf}</td><td>{s.pa}</td>
+                <td className={s.pf - s.pa >= 0 ? 'pos' : 'neg'}>{s.pf - s.pa > 0 ? '+' : ''}{s.pf - s.pa}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  if (divisions.length === 0) {
+    // Fallback: flat standings
+    return (
+      <section>
+        <h2>Standings</h2>
+        <table>
+          <thead><tr><th>Team</th><th>W</th><th>L</th><th>T</th><th>PF</th><th>PA</th><th>Diff</th></tr></thead>
+          <tbody>
+            {standings.map(s => (
+              <tr key={s.team.id} className={s.team.id === userTeamId ? 'user-row' : ''}>
+                <td>{s.team.name} {s.team.id === userTeamId && <span className="you">YOU</span>}</td>
+                <td>{s.w}</td><td>{s.l}</td><td>{s.t}</td>
+                <td>{s.pf}</td><td>{s.pa}</td>
+                <td className={s.pf - s.pa >= 0 ? 'pos' : 'neg'}>{s.pf - s.pa > 0 ? '+' : ''}{s.pf - s.pa}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    );
+  }
+
+  const icDivs = divisions.filter(d => d.conference === 'IC');
+  const scDivs = divisions.filter(d => d.conference === 'SC');
+
   return (
     <section>
       <h2>Standings</h2>
-      <table>
-        <thead>
-          <tr><th>Team</th><th>W</th><th>L</th><th>T</th><th>PF</th><th>PA</th><th>Diff</th></tr>
-        </thead>
-        <tbody>
-          {standings.map(s => (
-            <tr key={s.team.id} className={s.team.id === userTeamId ? 'user-row' : ''}>
-              <td>{s.team.name} {s.team.id === userTeamId && <span className="you">YOU</span>}</td>
-              <td>{s.w}</td><td>{s.l}</td><td>{s.t}</td>
-              <td>{s.pf}</td><td>{s.pa}</td>
-              <td className={s.pf - s.pa >= 0 ? 'pos' : 'neg'}>{s.pf - s.pa > 0 ? '+' : ''}{s.pf - s.pa}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="standings-conferences">
+        <div className="conf-block">
+          <div className="conf-header">Iron Conference</div>
+          {icDivs.map(d => <DivTable key={d.division} div={d} />)}
+        </div>
+        <div className="conf-block">
+          <div className="conf-header">Shield Conference</div>
+          {scDivs.map(d => <DivTable key={d.division} div={d} />)}
+        </div>
+      </div>
     </section>
   );
 }
@@ -975,10 +1598,36 @@ function PlayoffView({ playoff, teams, seasonHistory, busy, advanceBtnLabel, onA
   onAdvance: () => void;
 }) {
   const teamName = (id: string) => teams.find(t => t.id === id)?.name ?? id;
-  const done = advanceBtnLabel === 'Season Complete';
+  const done = advanceBtnLabel === 'Season Complete' || advanceBtnLabel === 'Draft In Progress';
 
-  const semis = playoff?.matchups.filter(m => m.round === 'semifinal') ?? [];
-  const champ = playoff?.matchups.find(m => m.round === 'championship');
+  const ROUND_LABELS: Record<string, string> = {
+    wildcard: 'Wild Card', divisional: 'Divisional', conference: 'Conference', championship: 'Championship',
+  };
+  const ROUND_ORDER = ['wildcard', 'divisional', 'conference', 'championship'];
+
+  // Group matchups by round, only show rounds that have matchups
+  const roundGroups = ROUND_ORDER.map(r => ({
+    round: r,
+    label: ROUND_LABELS[r]!,
+    matchups: playoff?.matchups.filter(m => m.round === r) ?? [],
+  })).filter(g => g.matchups.length > 0);
+
+  function MatchupRow({ m }: { m: PlayoffBracket['matchups'][0] }) {
+    const topSeed   = m.topSeed   !== undefined ? `(${m.topSeed}) ` : '';
+    const botSeed   = m.bottomSeed !== undefined ? `(${m.bottomSeed}) ` : '';
+    const confLabel = m.conference ? `[${m.conference}] ` : '';
+    return (
+      <div className="playoff-matchup">
+        <span className="playoff-conf">{confLabel}</span>
+        <span className={m.winnerId === m.topSeedId ? 'po-winner' : 'po-team'}>{topSeed}{teamName(m.topSeedId)}</span>
+        <span className="vs"> vs </span>
+        <span className={m.winnerId === m.bottomSeedId ? 'po-winner' : 'po-team'}>{botSeed}{teamName(m.bottomSeedId)}</span>
+        {m.game
+          ? <span className="playoff-score"> — {m.game.homeScore}–{m.game.awayScore}</span>
+          : <span className="muted"> (pending)</span>}
+      </div>
+    );
+  }
 
   return (
     <section>
@@ -997,43 +1646,20 @@ function PlayoffView({ playoff, teams, seasonHistory, busy, advanceBtnLabel, onA
 
       {!playoff && <p className="muted">Playoffs have not started yet.</p>}
 
-      {semis.length > 0 && (
-        <>
-          <h3>Semifinals</h3>
-          {semis.map(m => (
-            <div key={m.id} className="playoff-matchup">
-              <span className={m.winnerId === m.topSeedId ? 'winner' : ''}>{teamName(m.topSeedId)}</span>
-              <span className="vs"> vs </span>
-              <span className={m.winnerId === m.bottomSeedId ? 'winner' : ''}>{teamName(m.bottomSeedId)}</span>
-              {m.game
-                ? <span className="playoff-score"> — {m.game.homeScore}–{m.game.awayScore}</span>
-                : <span className="muted"> (pending)</span>}
-            </div>
-          ))}
-        </>
-      )}
-
-      {champ && (
-        <>
-          <h3>Championship</h3>
-          <div className="playoff-matchup">
-            <span className={champ.winnerId === champ.topSeedId ? 'winner' : ''}>{teamName(champ.topSeedId)}</span>
-            <span className="vs"> vs </span>
-            <span className={champ.winnerId === champ.bottomSeedId ? 'winner' : ''}>{teamName(champ.bottomSeedId)}</span>
-            {champ.game
-              ? <span className="playoff-score"> — {champ.game.homeScore}–{champ.game.awayScore}</span>
-              : <span className="muted"> (pending)</span>}
-          </div>
-        </>
-      )}
+      {roundGroups.map(g => (
+        <div key={g.round} className="playoff-round">
+          <h3>{g.label}</h3>
+          {g.matchups.map(m => <MatchupRow key={m.id} m={m} />)}
+        </div>
+      ))}
 
       {seasonHistory.length > 0 && (
-        <>
+        <div className="playoff-round">
           <h3>Past Champions</h3>
           {[...seasonHistory].reverse().map(r => (
             <div key={r.year} className="history-item">{r.year}: {r.championName}</div>
           ))}
-        </>
+        </div>
       )}
     </section>
   );
@@ -1046,7 +1672,7 @@ function WeekView({ games, week, busy, advanceBtnLabel, onAdvance }: {
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedGame = games.find(g => g.id === selectedId) ?? null;
-  const done = advanceBtnLabel === 'Season Complete';
+  const done = advanceBtnLabel === 'Season Complete' || advanceBtnLabel === 'Draft In Progress';
 
   return (
     <div className="week-layout">
@@ -1386,6 +2012,53 @@ function ActivityFeed({ activities }: { activities: Activity[] }) {
   );
 }
 
+// ── News ───────────────────────────────────────────────────────────────────────
+
+const NEWS_TYPE_LABEL: Record<string, string> = {
+  game_result:    'Game',
+  playoff_result: 'Playoffs',
+  championship:   'Championship',
+  award:          'Award',
+  signing:        'Signing',
+  trade:          'Trade',
+  retirement:     'Retirement',
+};
+
+const NEWS_TYPE_CLASS: Record<string, string> = {
+  game_result:    'news-game',
+  playoff_result: 'news-playoff',
+  championship:   'news-championship',
+  award:          'news-award',
+  signing:        'news-signing',
+  trade:          'news-trade',
+  retirement:     'news-retirement',
+};
+
+function NewsView({ news }: { news: NewsItem[] }) {
+  return (
+    <section>
+      <h2>News</h2>
+      {news.length === 0
+        ? <p className="muted">No news yet — play some games!</p>
+        : news.map(n => (
+          <div key={n.id} className={`news-item ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>
+            <div className="news-header">
+              <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>
+                {NEWS_TYPE_LABEL[n.type] ?? n.type}
+              </span>
+              <span className="news-meta">
+                {n.week > 0 ? `Wk ${n.week} · ` : ''}{n.year}
+              </span>
+            </div>
+            <div className="news-headline">{n.headline}</div>
+            <div className="news-body">{n.body}</div>
+          </div>
+        ))
+      }
+    </section>
+  );
+}
+
 // ── Notifications ──────────────────────────────────────────────────────────────
 
 function NotificationsPanel({ notifications, onMarkRead, onClose }: {
@@ -1416,166 +2089,871 @@ function NotificationsPanel({ notifications, onMarkRead, onClose }: {
 
 // ── Trades ─────────────────────────────────────────────────────────────────────
 
-function TradesView({ league, myTeamId, onRespond }: {
+const PICK_VALUE: Record<number, number> = { 1: 100, 2: 65, 3: 45, 4: 30, 5: 20, 6: 14, 7: 10 };
+
+function assetDisplayValue(asset: TradeAsset): number {
+  if (asset.type === 'player') {
+    let v = asset.playerOvr;
+    return Math.round(v);
+  }
+  return PICK_VALUE[asset.round] ?? 8;
+}
+
+function assetLabel(asset: TradeAsset): string {
+  if (asset.type === 'player') return `${asset.playerName} (${asset.playerPos}, OVR ${asset.playerOvr})`;
+  return `${asset.year} R${asset.round} (${asset.originalTeamName})`;
+}
+
+type PickAsset = Extract<TradeAsset, { type: 'pick' }>;
+
+function getOwnedPicks(league: League, teamId: string): PickAsset[] {
+  const draftYear = league.draft?.year ?? (league.currentSeason.year + 1);
+  const ownership = league.draftPickOwnership ?? {};
+  const picks: PickAsset[] = [];
+  for (const team of league.teams) {
+    for (let round = 1; round <= 7; round++) {
+      const key   = `${draftYear}:${round}:${team.id}`;
+      const owner = ownership[key] ?? team.id;
+      if (owner === teamId) {
+        picks.push({ type: 'pick', year: draftYear, round, originalTeamId: team.id, originalTeamName: team.name });
+      }
+    }
+  }
+  return picks;
+}
+
+function TradesView({ league, myTeamId, onPropose, onRespond }: {
   league: League;
   myTeamId: string;
+  onPropose: (toTeamId: string, fromAssets: TradeAsset[], toAssets: TradeAsset[]) => Promise<void>;
   onRespond: (proposalId: string, accept: boolean) => Promise<void>;
 }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [respondBusy, setRespondBusy] = useState<string | null>(null);
+  const [respondError, setRespondError] = useState<string | null>(null);
+
+  // Proposal builder state
+  const [targetTeamId,  setTargetTeamId]  = useState('');
+  const [giveSet,       setGiveSet]       = useState<Set<string>>(new Set());
+  const [receiveSet,    setReceiveSet]     = useState<Set<string>>(new Set());
+  const [proposeBusy,   setProposeBusy]   = useState(false);
+  const [proposeError,  setProposeError]  = useState<string | null>(null);
 
   const incoming = league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending');
-  const outgoing = league.tradeProposals.filter(p => p.fromTeamId === myTeamId);
+  const history  = league.tradeProposals.filter(p =>
+    (p.fromTeamId === myTeamId || p.toTeamId === myTeamId) && p.status !== 'pending'
+  ).slice(-10).reverse();
 
-  function teamName(teamId: string) {
-    return league.teams.find(t => t.id === teamId)?.name ?? teamId;
+  const aiTeams    = league.teams.filter(t => t.id !== myTeamId);
+  const myTeam     = league.teams.find(t => t.id === myTeamId)!;
+  const targetTeam = league.teams.find(t => t.id === targetTeamId);
+
+  const myPicks     = getOwnedPicks(league, myTeamId);
+  const targetPicks = targetTeam ? getOwnedPicks(league, targetTeamId) : ([] as PickAsset[]);
+
+  function pickKey(a: PickAsset | TradeAsset): string {
+    if (a.type === 'player') return `p:${a.playerId}`;
+    return `k:${a.year}:${a.round}:${a.originalTeamId}`;
   }
 
-  function playerName(playerId: string) {
-    for (const t of league.teams) {
-      const found = t.roster.find(p => p.id === playerId);
-      if (found) return found.name;
+  function toggleGive(key: string) {
+    setGiveSet(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+  function toggleReceive(key: string) {
+    setReceiveSet(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+
+  function buildAssets(
+    keys: Set<string>,
+    myRoster: Player[],
+    myPicks: PickAsset[],
+  ): TradeAsset[] {
+    const assets: TradeAsset[] = [];
+    for (const k of keys) {
+      if (k.startsWith('p:')) {
+        const pid = k.slice(2);
+        const p   = myRoster.find(pl => pl.id === pid);
+        if (p) assets.push({ type: 'player', playerId: p.id, playerName: p.name, playerPos: p.position, playerOvr: p.scoutedOverall });
+      } else {
+        const pick = myPicks.find(pk => pickKey(pk) === k);
+        if (pick) assets.push(pick);
+      }
     }
-    return playerId;
+    return assets;
+  }
+
+  const fromAssets = buildAssets(giveSet, myTeam.roster, myPicks);
+  const toAssets   = buildAssets(receiveSet, targetTeam?.roster ?? [], targetPicks);
+  const giveVal    = fromAssets.reduce((s, a) => s + assetDisplayValue(a), 0);
+  const recvVal    = toAssets.reduce((s, a) => s + assetDisplayValue(a), 0);
+
+  async function submitProposal() {
+    if (!targetTeamId || (fromAssets.length === 0 && toAssets.length === 0)) return;
+    setProposeBusy(true); setProposeError(null);
+    try {
+      await onPropose(targetTeamId, fromAssets, toAssets);
+      setGiveSet(new Set()); setReceiveSet(new Set()); setTargetTeamId('');
+    } catch (e) {
+      setProposeError(friendlyError(e));
+    } finally {
+      setProposeBusy(false);
+    }
   }
 
   async function respond(proposalId: string, accept: boolean) {
-    setBusy(proposalId); setError(null);
+    setRespondBusy(proposalId); setRespondError(null);
     try { await onRespond(proposalId, accept); }
-    catch (e) { setError(friendlyError(e)); }
-    finally { setBusy(null); }
+    catch (e) { setRespondError(friendlyError(e)); }
+    finally { setRespondBusy(null); }
   }
+
+  function teamName(id: string) { return league.teams.find(t => t.id === id)?.name ?? id; }
 
   return (
     <section>
       <h2>Trades</h2>
-      {error && <div className="form-error">{error}</div>}
 
-      <h3>Incoming</h3>
-      {incoming.length === 0
-        ? <p className="muted">No incoming proposals.</p>
-        : incoming.map((p: TradeProposal) => (
-          <div key={p.id} className="trade-proposal">
-            <span><strong>{teamName(p.fromTeamId)}</strong> offers <strong>{playerName(p.playerId)}</strong></span>
-            <button className="btn-sm" disabled={busy === p.id} onClick={() => respond(p.id, true)}>Accept</button>
-            <button className="btn-sm" disabled={busy === p.id} onClick={() => respond(p.id, false)}>Reject</button>
-          </div>
-        ))
-      }
+      {incoming.length > 0 && (
+        <>
+          <h3>Incoming Proposals</h3>
+          {respondError && <div className="form-error">{respondError}</div>}
+          {incoming.map((p: TradeProposal) => {
+            const gv = p.fromAssets.reduce((s, a) => s + assetDisplayValue(a), 0);
+            const rv = p.toAssets.reduce((s, a) => s + assetDisplayValue(a), 0);
+            return (
+              <div key={p.id} className="trade-card">
+                <div className="trade-teams"><strong>{teamName(p.fromTeamId)}</strong> → <strong>You</strong></div>
+                <div className="trade-sides">
+                  <div className="trade-side">
+                    <span className="trade-side-label">They give ({gv})</span>
+                    {p.fromAssets.map((a, i) => <div key={i} className="trade-asset">{assetLabel(a)}</div>)}
+                    {p.fromAssets.length === 0 && <div className="muted">nothing</div>}
+                  </div>
+                  <div className="trade-side">
+                    <span className="trade-side-label">You give ({rv})</span>
+                    {p.toAssets.map((a, i) => <div key={i} className="trade-asset">{assetLabel(a)}</div>)}
+                    {p.toAssets.length === 0 && <div className="muted">nothing</div>}
+                  </div>
+                </div>
+                <div className="trade-actions">
+                  <button className="btn-sm btn-positive" disabled={respondBusy === p.id} onClick={() => respond(p.id, true)}>Accept</button>
+                  <button className="btn-sm btn-danger"   disabled={respondBusy === p.id} onClick={() => respond(p.id, false)}>Reject</button>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
 
-      <h3>Outgoing</h3>
-      {outgoing.length === 0
-        ? <p className="muted">No outgoing proposals.</p>
-        : outgoing.map((p: TradeProposal) => (
-          <div key={p.id} className="trade-proposal">
-            <span><strong>{playerName(p.playerId)}</strong> → <strong>{teamName(p.toTeamId)}</strong></span>
-            <span className={`trade-status ${p.status}`}>{p.status}</span>
-          </div>
-        ))
-      }
+      <h3>Propose Trade</h3>
+      {proposeError && <div className="form-error">{proposeError}</div>}
+      <div className="trade-builder">
+        <div className="trade-builder-row">
+          <label>Target team:</label>
+          <select value={targetTeamId} onChange={e => { setTargetTeamId(e.target.value); setGiveSet(new Set()); setReceiveSet(new Set()); }}>
+            <option value="">— select team —</option>
+            {aiTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+
+        {targetTeam && (
+          <>
+            <div className="trade-sides">
+              <div className="trade-side">
+                <strong>You give</strong>
+                <div className="trade-checklist">
+                  {myTeam.roster.map(p => {
+                    const k = `p:${p.id}`; const checked = giveSet.has(k);
+                    return (
+                      <label key={k} className={`trade-check ${checked ? 'selected' : ''}`}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleGive(k)} />
+                        {p.name} ({p.position}, {p.scoutedOverall} OVR, ${p.salary}M)
+                      </label>
+                    );
+                  })}
+                  {myPicks.map(pk => {
+                    const k = pickKey(pk); const checked = giveSet.has(k);
+                    return (
+                      <label key={k} className={`trade-check pick ${checked ? 'selected' : ''}`}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleGive(k)} />
+                        {pk.year} R{pk.round} pick ({pk.originalTeamName})
+                      </label>
+                    );
+                  })}
+                </div>
+                {giveVal > 0 && <div className="trade-value-badge">Value: {giveVal}</div>}
+              </div>
+              <div className="trade-side">
+                <strong>You receive</strong>
+                <div className="trade-checklist">
+                  {targetTeam.roster.map(p => {
+                    const k = `p:${p.id}`; const checked = receiveSet.has(k);
+                    return (
+                      <label key={k} className={`trade-check ${checked ? 'selected' : ''}`}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleReceive(k)} />
+                        {p.name} ({p.position}, {p.scoutedOverall} OVR, ${p.salary}M)
+                      </label>
+                    );
+                  })}
+                  {targetPicks.map(pk => {
+                    const k = pickKey(pk); const checked = receiveSet.has(k);
+                    return (
+                      <label key={k} className={`trade-check pick ${checked ? 'selected' : ''}`}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleReceive(k)} />
+                        {pk.year} R{pk.round} pick ({pk.originalTeamName})
+                      </label>
+                    );
+                  })}
+                </div>
+                {recvVal > 0 && <div className="trade-value-badge">Value: {recvVal}</div>}
+              </div>
+            </div>
+            <div className="trade-submit-row">
+              <button
+                className="btn-primary"
+                disabled={proposeBusy || (fromAssets.length === 0 && toAssets.length === 0)}
+                onClick={submitProposal}
+              >
+                {proposeBusy ? 'Submitting…' : 'Submit Proposal'}
+              </button>
+              {giveVal > 0 && recvVal > 0 && (
+                <span className={`trade-fairness ${recvVal >= giveVal * 0.85 ? 'fair' : recvVal >= giveVal * 0.70 ? 'borderline' : 'unfair'}`}>
+                  {recvVal >= giveVal * 0.85 ? '✓ Fair trade' : recvVal >= giveVal * 0.70 ? '~ Borderline' : '✗ Lopsided'}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {history.length > 0 && (
+        <>
+          <h3>Recent History</h3>
+          {history.map((p: TradeProposal) => {
+            const isMine = p.fromTeamId === myTeamId;
+            return (
+              <div key={p.id} className={`trade-history-row ${p.status}`}>
+                <span className="trade-status-badge">{p.status}</span>
+                <span>
+                  {isMine ? 'You → ' : `${teamName(p.fromTeamId)} → You: `}
+                  {describeAssetsDisplay(p.fromAssets)} for {describeAssetsDisplay(p.toAssets)}
+                  {!isMine && ` (to ${teamName(p.toTeamId)})`}
+                </span>
+              </div>
+            );
+          })}
+        </>
+      )}
     </section>
   );
 }
 
+function describeAssetsDisplay(assets: TradeAsset[]): string {
+  if (assets.length === 0) return 'nothing';
+  return assets.map(a => a.type === 'player' ? a.playerName : `${a.year} R${a.round}`).join(', ');
+}
+
 // ── Roster ─────────────────────────────────────────────────────────────────────
 
-function RosterView({ teams, selectedId, userTeamId, onSelect, team, scoutingBudget, developmentBudget, onTrade }: {
+const ROSTER_POS_GROUPS: { label: string; positions: string[] }[] = [
+  { label: 'Quarterback',    positions: ['QB'] },
+  { label: 'Running Back',   positions: ['RB'] },
+  { label: 'Wide Receiver',  positions: ['WR'] },
+  { label: 'Tight End',      positions: ['TE'] },
+  { label: 'Offensive Line', positions: ['OT', 'OG', 'C'] },
+  { label: 'Defensive Line', positions: ['DE', 'DT'] },
+  { label: 'Linebacker',     positions: ['OLB', 'MLB'] },
+  { label: 'Defensive Back', positions: ['CB', 'FS', 'SS'] },
+  { label: 'Special Teams',  positions: ['K', 'P'] },
+];
+
+function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason, onRelease, onExtend, busy }: {
   teams: League['teams']; selectedId: string; userTeamId: string;
   onSelect: (id: string) => void; team: League['teams'][0];
-  scoutingBudget: number; developmentBudget: number;
-  onTrade: (playerId: string, toTeamId: string) => Promise<void>;
+  isOffseason: boolean;
+  busy: boolean;
+  onRelease: (playerId: string) => void;
+  onExtend: (playerId: string) => void;
 }) {
-  const [tradingPlayerId, setTradingPlayerId] = useState<string | null>(null);
-  const [toTeamId, setToTeamId] = useState('');
-  const [tradeBusy, setTradeBusy] = useState(false);
-  const [tradeError, setTradeError] = useState<string | null>(null);
-
   const isMyTeam = selectedId === userTeamId;
-  const otherTeams = teams.filter(t => t.id !== selectedId);
-
-  async function confirmTrade() {
-    if (!tradingPlayerId || !toTeamId) return;
-    setTradeBusy(true); setTradeError(null);
-    try {
-      await onTrade(tradingPlayerId, toTeamId);
-      setTradingPlayerId(null); setToTeamId('');
-    } catch (e) {
-      setTradeError(String(e));
-    } finally {
-      setTradeBusy(false);
-    }
-  }
-
-  function cancelTrade() {
-    setTradingPlayerId(null); setToTeamId(''); setTradeError(null);
-  }
+  const payroll  = team.roster.reduce((s, p) => s + p.salary, 0);
+  const injured  = team.roster.filter(p => p.injuryWeeksRemaining > 0).length;
+  const demands  = team.roster.filter(p => p.contractDemand).length;
 
   return (
     <section>
       <div className="roster-header">
-        <h2>Roster</h2>
-        <select value={selectedId} onChange={e => { onSelect(e.target.value); cancelTrade(); }}>
+        <h2>Roster — {team.name}</h2>
+        <select value={selectedId} onChange={e => onSelect(e.target.value)}>
           {teams.map(t => (
             <option key={t.id} value={t.id}>{t.name}{t.id === userTeamId ? ' (You)' : ''}</option>
           ))}
         </select>
-        {selectedId === userTeamId && (
-          <span className="budgets">Scout: ${scoutingBudget}M · Dev: ${developmentBudget}M</span>
-        )}
+        <span className="budgets">
+          {team.roster.length} players · Cap ${payroll}M
+          {injured > 0 && <span className="neg"> · {injured} IR</span>}
+          {isMyTeam && demands > 0 && <span className="expiring"> · {demands} demand{demands !== 1 ? 's' : ''}</span>}
+        </span>
       </div>
-      {tradingPlayerId && (
-        <div className="trade-panel">
-          <span>Trade <strong>{team.roster.find(p => p.id === tradingPlayerId)?.name}</strong> to:</span>
-          <select value={toTeamId} onChange={e => setToTeamId(e.target.value)}>
-            <option value="">Select team…</option>
-            {otherTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-          <button className="btn-sm" disabled={tradeBusy || !toTeamId} onClick={confirmTrade}>
-            {tradeBusy ? 'Sending…' : 'Confirm'}
-          </button>
-          <button className="btn-sm" onClick={cancelTrade}>Cancel</button>
-          {tradeError && <span className="form-error">{tradeError}</span>}
-        </div>
+
+      {ROSTER_POS_GROUPS.map(group => {
+        const players = team.roster
+          .filter(p => group.positions.includes(p.position))
+          .sort((a, b) => b.scoutedOverall - a.scoutedOverall);
+        if (players.length === 0) return null;
+        return (
+          <div key={group.label} className="roster-pos-group">
+            <div className="roster-pos-header">{group.label} <span className="roster-pos-count">{players.length}</span></div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs</th><th>Inj</th>
+                  {isMyTeam && <th></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {players.map((p, i) => (
+                  <PlayerRow
+                    key={p.id}
+                    player={p}
+                    isStarter={i === 0}
+                    isMyTeam={isMyTeam}
+                    isOffseason={isOffseason}
+                    busy={busy}
+                    onRelease={() => onRelease(p.id)}
+                    onExtend={() => onExtend(p.id)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function PlayerRow({ player: p, isStarter, isMyTeam, isOffseason, busy, onRelease, onExtend }: {
+  player: Player;
+  isStarter?: boolean;
+  isMyTeam?: boolean;
+  isOffseason?: boolean;
+  busy?: boolean;
+  onRelease?: () => void;
+  onExtend?: () => void;
+}) {
+  const injured = p.injuryWeeksRemaining > 0;
+  return (
+    <tr className={injured ? 'injured' : ''}>
+      <td>
+        {isStarter && <span className="starter-badge">S</span>}
+        {p.name}
+        {p.contractDemand && <span className="contract-demand-badge" title={`Wants $${p.contractDemand.salary}M/${p.contractDemand.years}yr`}> !</span>}
+        {p.isRookie && <span className="rookie-badge">R</span>}
+      </td>
+      <td>{p.position}</td>
+      <td>{p.age}</td>
+      <td className="ovr-cell">{p.scoutedOverall}</td>
+      <td>${p.salary}M</td>
+      <td className={p.yearsRemaining === 1 ? 'expiring' : ''}>{p.yearsRemaining}yr</td>
+      <td>{injured ? <span className="neg">IR:{p.injuryWeeksRemaining}wk</span> : <span className="muted">—</span>}</td>
+      {isMyTeam && (
+        <td className="action-cell">
+          {isOffseason && <button className="btn-sm btn-danger" disabled={busy} onClick={onRelease}>Release</button>}
+          {isOffseason && p.contractDemand && <button className="btn-sm btn-positive" disabled={busy} onClick={onExtend}>Extend</button>}
+        </td>
       )}
+    </tr>
+  );
+}
+
+// ── Depth Chart ────────────────────────────────────────────────────────────────
+
+const DEPTH_SLOTS = ['QB', 'RB', 'WR', 'TE', 'OL', 'DE', 'DT', 'LB', 'CB', 'S', 'K', 'P'] as const;
+const STARTER_COUNTS: Record<string, number> = {
+  QB: 1, RB: 1, WR: 2, TE: 1, OL: 5,
+  DE: 2, DT: 2, LB: 2, CB: 2, S: 2, K: 1, P: 1,
+};
+
+function DepthChartView({ team, busy, onReorder }: {
+  team: League['teams'][0];
+  busy: boolean;
+  onReorder: (slot: string, playerIds: string[]) => void;
+}) {
+  if (!team.depthChart) {
+    return <section><h2>Depth Chart</h2><p className="muted">Depth chart not available.</p></section>;
+  }
+
+  function moveUp(slot: string, idx: number) {
+    if (idx === 0) return;
+    const players = (team.depthChart![slot] ?? []).filter((p): p is Player => p !== null);
+    const ids = [...players.map(p => p.id)];
+    [ids[idx - 1], ids[idx]] = [ids[idx]!, ids[idx - 1]!];
+    onReorder(slot, ids);
+  }
+
+  function moveDown(slot: string, idx: number, len: number) {
+    if (idx >= len - 1) return;
+    const players = (team.depthChart![slot] ?? []).filter((p): p is Player => p !== null);
+    const ids = [...players.map(p => p.id)];
+    [ids[idx], ids[idx + 1]] = [ids[idx + 1]!, ids[idx]!];
+    onReorder(slot, ids);
+  }
+
+  return (
+    <section>
+      <h2>Depth Chart — {team.name}</h2>
+      <p className="muted" style={{ marginBottom: '1rem' }}>Starters are listed first. Use arrows to reorder.</p>
+      <div className="depth-chart-grid">
+        {DEPTH_SLOTS.map(slot => {
+          const players = (team.depthChart![slot] ?? []).filter((p): p is Player => p !== null);
+          if (players.length === 0) return null;
+          const starters = STARTER_COUNTS[slot] ?? 1;
+          return (
+            <div key={slot} className="depth-slot">
+              <div className="depth-slot-header">{slot}</div>
+              {players.map((p, i) => (
+                <div key={p.id} className={`depth-slot-row${i < starters ? ' depth-starter' : ' depth-backup'}`}>
+                  <span className="depth-rank">{i + 1}</span>
+                  <span className="depth-name">{p.name}</span>
+                  <span className="depth-ovr">{p.scoutedOverall}</span>
+                  <div className="depth-arrows">
+                    <button className="depth-arrow" disabled={busy || i === 0} onClick={() => moveUp(slot, i)}>▲</button>
+                    <button className="depth-arrow" disabled={busy || i === players.length - 1} onClick={() => moveDown(slot, i, players.length)}>▼</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ── Injury Report ──────────────────────────────────────────────────────────────
+
+function InjuryReportView({ teams, userTeamId }: { teams: League['teams']; userTeamId: string }) {
+  const allInjured = teams.flatMap(t =>
+    t.roster.filter(p => p.injuryWeeksRemaining > 0).map(p => ({ ...p, teamName: t.name, teamId: t.id }))
+  ).sort((a, b) => b.injuryWeeksRemaining - a.injuryWeeksRemaining);
+
+  const myInjured  = allInjured.filter(p => p.teamId === userTeamId);
+  const otrInjured = allInjured.filter(p => p.teamId !== userTeamId);
+
+  function InjuredTable({ players }: { players: typeof allInjured }) {
+    if (players.length === 0) return <p className="muted">None.</p>;
+    return (
       <table>
-        <thead>
-          <tr>
-            <th>Name</th><th>Pos</th><th>Age</th><th>OVR</th><th>Skill</th><th>Ath</th><th>IQ</th><th>Salary</th><th>Yrs</th><th>Inj</th>
-            {isMyTeam && <th></th>}
-          </tr>
-        </thead>
+        <thead><tr><th>Player</th><th>Pos</th><th>Team</th><th>OVR</th><th>Wks Out</th></tr></thead>
         <tbody>
-          {team.roster.map(p => (
-            <PlayerRow
-              key={p.id}
-              player={p}
-              onTrade={isMyTeam ? () => setTradingPlayerId(p.id) : undefined}
-              isTrading={tradingPlayerId === p.id}
-            />
+          {players.map(p => (
+            <tr key={p.id}>
+              <td>{p.name}</td>
+              <td>{p.position}</td>
+              <td>{p.teamName}</td>
+              <td>{p.scoutedOverall}</td>
+              <td className="neg">{p.injuryWeeksRemaining} wk{p.injuryWeeksRemaining !== 1 ? 's' : ''}</td>
+            </tr>
           ))}
         </tbody>
+      </table>
+    );
+  }
+
+  return (
+    <section>
+      <h2>Injury Report</h2>
+      <h3>Your Team</h3>
+      <InjuredTable players={myInjured} />
+      <h3 style={{ marginTop: '1.5rem' }}>League-Wide</h3>
+      <InjuredTable players={otrInjured} />
+    </section>
+  );
+}
+
+// ── Free Agents ────────────────────────────────────────────────────────────────
+
+function FreeAgentsView({ freeAgents, isOffseason, busy, onSign }: {
+  freeAgents: Player[];
+  isOffseason: boolean;
+  busy: boolean;
+  onSign: (playerId: string) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [posFilter, setPosFilter] = useState('ALL');
+
+  const positions = ['ALL', ...Array.from(new Set(freeAgents.map(p => p.position))).sort()];
+  let sorted = [...freeAgents].sort((a, b) => b.scoutedOverall - a.scoutedOverall);
+  if (posFilter !== 'ALL') sorted = sorted.filter(p => p.position === posFilter);
+
+  async function handleSign(playerId: string) {
+    setError(null);
+    try { await onSign(playerId); }
+    catch (e) { setError(friendlyError(e)); }
+  }
+
+  return (
+    <section>
+      <div className="fa-header">
+        <h2>Free Agents</h2>
+        <select value={posFilter} onChange={e => setPosFilter(e.target.value)} className="fa-pos-filter">
+          {positions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
+        </select>
+        <span className="muted">{sorted.length} player{sorted.length !== 1 ? 's' : ''}</span>
+      </div>
+      {!isOffseason && <p className="muted" style={{ marginBottom: '0.75rem' }}>Signing available during offseason only.</p>}
+      {error && <div className="form-error">{error}</div>}
+      {sorted.length === 0
+        ? <p className="muted">No free agents{posFilter !== 'ALL' ? ` at ${posFilter}` : ''}.</p>
+        : (
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th>{isOffseason && <th></th>}</tr>
+            </thead>
+            <tbody>
+              {sorted.map(p => (
+                <tr key={p.id}>
+                  <td>{p.name}{p.isRookie && <span className="rookie-badge">R</span>}</td>
+                  <td>{p.position}</td>
+                  <td>{p.age}</td>
+                  <td className="ovr-cell">{p.scoutedOverall}</td>
+                  <td>${p.salary}M</td>
+                  {isOffseason && (
+                    <td><button className="btn-sm btn-positive" disabled={busy} onClick={() => handleSign(p.id)}>Sign</button></td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+    </section>
+  );
+}
+
+// ── Team Overview ──────────────────────────────────────────────────────────────
+
+function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: string }) {
+  const team    = league.teams.find(t => t.id === myTeamId)!;
+  const games   = league.currentSeason.games;
+  const payroll = team.roster.reduce((s, p) => s + p.salary, 0);
+
+  // Record
+  let w = 0, l = 0, t = 0, pf = 0, pa = 0;
+  for (const g of games) {
+    if (g.status !== 'final') continue;
+    const isHome = g.homeTeam.id === myTeamId;
+    const isAway = g.awayTeam.id === myTeamId;
+    if (!isHome && !isAway) continue;
+    const myScore  = isHome ? g.homeScore : g.awayScore;
+    const oppScore = isHome ? g.awayScore : g.homeScore;
+    pf += myScore; pa += oppScore;
+    if (myScore > oppScore) w++;
+    else if (myScore < oppScore) l++;
+    else t++;
+  }
+
+  // Next game
+  const nextGame = games.find(g => g.status !== 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId));
+  const recentGames = games
+    .filter(g => g.status === 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId))
+    .slice(-5).reverse();
+
+  return (
+    <section>
+      <h2>{team.name}</h2>
+
+      <div className="team-overview-grid">
+        {/* Record */}
+        <div className="ov-card">
+          <div className="ov-card-title">Season Record</div>
+          <div className="ov-record">{w}–{l}{t > 0 ? `–${t}` : ''}</div>
+          <div className="muted">PF: {pf} · PA: {pa} · Diff: {pf - pa >= 0 ? '+' : ''}{pf - pa}</div>
+        </div>
+
+        {/* Roster */}
+        <div className="ov-card">
+          <div className="ov-card-title">Roster</div>
+          <div className="ov-stat">{team.roster.length} players</div>
+          <div className="muted">Cap: ${payroll}M used</div>
+        </div>
+
+        {/* Coaches */}
+        <div className="ov-card">
+          <div className="ov-card-title">Coaching Staff</div>
+          <div className="ov-coach"><span className="muted">HC</span> {team.coaches.hc.name} ({team.coaches.hc.overall})</div>
+          <div className="ov-coach"><span className="muted">OC</span> {team.coaches.oc.name} ({team.coaches.oc.overall})</div>
+          <div className="ov-coach"><span className="muted">DC</span> {team.coaches.dc.name} ({team.coaches.dc.overall})</div>
+        </div>
+
+        {/* Next game */}
+        <div className="ov-card">
+          <div className="ov-card-title">Next Game</div>
+          {nextGame
+            ? (
+              <>
+                <div className="ov-stat">Wk {nextGame.week}</div>
+                <div className="muted">
+                  {nextGame.homeTeam.id === myTeamId
+                    ? `vs ${nextGame.awayTeam.name}`
+                    : `@ ${nextGame.homeTeam.name}`}
+                </div>
+              </>
+            )
+            : <div className="muted">{league.phase === 'offseason' ? 'Offseason' : 'No upcoming games'}</div>}
+        </div>
+      </div>
+
+      {/* Recent results */}
+      {recentGames.length > 0 && (
+        <>
+          <h3 style={{ marginTop: '1.5rem' }}>Recent Results</h3>
+          <table>
+            <thead><tr><th>Wk</th><th>Opponent</th><th>H/A</th><th>Result</th></tr></thead>
+            <tbody>
+              {recentGames.map(g => {
+                const isHome = g.homeTeam.id === myTeamId;
+                const myScore  = isHome ? g.homeScore : g.awayScore;
+                const oppScore = isHome ? g.awayScore : g.homeScore;
+                const opp = isHome ? g.awayTeam.name : g.homeTeam.name;
+                const result = myScore > oppScore ? 'W' : myScore < oppScore ? 'L' : 'T';
+                return (
+                  <tr key={g.id}>
+                    <td>{g.week}</td>
+                    <td>{opp}</td>
+                    <td>{isHome ? 'H' : 'A'}</td>
+                    <td className={result === 'W' ? 'pos' : result === 'L' ? 'neg' : ''}>
+                      {result} {myScore}–{oppScore}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      )}
+    </section>
+  );
+}
+
+// ── Contracts ──────────────────────────────────────────────────────────────────
+
+function ContractsView({ team, isOffseason, busy, onExtend, onRelease }: {
+  team: League['teams'][0];
+  isOffseason: boolean;
+  busy: boolean;
+  onExtend: (playerId: string) => void;
+  onRelease: (playerId: string) => void;
+}) {
+  const withDemands = team.roster.filter(p => p.contractDemand);
+  const expiring    = team.roster.filter(p => !p.contractDemand && p.yearsRemaining === 1);
+  const all = [...team.roster].sort((a, b) => a.yearsRemaining - b.yearsRemaining);
+
+  function ContractRow({ p }: { p: Player }) {
+    return (
+      <tr>
+        <td>{p.name}</td>
+        <td>{p.position}</td>
+        <td>{p.age}</td>
+        <td>{p.scoutedOverall}</td>
+        <td>${p.salary}M</td>
+        <td className={p.yearsRemaining === 1 ? 'expiring' : ''}>{p.yearsRemaining}yr</td>
+        <td>
+          {p.contractDemand
+            ? <span className="demand-tag">${p.contractDemand.salary}M / {p.contractDemand.years}yr</span>
+            : <span className="muted">—</span>}
+        </td>
+        {isOffseason && (
+          <td className="action-cell">
+            {p.contractDemand && <button className="btn-sm btn-positive" disabled={busy} onClick={() => onExtend(p.id)}>Extend</button>}
+            <button className="btn-sm btn-danger" disabled={busy} onClick={() => onRelease(p.id)}>Release</button>
+          </td>
+        )}
+      </tr>
+    );
+  }
+
+  return (
+    <section>
+      <h2>Contracts — {team.name}</h2>
+
+      {withDemands.length > 0 && (
+        <>
+          <h3>Contract Demands ({withDemands.length})</h3>
+          <p className="muted" style={{ marginBottom: '0.5rem' }}>Players requesting new contracts. Extend or let them walk to free agency.</p>
+          <table>
+            <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Current</th><th>Yrs</th><th>Demand</th>{isOffseason && <th></th>}</tr></thead>
+            <tbody>{withDemands.map(p => <ContractRow key={p.id} p={p} />)}</tbody>
+          </table>
+        </>
+      )}
+
+      {expiring.length > 0 && (
+        <>
+          <h3 style={{ marginTop: '1.5rem' }}>Expiring After Season ({expiring.length})</h3>
+          <table>
+            <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs</th><th>Demand</th>{isOffseason && <th></th>}</tr></thead>
+            <tbody>{expiring.map(p => <ContractRow key={p.id} p={p} />)}</tbody>
+          </table>
+        </>
+      )}
+
+      <h3 style={{ marginTop: '1.5rem' }}>All Contracts ({all.length})</h3>
+      <table>
+        <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs</th><th>Demand</th>{isOffseason && <th></th>}</tr></thead>
+        <tbody>{all.map(p => <ContractRow key={p.id} p={p} />)}</tbody>
       </table>
     </section>
   );
 }
 
-function PlayerRow({ player: p, onTrade, isTrading }: {
-  player: Player; onTrade?: () => void; isTrading?: boolean;
-}) {
-  const injured = p.injuryWeeksRemaining > 0;
-  return (
-    <tr className={[injured ? 'injured' : '', isTrading ? 'trading' : ''].filter(Boolean).join(' ')}>
-      <td>{p.name}{p.trait && <span className="trait" title={p.trait}> [{traitShort(p.trait)}]</span>}</td>
-      <td>{p.position}</td><td>{p.age}</td><td>{p.scoutedOverall}</td>
-      <td>{p.scoutedRatings.skill}</td><td>{p.scoutedRatings.athleticism}</td><td>{p.scoutedRatings.iq}</td>
-      <td>${p.salary}M</td><td>{p.yearsRemaining}yr</td>
-      <td>{injured ? `IR:${p.injuryWeeksRemaining}wk` : '—'}</td>
-      {onTrade !== undefined && <td><button className="btn-sm" onClick={onTrade}>Trade</button></td>}
-    </tr>
-  );
-}
 
-function traitShort(trait: string): string {
-  const map: Record<string, string> = { high_work_ethic: 'WE', injury_prone: 'IP', durable: 'DUR', greedy: 'GRD', loyal: 'LOY' };
-  return map[trait] ?? trait;
+// ── Draft View ─────────────────────────────────────────────────────────────────
+
+function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance }: {
+  league: League;
+  myTeamId: string;
+  busy: boolean;
+  onPick: (playerId: string) => void;
+  onSimDraft: () => void;
+  onAdvance: () => void;
+}) {
+  const [posFilter, setPosFilter] = useState<string>('ALL');
+  const [sortBy, setSortBy] = useState<'ovr' | 'pos'>('ovr');
+  const draft = league.draft;
+
+  if (!draft) {
+    return (
+      <section>
+        <h2>Draft</h2>
+        <p className="muted">Draft has not started yet. Advance from the offseason to begin.</p>
+      </section>
+    );
+  }
+
+  const currentSlot = draft.slots[draft.currentSlotIdx];
+  const isMyTurn = !draft.complete && currentSlot?.teamId === myTeamId;
+  const myTeamName = league.teams.find(t => t.id === myTeamId)?.name ?? 'Your Team';
+
+  // Find next user pick
+  const nextUserSlot = draft.slots.find((s, i) => i >= draft.currentSlotIdx && s.teamId === myTeamId && !s.playerId);
+
+  // Prospect board
+  const positions = ['ALL', ...Array.from(new Set(draft.players.map(p => p.position))).sort()];
+  let prospects = [...draft.players];
+  if (posFilter !== 'ALL') prospects = prospects.filter(p => p.position === posFilter);
+  if (sortBy === 'ovr') prospects = prospects.sort((a, b) => b.scoutedOverall - a.scoutedOverall);
+  else prospects = prospects.sort((a, b) => a.position.localeCompare(b.position) || b.scoutedOverall - a.scoutedOverall);
+
+  // Recent picks (last 15)
+  const recentPicks: DraftSlot[] = draft.slots
+    .slice(0, draft.currentSlotIdx)
+    .filter(s => s.playerId)
+    .slice(-15)
+    .reverse();
+
+  function tierLabel(ovr: number): string {
+    if (ovr >= 70) return '★';
+    if (ovr >= 57) return '◆';
+    return '·';
+  }
+
+  return (
+    <section>
+      <div className="draft-header">
+        <h2>{draft.year} Draft</h2>
+        <div className="draft-header-actions">
+          {!draft.complete && (
+            <button className="btn-sm" disabled={busy} onClick={onSimDraft}>Sim Remaining</button>
+          )}
+          {draft.complete && (
+            <button className="advance-btn" disabled={busy} onClick={onAdvance}>
+              {busy ? 'Loading…' : 'Start Season'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Status bar */}
+      {!draft.complete && currentSlot && (
+        <div className={`draft-onclock${isMyTurn ? ' draft-onclock-user' : ''}`}>
+          <span className="draft-onclock-label">
+            Round {currentSlot.round}, Pick {currentSlot.pick} (#{currentSlot.overallPick})
+          </span>
+          <span className="draft-onclock-team">
+            {isMyTurn ? `🏈 ${myTeamName} — YOUR PICK` : `On the clock: ${currentSlot.teamName}`}
+          </span>
+          {!isMyTurn && nextUserSlot && (
+            <span className="draft-next-user">
+              Your next pick: Rd {nextUserSlot.round}, Pk {nextUserSlot.pick}
+            </span>
+          )}
+        </div>
+      )}
+      {draft.complete && (
+        <div className="draft-onclock">
+          <span className="draft-onclock-label">Draft Complete</span>
+          <span className="draft-onclock-team">Click "Start Season" to begin the regular season.</span>
+        </div>
+      )}
+
+      <div className="draft-layout">
+        {/* Prospect board */}
+        <div className="draft-board">
+          <div className="draft-board-header">
+            <span className="draft-board-title">Available Prospects ({draft.players.length})</span>
+            <div className="draft-board-filters">
+              <select value={posFilter} onChange={e => setPosFilter(e.target.value)}>
+                {positions.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <button className={`btn-sm${sortBy === 'ovr' ? ' active' : ''}`} onClick={() => setSortBy('ovr')}>OVR</button>
+              <button className={`btn-sm${sortBy === 'pos' ? ' active' : ''}`} onClick={() => setSortBy('pos')}>POS</button>
+            </div>
+          </div>
+          <div className="draft-board-scroll">
+            <table className="draft-table">
+              <thead>
+                <tr><th></th><th>Name</th><th>Pos</th><th>Age</th><th>OVR</th>{isMyTurn && <th></th>}</tr>
+              </thead>
+              <tbody>
+                {prospects.slice(0, 80).map(p => (
+                  <tr key={p.id} className="draft-prospect-row">
+                    <td className="draft-tier">{tierLabel(p.scoutedOverall)}</td>
+                    <td className="draft-name">{p.name}</td>
+                    <td>{p.position}</td>
+                    <td>{p.age}</td>
+                    <td className="draft-ovr">{p.scoutedOverall}</td>
+                    {isMyTurn && (
+                      <td>
+                        <button className="btn-sm btn-positive" disabled={busy} onClick={() => onPick(p.id)}>
+                          Draft
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+                {prospects.length > 80 && (
+                  <tr><td colSpan={6} className="muted" style={{ padding: '0.5rem', textAlign: 'center' }}>
+                    +{prospects.length - 80} more (filter by position to narrow)
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Recent picks log */}
+        <div className="draft-log">
+          <div className="draft-log-title">Recent Picks</div>
+          {recentPicks.length === 0 && <p className="muted" style={{ padding: '0.5rem' }}>No picks yet.</p>}
+          {recentPicks.map(s => (
+            <div key={s.overallPick} className={`draft-log-row${s.teamId === myTeamId ? ' draft-log-user' : ''}`}>
+              <span className="draft-log-pick">R{s.round}P{s.pick}</span>
+              <span className="draft-log-team">{s.teamName.split(' ').pop()}</span>
+              <span className="draft-log-player">{s.playerPos} {s.playerName}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }

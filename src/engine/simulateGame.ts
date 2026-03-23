@@ -1,99 +1,309 @@
-import { type Ratings } from '../models/Player';
+import {
+  type Player,
+  type QBRatings, type RBRatings, type WRRatings, type TERatings,
+  type OLRatings, type DLRatings, type LBRatings, type CBRatings,
+  type SafetyRatings, type SpecialTeamsRatings,
+} from '../models/Player';
 import { type Team } from '../models/Team';
 import { type Game } from '../models/Game';
-import { type DepthChartSlot } from '../models/DepthChart';
+import { type DepthChart, type DepthChartSlot } from '../models/DepthChart';
 import { type PlayEvent, type PlayType, type PlayResult } from '../models/PlayEvent';
+import { DEFAULT_PLAYCALLING } from '../models/Playcalling';
+import { buildBoxScoreFromGame } from './gameStats';
+import { computeSchemeAdjustment } from './schemeBonus';
+import { TUNING } from './config';
 
-// ── Rating helpers ────────────────────────────────────────────────────────────
+const cfg = TUNING;
 
-// Returns the first healthy (non-injured) player in a depth chart slot.
-function firstHealthy(team: Team, slot: DepthChartSlot) {
-  return team.depthChart[slot].find(p => p !== null && p.injuryWeeksRemaining === 0);
+// ── Injury / fatigue result types ─────────────────────────────────────────────
+
+export interface GameInjury {
+  playerId: string;
+  teamId:   string;
+  weeks:    number;
 }
 
-function r(team: Team, slot: DepthChartSlot, stat: keyof Ratings): number {
-  return firstHealthy(team, slot)?.trueRatings[stat] ?? 50;
+export interface GameResult {
+  game:     Game;
+  injuries: GameInjury[];
 }
 
-function avg(...vals: number[]): number {
-  return vals.reduce((a, b) => a + b, 0) / vals.length;
+// ── Depth-chart helpers ───────────────────────────────────────────────────────
+
+function firstHealthy(team: Team, slot: DepthChartSlot): Player | undefined {
+  return team.depthChart[slot].find(p => p !== null && p.injuryWeeksRemaining === 0) ?? undefined;
 }
 
 function lastName(team: Team, slot: DepthChartSlot): string {
-  const name = firstHealthy(team, slot)?.name ?? '';
+  const name  = firstHealthy(team, slot)?.name ?? '';
   const parts = name.split(' ');
   return parts[parts.length - 1] ?? name;
+}
+
+function pid(team: Team, slot: DepthChartSlot): string | undefined {
+  return firstHealthy(team, slot)?.id;
+}
+
+// ── Typed rating accessors ────────────────────────────────────────────────────
+
+function qb(team: Team): QBRatings | null {
+  const p = firstHealthy(team, 'QB');
+  return p?.trueRatings.position === 'QB' ? (p.trueRatings as QBRatings) : null;
+}
+
+function rb(team: Team): RBRatings | null {
+  const p = firstHealthy(team, 'RB');
+  return p?.trueRatings.position === 'RB' ? (p.trueRatings as RBRatings) : null;
+}
+
+function wr(team: Team): WRRatings | null {
+  const p = firstHealthy(team, 'WR');
+  return p?.trueRatings.position === 'WR' ? (p.trueRatings as WRRatings) : null;
+}
+
+function te(team: Team): TERatings | null {
+  const p = firstHealthy(team, 'TE');
+  return p?.trueRatings.position === 'TE' ? (p.trueRatings as TERatings) : null;
+}
+
+function ol(team: Team): OLRatings | null {
+  const p = firstHealthy(team, 'OL');
+  if (!p) return null;
+  const pos = p.trueRatings.position;
+  return (pos === 'OT' || pos === 'OG' || pos === 'C') ? (p.trueRatings as OLRatings) : null;
+}
+
+function dl(team: Team, slot: 'DE' | 'DT'): DLRatings | null {
+  const p = firstHealthy(team, slot);
+  if (!p) return null;
+  const pos = p.trueRatings.position;
+  return (pos === 'DE' || pos === 'DT') ? (p.trueRatings as DLRatings) : null;
+}
+
+function lb(team: Team): LBRatings | null {
+  const p = firstHealthy(team, 'LB');
+  if (!p) return null;
+  const pos = p.trueRatings.position;
+  return (pos === 'OLB' || pos === 'MLB') ? (p.trueRatings as LBRatings) : null;
+}
+
+function cb(team: Team): CBRatings | null {
+  const p = firstHealthy(team, 'CB');
+  return p?.trueRatings.position === 'CB' ? (p.trueRatings as CBRatings) : null;
+}
+
+function safety(team: Team): SafetyRatings | null {
+  const p = firstHealthy(team, 'S');
+  if (!p) return null;
+  const pos = p.trueRatings.position;
+  return (pos === 'FS' || pos === 'SS') ? (p.trueRatings as SafetyRatings) : null;
+}
+
+function k(team: Team): SpecialTeamsRatings | null {
+  const p = firstHealthy(team, 'K');
+  if (!p) return null;
+  const pos = p.trueRatings.position;
+  return (pos === 'K' || pos === 'P') ? (p.trueRatings as SpecialTeamsRatings) : null;
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+
+function avg(...vals: number[]): number {
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
 function randInt(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 
+// ── In-game injury / fatigue helpers ─────────────────────────────────────────
+
+/** Returns a team copy with in-game injured players marked unavailable (weeksRemaining=999). */
+function withInGameInjuries(team: Team, injured: Set<string>): Team {
+  if (injured.size === 0) return team;
+  const depthChart = { ...team.depthChart } as DepthChart;
+  for (const slot of Object.keys(depthChart) as DepthChartSlot[]) {
+    const players = depthChart[slot];
+    const updated = players.map(p =>
+      p !== null && injured.has(p.id) ? { ...p, injuryWeeksRemaining: 999 } : p,
+    );
+    if (updated.some((p, i) => p !== players[i])) {
+      depthChart[slot] = updated;
+    }
+  }
+  return { ...team, depthChart };
+}
+
+function rollInjuryWeeks(): number {
+  const r   = Math.random();
+  const { minor, moderate, major } = cfg.injury;
+  if (r < minor.weight)                        return randInt(minor.weeksMin,    minor.weeksMax);
+  if (r < minor.weight + moderate.weight)      return randInt(moderate.weeksMin, moderate.weeksMax);
+  return randInt(major.weeksMin, major.weeksMax);
+}
+
+/** Returns weeks injured (≥1), or null if no injury. */
+function rollInjury(player: Player, fatigue: number): number | null {
+  const inj      = cfg.injury;
+  const ratings  = player.trueRatings;
+  const discipline = ratings.position !== 'QB'
+    ? ((ratings as { personality?: { discipline?: number } }).personality?.discipline ?? 50)
+    : 50;
+  const staminaPenalty = Math.max(0, (70 - (player.stamina ?? 60)) * inj.staminaInjuryScale);
+  const chance = Math.max(
+    inj.minChancePerPlay,
+    inj.baseChancePerPlay
+      - (discipline - 50) * inj.disciplineReduction
+      + staminaPenalty
+      + fatigue * inj.baseChancePerPlay * (inj.fatigueMult - 1),
+  );
+  return Math.random() < chance ? rollInjuryWeeks() : null;
+}
+
 // ── Play selection ────────────────────────────────────────────────────────────
 
-function selectPlayType(down: number, distance: number): PlayType {
-  const roll = Math.random();
-  if (distance <= 3) {
-    if (roll < 0.55) return 'inside_run';
-    if (roll < 0.75) return 'outside_run';
-    return 'short_pass';
+/**
+ * Select a play type from the offense team's playcalling weights,
+ * then apply small down-and-distance nudges.
+ *
+ * Weights drive the base distribution; D&D only adjusts within ±15pp.
+ */
+function selectPlayType(off: Team, down: number, distance: number): PlayType {
+  const w      = off.playcalling ?? DEFAULT_PLAYCALLING;
+  const clamp  = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+  // Base run/pass split from user weights
+  let runPct = w.runPct / 100;
+
+  // Down & distance nudges (small, never swing > 15pp)
+  if (distance <= 2)       runPct = clamp(runPct + 0.15, 0.10, 0.90);
+  else if (distance >= 8)  runPct = clamp(runPct - 0.10, 0.10, 0.90);
+
+  if (Math.random() < runPct) {
+    // Run play — inside vs outside
+    const insideFrac = w.insideRunPct / 100;
+    return Math.random() < insideFrac ? 'inside_run' : 'outside_run';
   }
-  if (distance <= 7) {
-    if (roll < 0.20) return 'inside_run';
-    if (roll < 0.38) return 'outside_run';
-    if (roll < 0.58) return 'short_pass';
-    if (roll < 0.82) return 'medium_pass';
-    return 'deep_pass';
-  }
-  if (roll < 0.10) return 'inside_run';
-  if (roll < 0.20) return 'outside_run';
-  if (roll < 0.40) return 'short_pass';
-  if (roll < 0.68) return 'medium_pass';
+
+  // Pass play — short / medium / deep
+  const shortFrac  = w.shortPassPct  / 100;
+  const medFrac    = w.mediumPassPct / 100;
+  const deepFrac   = Math.max(0, 1 - shortFrac - medFrac);
+  const total      = shortFrac + medFrac + deepFrac;
+  const r          = Math.random() * total;
+  if (r < shortFrac)              return 'short_pass';
+  if (r < shortFrac + medFrac)    return 'medium_pass';
   return 'deep_pass';
 }
 
-// ── Matchup ratings ───────────────────────────────────────────────────────────
+// ── Matchup ratings using new position-specific fields ────────────────────────
 
 function offRating(off: Team, type: PlayType): number {
   switch (type) {
-    case 'inside_run':  return avg(r(off,'OL','skill'), r(off,'RB','athleticism'), r(off,'RB','skill'));
-    case 'outside_run': return avg(r(off,'RB','athleticism'), r(off,'WR','athleticism'), r(off,'OL','skill'));
-    case 'short_pass':  return avg(r(off,'QB','skill'), r(off,'QB','iq'), r(off,'WR','skill'));
-    case 'medium_pass': return avg(r(off,'QB','skill'), r(off,'QB','iq'), r(off,'WR','skill'), r(off,'WR','iq'));
-    case 'deep_pass':   return avg(r(off,'QB','skill'), r(off,'QB','athleticism'), r(off,'WR','athleticism'));
-    default:            return 60;
+    case 'inside_run':
+      return avg(
+        ol(off)?.runBlocking  ?? 50,
+        ol(off)?.strength     ?? 50,
+        rb(off)?.power        ?? 50,
+        rb(off)?.vision       ?? 50,
+      );
+    case 'outside_run':
+      return avg(
+        rb(off)?.speed        ?? 50,
+        rb(off)?.acceleration ?? 50,
+        rb(off)?.agility      ?? 50,
+        ol(off)?.agility      ?? 50,
+      );
+    case 'short_pass':
+      return avg(
+        qb(off)?.shortAccuracy  ?? 50,
+        qb(off)?.decisionMaking ?? 50,
+        wr(off)?.routeRunning   ?? 50,
+        wr(off)?.release        ?? 50,
+      );
+    case 'medium_pass':
+      return avg(
+        qb(off)?.mediumAccuracy ?? 50,
+        qb(off)?.processing     ?? 50,
+        wr(off)?.routeRunning   ?? 50,
+        wr(off)?.separation     ?? 50,
+      );
+    case 'deep_pass':
+      return avg(
+        qb(off)?.deepAccuracy ?? 50,
+        qb(off)?.armStrength  ?? 50,
+        wr(off)?.speed        ?? 50,
+        wr(off)?.separation   ?? 50,
+      );
+    default:
+      return 60;
   }
 }
 
 function defRating(def: Team, type: PlayType): number {
   switch (type) {
-    case 'inside_run':  return avg(r(def,'DT','athleticism'), r(def,'DT','skill'), r(def,'LB','skill'));
-    case 'outside_run': return avg(r(def,'DE','athleticism'), r(def,'LB','athleticism'), r(def,'CB','athleticism'));
-    case 'short_pass':  return avg(r(def,'CB','skill'), r(def,'LB','iq'));
-    case 'medium_pass': return avg(r(def,'CB','skill'), r(def,'CB','iq'), r(def,'S','iq'));
-    case 'deep_pass':   return avg(r(def,'CB','athleticism'), r(def,'S','athleticism'));
-    default:            return 60;
+    case 'inside_run':
+      return avg(
+        dl(def, 'DT')?.runStop     ?? 50,
+        dl(def, 'DT')?.strength    ?? 50,
+        lb(def)?.runStop           ?? 50,
+        lb(def)?.pursuit           ?? 50,
+      );
+    case 'outside_run':
+      return avg(
+        dl(def, 'DE')?.passRush    ?? 50,  // edge speed matters on outside runs
+        lb(def)?.athleticism       ?? 50,
+        lb(def)?.pursuit           ?? 50,
+        cb(def)?.athleticism       ?? 50,
+      );
+    case 'short_pass':
+      return avg(
+        cb(def)?.manCoverage  ?? 50,
+        cb(def)?.press        ?? 50,
+        lb(def)?.coverage     ?? 50,
+        lb(def)?.awareness    ?? 50,
+      );
+    case 'medium_pass':
+      return avg(
+        cb(def)?.manCoverage  ?? 50,
+        cb(def)?.zoneCoverage ?? 50,
+        safety(def)?.zoneCoverage ?? 50,
+      );
+    case 'deep_pass':
+      return avg(
+        cb(def)?.speed        ?? 50,
+        cb(def)?.manCoverage  ?? 50,
+        safety(def)?.range    ?? 50,
+        safety(def)?.athleticism ?? 50,
+      );
+    default:
+      return 60;
   }
 }
 
 // ── Yards ─────────────────────────────────────────────────────────────────────
 
-function yardsOnSuccess(type: PlayType, offAth: number): number {
+function yardsOnSuccess(type: PlayType, speedRating: number): number {
   let base: number;
   switch (type) {
-    case 'inside_run':  base = randInt(1, 8);   break;
-    case 'outside_run': base = randInt(2, 12);  break;
-    case 'short_pass':  base = randInt(3, 9);   break;
-    case 'medium_pass': base = randInt(8, 20);  break;
-    case 'deep_pass':   base = randInt(15, 45); break;
+    case 'inside_run':  base = randInt(cfg.run.insideRunMin,  cfg.run.insideRunMax);  break;
+    case 'outside_run': base = randInt(cfg.run.outsideRunMin, cfg.run.outsideRunMax); break;
+    case 'short_pass':  base = randInt(cfg.passYards.shortMin,  cfg.passYards.shortMax);  break;
+    case 'medium_pass': base = randInt(cfg.passYards.mediumMin, cfg.passYards.mediumMax); break;
+    case 'deep_pass':   base = randInt(cfg.passYards.deepMin,   cfg.passYards.deepMax);   break;
     default:            base = 5;
   }
-  if (offAth > 82 && Math.random() < 0.15) base += randInt(5, 12); // big play burst
+  // Big-play burst for fast skill players
+  if (speedRating > cfg.bigPlay.speedThreshold && Math.random() < cfg.bigPlay.burstChance) {
+    base += randInt(cfg.bigPlay.burstBonusMin, cfg.bigPlay.burstBonusMax);
+  }
   return base;
 }
 
 function yardsOnFail(type: PlayType): number {
-  if (type === 'inside_run' || type === 'outside_run') return randInt(-2, 1);
+  if (type === 'inside_run' || type === 'outside_run') {
+    return randInt(cfg.run.failYardsMin, cfg.run.failYardsMax);
+  }
   return 0; // incomplete pass
 }
 
@@ -102,6 +312,7 @@ function yardsOnFail(type: PlayType): number {
 function simulatePlay(
   off: Team, def: Team, type: PlayType,
   quarter: number, down: number, distance: number, yardLine: number,
+  fatigueAdj = 0,   // positive = net help for offense; negative = net hurt for offense
 ): PlayEvent {
   const base = { type, offenseTeamId: off.id, defenseTeamId: def.id, quarter, down, distance, yardLine };
 
@@ -112,70 +323,146 @@ function simulatePlay(
 
   // Field goal
   if (type === 'field_goal') {
-    const fgDist = (100 - yardLine) + 17;
-    const kSkill = r(off, 'K', 'skill');
-    const chance = Math.max(0.30, 0.95 - (fgDist - 20) * 0.015 + (kSkill - 70) * 0.004);
-    const made = Math.random() < chance;
-    return { ...base, result: made ? 'field_goal_good' : 'field_goal_miss', yards: 0, ballCarrier: lastName(off, 'K') };
+    const fgDist  = (100 - yardLine) + 17;
+    const kRating = k(off);
+    const kPower  = kRating?.kickPower    ?? 70;
+    const kAcc    = kRating?.kickAccuracy ?? 70;
+    const chance  = Math.max(
+      cfg.fieldGoal.minChance,
+      cfg.fieldGoal.baseChance
+        - (fgDist - 20) * cfg.fieldGoal.distancePenalty
+        + ((kPower + kAcc) / 2 - 70) * cfg.fieldGoal.kickPowerBonus,
+    );
+    const made  = Math.random() < chance;
+    const kId   = pid(off, 'K');
+    return {
+      ...base,
+      result:      made ? 'field_goal_good' : 'field_goal_miss',
+      yards:       0,
+      ballCarrier: lastName(off, 'K'),
+      ...(kId !== undefined ? { ballCarrierId: kId } : {}),
+    };
   }
 
   const isPass = type === 'short_pass' || type === 'medium_pass' || type === 'deep_pass';
   const isRun  = type === 'inside_run' || type === 'outside_run';
 
-  // Sack check (before pass)
+  // Sack check
   if (isPass) {
-    const sackChance = Math.max(0.03, Math.min(0.18, 0.06 + (r(def,'DE','athleticism') - r(off,'OL','skill')) * 0.002));
+    const dePassRush   = dl(def, 'DE')?.passRush    ?? 50;
+    const deAth        = dl(def, 'DE')?.athleticism ?? 50;
+    const olBlocking   = ol(off)?.passBlocking ?? 50;
+    const advantage    = ((dePassRush + deAth) / 2) - olBlocking;
+    const sackChance   = Math.max(
+      cfg.pass.minSackChance,
+      Math.min(cfg.pass.maxSackChance, cfg.pass.baseSackChance + advantage * cfg.pass.sackRatingScale),
+    );
     if (Math.random() < sackChance) {
-      return { ...base, type: 'sack', result: 'fail', yards: randInt(-8, -2), ballCarrier: lastName(off, 'QB') };
+      const qbId = pid(off, 'QB');
+      const deId = pid(def, 'DE');
+      return {
+        ...base,
+        type:        'sack',
+        result:      'fail',
+        yards:       randInt(-8, -2),
+        ballCarrier: lastName(off, 'QB'),
+        ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
+        ...(deId !== undefined ? { defPlayerId:   deId } : {}),
+      };
     }
   }
 
-  // Fumble check (before run)
-  if (isRun && Math.random() < 0.012) {
-    return { ...base, type: 'fumble', result: 'turnover', yards: 0, ballCarrier: lastName(off, 'RB') };
+  // Fumble check
+  if (isRun) {
+    const ballSec   = rb(off)?.ballSecurity ?? 60;
+    const fumbleChance = Math.max(
+      0,
+      cfg.run.baseFumbleChance - (ballSec - 50) * cfg.run.ballSecurityFumbleReduction,
+    );
+    if (Math.random() < fumbleChance) {
+      const rbId = pid(off, 'RB');
+      return {
+        ...base,
+        type:        'fumble',
+        result:      'turnover',
+        yards:       0,
+        ballCarrier: lastName(off, 'RB'),
+        ...(rbId !== undefined ? { ballCarrierId: rbId } : {}),
+      };
+    }
   }
 
-  // Success/fail
-  const oRating = offRating(off, type);
-  const dRating = defRating(def, type);
-  const successChance = oRating / (oRating + dRating);
-  const success = Math.random() < successChance;
+  // Success/fail — base rating ratio, then scheme adjustment
+  const oRating     = offRating(off, type);
+  const dRating     = defRating(def, type);
+  const baseProb    = oRating / (oRating + dRating);
+  const schemeAdj   = computeSchemeAdjustment(off, def, type);
+  const successProb = Math.max(0.05, Math.min(0.95, baseProb + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj));
+  const success     = Math.random() < successProb;
 
   // Interception on failed pass
   if (isPass && !success) {
-    const intChance = Math.max(0.02, Math.min(0.12, 0.05 + (r(def,'CB','iq') - r(off,'QB','iq')) * 0.001));
+    const cbCoverage    = cb(def)?.manCoverage ?? 50;
+    const qbDecision    = qb(off)?.decisionMaking ?? 50;
+    const intAdvantage  = (cbCoverage - qbDecision) * cfg.pass.intCoverageScale;
+    const intChance     = Math.max(
+      cfg.pass.minIntChance,
+      Math.min(cfg.pass.maxIntChance, cfg.pass.baseIntChance + intAdvantage),
+    );
     if (Math.random() < intChance) {
-      return { ...base, type: 'interception', result: 'turnover', yards: 0, ballCarrier: lastName(off, 'QB'), target: lastName(off, 'WR') };
+      const qbId  = pid(off, 'QB');
+      const wrId  = pid(off, 'WR');
+      const cbId  = pid(def, 'CB');
+      return {
+        ...base,
+        type:        'interception',
+        result:      'turnover',
+        yards:       0,
+        ballCarrier: lastName(off, 'QB'),
+        target:      lastName(off, 'WR'),
+        ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
+        ...(wrId !== undefined ? { targetId:      wrId } : {}),
+        ...(cbId !== undefined ? { defPlayerId:   cbId } : {}),
+      };
     }
   }
 
-  const offAth = isRun ? r(off,'RB','athleticism') : r(off,'WR','athleticism');
-  const yards  = success ? yardsOnSuccess(type, offAth) : yardsOnFail(type);
+  // Speed rating for big-play burst
+  const speedRating = isRun ? (rb(off)?.speed ?? 50) : (wr(off)?.speed ?? 50);
+  const yards  = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
   const newYardLine = yardLine + yards;
-  const isTD = newYardLine >= 100;
+  const isTD   = newYardLine >= 100;
 
   const result: PlayResult = isTD ? 'touchdown' : success ? 'success' : 'fail';
   const firstDown = !isTD && success && yards >= distance;
 
+  const carrierId = isRun ? pid(off, 'RB') : pid(off, 'QB');
+  const recvId    = isPass ? pid(off, 'WR') : undefined;
   return {
     ...base,
     result,
-    yards: isTD ? 100 - yardLine : yards,
-    ...(firstDown ? { firstDown: true as const } : {}),
+    yards:       isTD ? 100 - yardLine : yards,
+    ...(firstDown    ? { firstDown: true as const }    : {}),
     ballCarrier: isRun ? lastName(off, 'RB') : lastName(off, 'QB'),
-    ...(isPass ? { target: lastName(off, 'WR') } : {}),
+    ...(isPass       ? { target: lastName(off, 'WR') } : {}),
+    ...(carrierId !== undefined ? { ballCarrierId: carrierId } : {}),
+    ...(recvId    !== undefined ? { targetId:      recvId    } : {}),
   };
 }
 
 // ── Game loop ─────────────────────────────────────────────────────────────────
 
-const PLAYS_PER_QUARTER = 18;
-const FG_MIN_YARD_LINE  = 62; // attempt FG from opponent ~38 or closer
-
-export function simulateGame(game: Game): Game {
+export function simulateGame(game: Game): GameResult {
   const home = game.homeTeam;
   const away = game.awayTeam;
-  const events: PlayEvent[] = [];
+  const events:   PlayEvent[]  = [];
+  const injuries: GameInjury[] = [];
+
+  // In-game injury tracking (separate from multi-week injuries stored on players)
+  const homeInjured = new Set<string>();
+  const awayInjured = new Set<string>();
+  // Fatigue accumulates per player over the game; key = playerId, value = 0.0–1.0
+  const fatigueMap  = new Map<string, number>();
 
   let quarter      = 1;
   let quarterPlays = 0;
@@ -196,28 +483,77 @@ export function simulateGame(game: Game): Game {
     down = 1; distance = 10; yardLine = 25;
   };
 
+  /** Accumulate fatigue for a player after they participate in a play. */
+  const buildFatigue = (player: Player | undefined) => {
+    if (!player) return;
+    const cur   = fatigueMap.get(player.id) ?? 0;
+    const delta = cfg.fatigue.buildupPerPlay * (100 - (player.stamina ?? 60)) / 50;
+    fatigueMap.set(player.id, Math.min(1.0, cur + delta));
+  };
+
+  /** Check if a player sustains an in-game injury; records it and marks them out. */
+  const checkInjury = (player: Player | undefined, teamId: string, injured: Set<string>) => {
+    if (!player || injured.has(player.id)) return;
+    const fatigue = fatigueMap.get(player.id) ?? 0;
+    const weeks   = rollInjury(player, fatigue);
+    if (weeks !== null) {
+      injured.add(player.id);
+      injuries.push({ playerId: player.id, teamId, weeks });
+    }
+  };
+
   while (quarter <= 4) {
-    const off = possession === 'home' ? home : away;
-    const def = possession === 'home' ? away : home;
+    const offRaw     = possession === 'home' ? home : away;
+    const defRaw     = possession === 'home' ? away : home;
+    const offInjured = possession === 'home' ? homeInjured : awayInjured;
+    const defInjured = possession === 'home' ? awayInjured : homeInjured;
+
+    // Apply in-game injuries so depth chart falls back to healthy backups
+    const off = withInGameInjuries(offRaw, offInjured);
+    const def = withInGameInjuries(defRaw, defInjured);
 
     if (down === 4) {
-      if (yardLine >= FG_MIN_YARD_LINE) {
+      if (yardLine >= cfg.fieldGoal.attemptYardLine) {
         const ev = simulatePlay(off, def, 'field_goal', quarter, down, distance, yardLine);
         events.push(ev);
         if (ev.result === 'field_goal_good') score(3);
         changePoss();
       } else {
-        const puntYards = randInt(35, 52);
-        const newYL = Math.max(5, 100 - (yardLine + puntYards));
-        events.push({ type: 'punt', offenseTeamId: off.id, defenseTeamId: def.id,
-          result: 'success', yards: puntYards, quarter, down, distance, yardLine });
+        const puntYards = randInt(cfg.punt.minYards, cfg.punt.maxYards);
+        const landingYL = yardLine + puntYards;
+        const newYL     = landingYL >= 100
+          ? cfg.punt.touchbackYardLine
+          : Math.max(5, 100 - landingYL);
+        events.push({
+          type: 'punt', offenseTeamId: off.id, defenseTeamId: def.id,
+          result: 'success', yards: puntYards, quarter, down, distance, yardLine,
+        });
         changePoss();
         yardLine = newYL;
       }
     } else {
-      const type = selectPlayType(down, distance);
-      const ev   = simulatePlay(off, def, type, quarter, down, distance, yardLine);
+      const type  = selectPlayType(off, down, distance);
+      const isRun = type === 'inside_run' || type === 'outside_run';
+
+      // Identify primary skill players for fatigue/injury tracking
+      const offPrimary = isRun ? firstHealthy(off, 'RB') : firstHealthy(off, 'QB');
+      const defPrimary = isRun ? firstHealthy(def, 'LB') : firstHealthy(def, 'CB');
+
+      // Fatigue adjustment: tired offense = penalty; tired defense = bonus for offense
+      const offFatigue = fatigueMap.get(offPrimary?.id ?? '') ?? 0;
+      const defFatigue = fatigueMap.get(defPrimary?.id ?? '') ?? 0;
+      const fatigueAdj = (defFatigue - offFatigue) * cfg.fatigue.effectivenessPenalty;
+
+      const ev = simulatePlay(off, def, type, quarter, down, distance, yardLine, fatigueAdj);
       events.push(ev);
+
+      // Build fatigue after the play
+      buildFatigue(offPrimary);
+      buildFatigue(defPrimary);
+
+      // Injury check for involved players
+      checkInjury(offPrimary, offRaw.id, offInjured);
+      checkInjury(defPrimary, defRaw.id, defInjured);
 
       if (ev.result === 'touchdown') {
         score(7);
@@ -227,23 +563,32 @@ export function simulateGame(game: Game): Game {
         changePoss();
       } else {
         yardLine = Math.min(99, yardLine + ev.yards);
-        const gained = ev.yards;
-        if (gained >= distance) {
-          down = 1; distance = 10;           // first down
+        if (ev.yards >= distance) {
+          down = 1; distance = 10;
         } else {
           down++;
-          distance -= gained;
+          distance -= ev.yards;
         }
       }
     }
 
     quarterPlays++;
-    if (quarterPlays >= PLAYS_PER_QUARTER) {
+    if (quarterPlays >= cfg.game.playsPerQuarter) {
       quarter++;
       quarterPlays = 0;
       if (quarter === 3) changePoss(); // halftime flip
     }
   }
 
-  return { ...game, homeScore, awayScore, status: 'final', events };
+  return {
+    game: {
+      ...game,
+      homeScore,
+      awayScore,
+      status: 'final',
+      events,
+      boxScore: buildBoxScoreFromGame(home, away, events, homeScore, awayScore),
+    },
+    injuries,
+  };
 }

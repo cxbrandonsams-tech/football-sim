@@ -1,5 +1,6 @@
 import * as readline from 'readline';
-import { scoutBar, traitLabel } from './models/Player';
+import { type AnyRatings, scoutBar } from './models/Player';
+import { getTrainableFields } from './engine/training';
 import { getTeamOverall } from './models/Team';
 import { type League, getUserTeam, getWeekGames, OWNER_BUDGET } from './models/League';
 import { createInitialLeague } from './initialLeague';
@@ -8,12 +9,12 @@ import { calcStandings } from './models/Standings';
 import { simulateWeek } from './engine/simulateWeek';
 import { signPlayer, releasePlayer, aiSignFreeAgents, MAX_ROSTER_SIZE, CAP_LIMIT, getTeamPayroll } from './engine/rosterManagement';
 import { type DepthChartSlot, STARTER_COUNTS, buildDepthChart } from './models/DepthChart';
-import { generateDraftClass, getDraftOrder } from './engine/draft';
+import { generateTieredDraftClass } from './engine/draft';
 import { progressLeague } from './engine/progression';
 import { scoutPlayer } from './engine/scouting';
 import { aiSetBudgetAllocations } from './engine/budget';
 import { extendPlayer, aiExtendPlayers } from './engine/contracts';
-import { trainPlayer, trainingCost, type TrainingFocus } from './engine/training';
+import { trainPlayer, trainingCost } from './engine/training';
 import { formatGameLog } from './engine/playByPlay';
 import { hasSaveFile, saveLeague, loadLeague } from './engine/persistence';
 
@@ -25,6 +26,29 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 
 function ask(prompt: string): Promise<string> {
   return new Promise(resolve => rl.question(prompt, resolve));
+}
+
+/** Returns 3 key numeric ratings for compact display (position-aware). */
+function keyRatings(r: AnyRatings): [number, number, number] {
+  switch (r.position) {
+    case 'QB':    return [r.armStrength, r.pocketPresence, r.mobility];
+    case 'RB':    return [r.speed, r.power, r.vision];
+    case 'WR':    return [r.speed, r.catching, r.separation];
+    case 'TE':    return [r.catching, r.blocking, r.routeRunning];
+    case 'OT': case 'OG': case 'C': return [r.passBlocking, r.runBlocking, r.strength];
+    case 'DE': case 'DT': return [r.passRush, r.runStop, r.athleticism];
+    case 'OLB': case 'MLB': return [r.runStop, r.coverage, r.athleticism];
+    case 'CB':    return [r.manCoverage, r.speed, r.ballSkills];
+    case 'FS': case 'SS': return [r.zoneCoverage, r.range, r.athleticism];
+    case 'K': case 'P':   return [r.kickPower, r.kickAccuracy, r.composure];
+  }
+}
+
+/** Display a personality label if work ethic is high. */
+function personalityTag(r: AnyRatings): string {
+  if (r.position === 'QB') return '';
+  const we = (r as { personality?: { workEthic?: number } }).personality?.workEthic ?? 50;
+  return we >= 80 ? 'WE' : '';
 }
 
 function printStandings(league: League): void {
@@ -45,15 +69,16 @@ function printRoster(league: League): void {
   const team    = getUserTeam(league);
   const payroll = getTeamPayroll(team);
   console.log(`\n  ${team.name} Roster (${team.roster.length}/${MAX_ROSTER_SIZE})  |  Cap: $${payroll}/$${CAP_LIMIT}`);
-  console.log('  #   Name              Pos   OVR  SKL  ATH   IQ  Scout  Trait   $  Yrs');
-  console.log('  ──  ────────────────  ────  ───  ───  ───  ───  ─────  ─────  ──  ───');
+  console.log('  #   Name              Pos   OVR   R1   R2   R3  Scout  Tag    $  Yrs');
+  console.log('  ──  ────────────────  ────  ───  ───  ───  ───  ─────  ───  ──  ───');
   team.roster.forEach((p, i) => {
     const injTag = p.injuryWeeksRemaining > 0 ? `  INJ ${p.injuryWeeksRemaining}w` : '';
+    const [r1, r2, r3] = keyRatings(p.scoutedRatings);
     console.log(
       `  ${(i + 1).toString().padStart(2)}  ${p.name.padEnd(16)}  ${p.position.padEnd(4)}` +
-      `  ${p.scoutedOverall.toString().padStart(3)}  ${p.scoutedRatings.skill.toString().padStart(3)}` +
-      `  ${p.scoutedRatings.athleticism.toString().padStart(3)}  ${p.scoutedRatings.iq.toString().padStart(3)}` +
-      `  ${scoutBar(p.scoutingLevel)}  ${traitLabel(p.trait).padEnd(5)}` +
+      `  ${p.scoutedOverall.toString().padStart(3)}  ${r1.toString().padStart(3)}` +
+      `  ${r2.toString().padStart(3)}  ${r3.toString().padStart(3)}` +
+      `  ${scoutBar(p.scoutingLevel)}  ${personalityTag(p.scoutedRatings).padEnd(3)}` +
       `  ${p.salary.toString().padStart(2)}  ${p.yearsRemaining}${injTag}`
     );
   });
@@ -65,14 +90,15 @@ function printFreeAgents(league: League): void {
     return;
   }
   console.log(`\n  Free Agents (${league.freeAgents.length})`);
-  console.log('  #   Name              Pos   OVR  SKL  ATH   IQ  Scout  Trait   $');
-  console.log('  ──  ────────────────  ────  ───  ───  ───  ───  ─────  ─────  ──');
+  console.log('  #   Name              Pos   OVR   R1   R2   R3  Scout  Tag    $');
+  console.log('  ──  ────────────────  ────  ───  ───  ───  ───  ─────  ───  ──');
   league.freeAgents.forEach((p, i) => {
+    const [r1, r2, r3] = keyRatings(p.scoutedRatings);
     console.log(
       `  ${(i + 1).toString().padStart(2)}  ${p.name.padEnd(16)}  ${p.position.padEnd(4)}` +
-      `  ${p.scoutedOverall.toString().padStart(3)}  ${p.scoutedRatings.skill.toString().padStart(3)}` +
-      `  ${p.scoutedRatings.athleticism.toString().padStart(3)}  ${p.scoutedRatings.iq.toString().padStart(3)}` +
-      `  ${scoutBar(p.scoutingLevel)}  ${traitLabel(p.trait).padEnd(5)}  ${p.salary.toString().padStart(2)}`
+      `  ${p.scoutedOverall.toString().padStart(3)}  ${r1.toString().padStart(3)}` +
+      `  ${r2.toString().padStart(3)}  ${r3.toString().padStart(3)}` +
+      `  ${scoutBar(p.scoutingLevel)}  ${personalityTag(p.scoutedRatings).padEnd(3)}  ${p.salary.toString().padStart(2)}`
     );
   });
 }
@@ -149,7 +175,7 @@ async function expiringContractsMenu(league: League): Promise<League> {
       const raise = d.salary > p.salary ? ` (+${d.salary - p.salary})` : '';
       console.log(
         `  ${(i + 1).toString().padStart(2)}  ${p.name.padEnd(16)}  ${p.position.padEnd(4)}` +
-        `  ${p.scoutedOverall.toString().padStart(3)}  ${traitLabel(p.trait).padEnd(5)}` +
+        `  ${p.scoutedOverall.toString().padStart(3)}  ${personalityTag(p.scoutedRatings).padEnd(3)}` +
         `   $${p.salary.toString().padStart(2)}       ${p.yearsRemaining}yr` +
         `     $${d.salary.toString().padStart(2)}${raise}   ${d.years}yr`
       );
@@ -184,12 +210,6 @@ async function expiringContractsMenu(league: League): Promise<League> {
 // ── Training sub-menu ─────────────────────────────────────────────────────────
 
 async function trainingMenu(league: League): Promise<League> {
-  const FOCUS_LABELS: { key: TrainingFocus; label: string }[] = [
-    { key: 'skill',       label: 'Skill' },
-    { key: 'athleticism', label: 'Athleticism' },
-    { key: 'iq',          label: 'IQ' },
-  ];
-
   while (true) {
     const userTeam = getUserTeam(league);
     console.log(`\n── Training  (development points: ${league.developmentBudget}) ──`);
@@ -197,7 +217,7 @@ async function trainingMenu(league: League): Promise<League> {
     console.log('  ──  ────────────────  ────  ───  ───  ──  ───  ────');
     userTeam.roster.forEach((p, i) => {
       const cost  = trainingCost(p.age);
-      const ethic = p.trait === 'high_work_ethic' ? ' ★' : '';
+      const ethic = personalityTag(p.trueRatings) === 'WE' ? ' ★' : '';
       console.log(
         `  ${(i + 1).toString().padStart(2)}  ${p.name.padEnd(16)}  ${p.position.padEnd(4)}` +
         `  ${p.scoutedOverall.toString().padStart(3)}  ${p.age.toString().padStart(3)}` +
@@ -218,17 +238,18 @@ async function trainingMenu(league: League): Promise<League> {
       continue;
     }
 
+    const focusFields = getTrainableFields(player.trueRatings);
     console.log(`\n  Training ${player.name} (${player.position}, age ${player.age})  —  Cost: ${cost}pt`);
     console.log('  Focus area:');
-    FOCUS_LABELS.forEach((f, i) => {
-      const cur = player.scoutedRatings[f.key];
-      console.log(`    ${i + 1}) ${f.label.padEnd(12)} (scouted: ${cur})`);
+    focusFields.forEach((f, i) => {
+      const cur = ((player.scoutedRatings as unknown as Record<string, unknown>)[f.key] as number) ?? '?';
+      console.log(`    ${i + 1}) ${f.label.padEnd(16)} (scouted: ${cur})`);
     });
 
-    const focusInput = await ask('\n  Choose focus (1–3, or 0 to cancel): ');
+    const focusInput = await ask(`\n  Choose focus (1–${focusFields.length}, or 0 to cancel): `);
     const focusIdx = parseInt(focusInput) - 1;
     if (isNaN(focusIdx) || focusIdx < 0) continue;
-    const focus = FOCUS_LABELS[focusIdx];
+    const focus = focusFields[focusIdx];
     if (!focus) { console.log('  Invalid selection.'); continue; }
 
     const { league: next, result, error } = trainPlayer(league, player.id, focus.key);
@@ -237,8 +258,9 @@ async function trainingMenu(league: League): Promise<League> {
 
     league = next;
 
-    const rollDesc = player.trait === 'high_work_ethic'
-      ? `roll ${result.roll} + 3 (ethic) = ${result.total}`
+    const hasEthic = personalityTag(player.trueRatings) === 'WE';
+    const rollDesc = hasEthic
+      ? `roll ${result.roll} + 3 (work ethic) = ${result.total}`
       : `roll ${result.roll}`;
 
     if (result.gain >= 4) {
@@ -375,8 +397,8 @@ async function rosterMenu(league: League): Promise<League> {
 async function runDraft(league: League): Promise<League> {
   const year = league.currentSeason.year;
   const standings = calcStandings(league.currentSeason);
-  const draftOrder = getDraftOrder(standings);    // worst team first
-  const draftPool = generateDraftClass(year);
+  const draftOrder = [...standings].reverse().map(s => s.team); // worst team first
+  const draftPool = generateTieredDraftClass(year);
   const rounds = 2;
 
   console.log(`\n${'═'.repeat(40)}`);
@@ -423,7 +445,7 @@ async function runDraft(league: League): Promise<League> {
   console.log('\n  Starting draft...');
 
   const available = [...draftPool];
-  const picks: { round: number; pick: number; teamAbbr: string; player: ReturnType<typeof generateDraftClass>[0] }[] = [];
+  const picks: { round: number; pick: number; teamAbbr: string; player: ReturnType<typeof generateTieredDraftClass>[0] }[] = [];
   let updatedTeams = [...league.teams];
 
   for (let round = 1; round <= rounds; round++) {
@@ -441,14 +463,15 @@ async function runDraft(league: League): Promise<League> {
         const top = [...available].sort((a, b) => b.scoutedOverall - a.scoutedOverall).slice(0, 8);
         const payroll = getTeamPayroll(updatedTeams.find(t => t.id === team.id)!);
         console.log(`\n  Pick ${pickNumber} — ${team.name} — YOUR PICK  (Cap: $${payroll}/$${CAP_LIMIT})`);
-        console.log('  #   Name              Pos   OVR  SKL  ATH   IQ  Scout  Trait   $');
-        console.log('  ──  ────────────────  ────  ───  ───  ───  ───  ─────  ─────  ──');
+        console.log('  #   Name              Pos   OVR   R1   R2   R3  Scout  Tag    $');
+        console.log('  ──  ────────────────  ────  ───  ───  ───  ───  ─────  ───  ──');
         top.forEach((p, idx) => {
+          const [r1, r2, r3] = keyRatings(p.scoutedRatings);
           console.log(
             `  ${(idx + 1).toString().padStart(2)}  ${p.name.padEnd(16)}  ${p.position.padEnd(4)}` +
-            `  ${p.scoutedOverall.toString().padStart(3)}  ${p.scoutedRatings.skill.toString().padStart(3)}` +
-            `  ${p.scoutedRatings.athleticism.toString().padStart(3)}  ${p.scoutedRatings.iq.toString().padStart(3)}` +
-            `  ${scoutBar(p.scoutingLevel)}  ${traitLabel(p.trait).padEnd(5)}  ${p.salary.toString().padStart(2)}`
+            `  ${p.scoutedOverall.toString().padStart(3)}  ${r1.toString().padStart(3)}` +
+            `  ${r2.toString().padStart(3)}  ${r3.toString().padStart(3)}` +
+            `  ${scoutBar(p.scoutingLevel)}  ${personalityTag(p.scoutedRatings).padEnd(3)}  ${p.salary.toString().padStart(2)}`
           );
         });
 
@@ -514,7 +537,7 @@ function runProgression(league: League): League {
   if (summary.improved.length > 0) {
     console.log('\n  Improved:');
     for (const r of summary.improved) {
-      const tag = r.player.trait === 'high_work_ethic' ? ' ★' : '';
+      const tag = personalityTag(r.player.trueRatings) === 'WE' ? ' ★' : '';
       console.log(`    ${r.player.name.padEnd(16)} ${r.player.position.padEnd(4)} ${r.summary}${tag}`);
     }
   }
@@ -612,12 +635,12 @@ async function main(): Promise<void> {
   while (true) {
     const startChoice = await ask('\n> ');
     if (startChoice === '1') {
-      league = createInitialLeague();
+      league = createInitialLeague('l1');
     } else if (startChoice === '2' && saveExists) {
       const loaded = loadLeague();
       if (!loaded) {
         console.log('  Save file could not be read. Starting new game.');
-        league = createInitialLeague();
+        league = createInitialLeague('l1');
       } else {
         league = loaded;
         console.log('  Game loaded.');

@@ -1,8 +1,89 @@
-import { type Player, type Ratings, calcOverall, clamp, refreshScouting } from '../models/Player';
+import { type Player, type AnyRatings, calcOverall, clamp, refreshScouting } from '../models/Player';
 import { type League, getUserTeam } from '../models/League';
 import { buildDepthChart } from '../models/DepthChart';
 
-export type TrainingFocus = 'skill' | 'athleticism' | 'iq';
+/** A training focus is any valid gameplay rating field name for the player's position. */
+export type TrainingFocus = string;
+
+// ── Trainable fields per position ─────────────────────────────────────────────
+
+export function getTrainableFields(ratings: AnyRatings): { key: string; label: string }[] {
+  switch (ratings.position) {
+    case 'QB': return [
+      { key: 'armStrength',    label: 'Arm Strength' },
+      { key: 'pocketPresence', label: 'Pocket Presence' },
+      { key: 'mobility',       label: 'Mobility' },
+      // Hidden sub-ratings are also trainable (just not labeled as "scouted" in UI)
+      { key: 'shortAccuracy',  label: 'Short Accuracy' },
+      { key: 'mediumAccuracy', label: 'Medium Accuracy' },
+      { key: 'deepAccuracy',   label: 'Deep Accuracy' },
+      { key: 'processing',     label: 'Processing' },
+      { key: 'decisionMaking', label: 'Decision Making' },
+    ];
+    case 'RB': return [
+      { key: 'speed',        label: 'Speed' },
+      { key: 'acceleration', label: 'Acceleration' },
+      { key: 'power',        label: 'Power' },
+      { key: 'agility',      label: 'Agility' },
+      { key: 'vision',       label: 'Vision' },
+      { key: 'ballSecurity', label: 'Ball Security' },
+    ];
+    case 'WR': return [
+      { key: 'speed',        label: 'Speed' },
+      { key: 'catching',     label: 'Catching' },
+      { key: 'routeRunning', label: 'Route Running' },
+      { key: 'separation',   label: 'Separation' },
+      { key: 'release',      label: 'Release' },
+    ];
+    case 'TE': return [
+      { key: 'catching',     label: 'Catching' },
+      { key: 'routeRunning', label: 'Route Running' },
+      { key: 'blocking',     label: 'Blocking' },
+      { key: 'speed',        label: 'Speed' },
+      { key: 'strength',     label: 'Strength' },
+    ];
+    case 'OT': case 'OG': case 'C': return [
+      { key: 'passBlocking', label: 'Pass Blocking' },
+      { key: 'runBlocking',  label: 'Run Blocking' },
+      { key: 'strength',     label: 'Strength' },
+      { key: 'agility',      label: 'Agility' },
+      { key: 'awareness',    label: 'Awareness' },
+    ];
+    case 'DE': case 'DT': return [
+      { key: 'passRush',    label: 'Pass Rush' },
+      { key: 'runStop',     label: 'Run Stop' },
+      { key: 'strength',    label: 'Strength' },
+      { key: 'athleticism', label: 'Athleticism' },
+      { key: 'motor',       label: 'Motor' },
+    ];
+    case 'OLB': case 'MLB': return [
+      { key: 'runStop',     label: 'Run Stop' },
+      { key: 'coverage',    label: 'Coverage' },
+      { key: 'athleticism', label: 'Athleticism' },
+      { key: 'awareness',   label: 'Awareness' },
+      { key: 'pursuit',     label: 'Pursuit' },
+    ];
+    case 'CB': return [
+      { key: 'manCoverage',  label: 'Man Coverage' },
+      { key: 'zoneCoverage', label: 'Zone Coverage' },
+      { key: 'ballSkills',   label: 'Ball Skills' },
+      { key: 'press',        label: 'Press' },
+      { key: 'speed',        label: 'Speed' },
+    ];
+    case 'FS': case 'SS': return [
+      { key: 'zoneCoverage', label: 'Zone Coverage' },
+      { key: 'range',        label: 'Range' },
+      { key: 'athleticism',  label: 'Athleticism' },
+      { key: 'hitPower',     label: 'Hit Power' },
+      { key: 'ballSkills',   label: 'Ball Skills' },
+    ];
+    case 'K': case 'P': return [
+      { key: 'kickPower',    label: 'Kick Power' },
+      { key: 'kickAccuracy', label: 'Kick Accuracy' },
+      { key: 'composure',    label: 'Composure' },
+    ];
+  }
+}
 
 // ── Cost ──────────────────────────────────────────────────────────────────────
 
@@ -13,36 +94,42 @@ export function trainingCost(age: number): number {
   return 4;
 }
 
+// ── Work Ethic bonus ──────────────────────────────────────────────────────────
+
+function workEthicBonus(player: Player): number {
+  const r = player.trueRatings;
+  if (r.position === 'QB') return 0;
+  const we = (r as { personality?: { workEthic?: number } }).personality?.workEthic ?? 50;
+  return we >= 80 ? 3 : 0;
+}
+
 // ── Roll ──────────────────────────────────────────────────────────────────────
 
 const DC_SUCCESS = 12;
 const DC_CRIT    = 18;
 
-function traitBonus(player: Player): number {
-  return player.trait === 'high_work_ethic' ? 3 : 0;
-}
-
 export interface TrainingResult {
-  roll: number;        // raw 1d20
-  total: number;       // roll + trait bonus
-  gain: number;        // points added to focus rating (0, 2, or 4)
-  focus: TrainingFocus;
-  cost: number;
+  roll:    number;
+  total:   number;
+  gain:    number;
+  focus:   TrainingFocus;
+  cost:    number;
 }
 
-function applyGain(ratings: Ratings, focus: TrainingFocus, gain: number): Ratings {
-  return { ...ratings, [focus]: clamp(ratings[focus] + gain) };
+function applyGain(ratings: AnyRatings, focus: string, gain: number): AnyRatings {
+  const current = ((ratings as unknown as Record<string, unknown>)[focus] as number) ?? 50;
+  return { ...ratings, [focus]: clamp(current + gain) } as AnyRatings;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 export function trainPlayer(
-  league: League,
+  league:   League,
   playerId: string,
-  focus: TrainingFocus,
+  focus:    TrainingFocus,
 ): { league: League; result?: TrainingResult; error?: string } {
   const userTeam = getUserTeam(league);
-  const player = userTeam.roster.find(p => p.id === playerId);
+  const player   = userTeam.roster.find(p => p.id === playerId);
 
   if (!player) return { league, error: 'Player not found on your roster.' };
 
@@ -51,27 +138,24 @@ export function trainPlayer(
     return { league, error: `Not enough development points (need ${cost}, have ${league.developmentBudget}).` };
   }
 
-  const roll  = Math.ceil(Math.random() * 20);
-  const total = roll + traitBonus(player);
-  const gain  = total >= DC_CRIT ? 4 : total >= DC_SUCCESS ? 2 : 0;
+  const roll   = Math.ceil(Math.random() * 20);
+  const total  = roll + workEthicBonus(player);
+  const gain   = total >= DC_CRIT ? 4 : total >= DC_SUCCESS ? 2 : 0;
 
-  const newTrueRatings  = applyGain(player.trueRatings, focus, gain);
-  const updatedPlayer   = refreshScouting({
+  const newTrueRatings = applyGain(player.trueRatings, focus, gain);
+  const updatedPlayer  = refreshScouting({
     ...player,
     trueRatings: newTrueRatings,
-    overall: calcOverall(player.position, newTrueRatings),
+    overall:     calcOverall(newTrueRatings),
   });
 
   const newRoster    = userTeam.roster.map(p => p.id === playerId ? updatedPlayer : p);
   const updatedTeam  = { ...userTeam, roster: newRoster, depthChart: buildDepthChart(newRoster, true) };
   const updatedLeague: League = {
     ...league,
-    teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t),
+    teams:            league.teams.map(t => t.id === userTeam.id ? updatedTeam : t),
     developmentBudget: league.developmentBudget - cost,
   };
 
-  return {
-    league: updatedLeague,
-    result: { roll, total, gain, focus, cost },
-  };
+  return { league: updatedLeague, result: { roll, total, gain, focus, cost } };
 }

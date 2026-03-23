@@ -2,6 +2,7 @@ import { type Player } from '../models/Player';
 import { type League, getUserTeam } from '../models/League';
 import { buildDepthChart } from '../models/DepthChart';
 import { CAP_LIMIT, getTeamPayroll } from './rosterManagement';
+import { getTeamDirection, evaluateRosterNeeds, posGroup } from './teamDirection';
 
 // Remove contractDemand from a player after extension or decline-and-expire.
 function clearDemand(player: Player): Player {
@@ -32,7 +33,7 @@ export function extendPlayer(
     };
   }
 
-  const extended   = { ...clearDemand(player), salary: demand.salary, yearsRemaining: demand.years };
+  const extended   = { ...clearDemand(player), isRookie: false, salary: demand.salary, yearsRemaining: demand.years };
   const newRoster  = userTeam.roster.map(p => p.id === playerId ? extended : p);
   const updatedTeam = { ...userTeam, roster: newRoster, depthChart: buildDepthChart(newRoster, true) };
 
@@ -43,7 +44,31 @@ export function extendPlayer(
 
 // ── AI extensions ─────────────────────────────────────────────────────────────
 
-const AI_EXTEND_THRESHOLD = 65; // extend players at or above this true overall
+/**
+ * Direction-aware AI extension logic:
+ *   contender  — extend OVR ≥ 60, including veterans up to age 35 (win-now)
+ *   neutral    — extend OVR ≥ 65 regardless of age (solid starters only)
+ *   rebuilding — extend OVR ≥ 67 only for young players (age ≤ 28); let veterans walk
+ *
+ * Also skips extension when the position group is already well-stocked.
+ */
+function shouldExtend(player: Player, direction: ReturnType<typeof getTeamDirection>, needs: ReturnType<typeof evaluateRosterNeeds>): boolean {
+  const group = posGroup(player.position);
+  // Never extend into an overstocked position (need < -1)
+  if ((needs[group] ?? 0) < -1) return false;
+
+  switch (direction) {
+    case 'contender':
+      // Prioritise keeping quality players; veterans still help a contender
+      return player.overall >= 60 && player.age <= 35;
+    case 'rebuilding':
+      // Invest only in proven young talent; shed expensive veterans
+      return player.overall >= 67 && player.age <= 28;
+    case 'neutral':
+    default:
+      return player.overall >= 65;
+  }
+}
 
 export function aiExtendPlayers(
   league: League,
@@ -55,16 +80,18 @@ export function aiExtendPlayers(
     if (team.id === current.userTeamId) continue;
 
     let currentTeam = current.teams.find(t => t.id === team.id)!;
+    const direction = getTeamDirection(currentTeam, current);
+    const needs     = evaluateRosterNeeds(currentTeam);
 
     for (const player of currentTeam.roster) {
       if (!player.contractDemand) continue;
-      if (player.overall < AI_EXTEND_THRESHOLD) continue; // let mediocre players walk
+      if (!shouldExtend(player, direction, needs)) continue;
 
       const payroll   = getTeamPayroll(currentTeam);
       const capImpact = player.contractDemand.salary - player.salary;
       if (payroll + capImpact > CAP_LIMIT) continue;
 
-      const extended  = { ...clearDemand(player), salary: player.contractDemand.salary, yearsRemaining: player.contractDemand.years };
+      const extended  = { ...clearDemand(player), isRookie: false, salary: player.contractDemand.salary, yearsRemaining: player.contractDemand.years };
       const newRoster = currentTeam.roster.map(p => p.id === player.id ? extended : p);
       currentTeam     = { ...currentTeam, roster: newRoster, depthChart: buildDepthChart(newRoster, false) };
       current         = { ...current, teams: current.teams.map(t => t.id === team.id ? currentTeam : t) };

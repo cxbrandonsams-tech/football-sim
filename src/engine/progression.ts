@@ -1,92 +1,192 @@
-import { type Player, type Ratings, calcOverall, calcSalary, clamp, refreshScouting } from '../models/Player';
+import {
+  type Player,
+  type AnyRatings,
+  calcOverall,
+  calcSalary,
+  clamp,
+  refreshScouting,
+} from '../models/Player';
 import { type Team } from '../models/Team';
 import { type League } from '../models/League';
 import { buildDepthChart } from '../models/DepthChart';
+import { TUNING } from './config';
 
-// ── Check system ──────────────────────────────────────────────────────────────
+const PROG = TUNING.progression;
 
-const DC = 14;
+// ── Utility ───────────────────────────────────────────────────────────────────
 
-function ageModifier(age: number): number {
-  if (age <= 24) return  4;  // young: growth bias
-  if (age <= 28) return  0;  // prime: stable
-  return -4;                 // old: regression bias
+function randInt(min: number, max: number): number {
+  return min + Math.floor(Math.random() * (max - min + 1));
 }
 
-function traitBonus(player: Player): number {
-  return player.trait === 'high_work_ethic' ? 2 : 0;
+// ── Rating helpers ────────────────────────────────────────────────────────────
+
+/** All progressable (numeric, non-personality) field names for a given ratings object. */
+function getProgressableFields(ratings: AnyRatings): string[] {
+  switch (ratings.position) {
+    case 'QB':
+      return ['armStrength', 'pocketPresence', 'mobility', 'shortAccuracy', 'mediumAccuracy', 'deepAccuracy', 'processing', 'decisionMaking'];
+    case 'RB':
+      return ['speed', 'acceleration', 'power', 'agility', 'vision', 'ballSecurity', 'passBlocking', 'routeRunning'];
+    case 'WR':
+      return ['speed', 'acceleration', 'catching', 'routeRunning', 'separation', 'release', 'blocking'];
+    case 'TE':
+      return ['strength', 'speed', 'catching', 'routeRunning', 'blocking', 'release'];
+    case 'OT': case 'OG': case 'C':
+      return ['passBlocking', 'runBlocking', 'strength', 'agility', 'awareness'];
+    case 'DE': case 'DT':
+      return ['passRush', 'runStop', 'strength', 'athleticism', 'motor'];
+    case 'OLB': case 'MLB':
+      return ['passRush', 'runStop', 'coverage', 'athleticism', 'awareness', 'pursuit'];
+    case 'CB':
+      return ['manCoverage', 'zoneCoverage', 'ballSkills', 'press', 'speed', 'athleticism'];
+    case 'FS': case 'SS':
+      return ['zoneCoverage', 'manCoverage', 'ballSkills', 'range', 'hitPower', 'athleticism'];
+    case 'K': case 'P':
+      return ['kickPower', 'kickAccuracy', 'composure'];
+  }
 }
 
-type Outcome = 'crit_success' | 'success' | 'failure' | 'crit_failure';
-
-function rollOutcome(player: Player): Outcome {
-  const roll = Math.ceil(Math.random() * 20) + ageModifier(player.age) + traitBonus(player);
-  if (roll >= DC + 10) return 'crit_success';
-  if (roll >= DC)      return 'success';
-  if (roll <= DC - 10) return 'crit_failure';
-  return 'failure';
+function getRating(ratings: AnyRatings, key: string): number {
+  return ((ratings as unknown as Record<string, unknown>)[key] as number) ?? 50;
 }
 
-const RATING_KEYS: (keyof Ratings)[] = ['skill', 'athleticism', 'iq'];
-
-function pickRating(): keyof Ratings {
-  return RATING_KEYS[Math.floor(Math.random() * RATING_KEYS.length)]!;
+function setRating(ratings: AnyRatings, key: string, value: number): AnyRatings {
+  return { ...ratings, [key]: value } as AnyRatings;
 }
 
-// ── Single player progression ─────────────────────────────────────────────────
+// ── Age-band lookup ───────────────────────────────────────────────────────────
 
-export interface ProgressionResult {
-  player: Player;
-  outcome: Outcome;
-  delta: number;   // net overall change (trueOverall before vs after)
-  summary: string; // human-readable description
+interface AgeBand {
+  maxAge:        number;
+  improveChance: number;
+  declineChance: number;
+  maxGain:       number;
+  maxLoss:       number;
+  numRatings:    number;
 }
 
-export function progressPlayer(player: Player): ProgressionResult {
-  const outcome = rollOutcome(player);
-  const ratings = { ...player.trueRatings };
-  let summary = '';
+function getAgeBand(age: number): AgeBand {
+  for (const band of PROG.ageBands) {
+    if (age <= band.maxAge) return band as AgeBand;
+  }
+  // Fallback to last band (handles any age above 99)
+  return PROG.ageBands[PROG.ageBands.length - 1] as AgeBand;
+}
 
-  if (outcome === 'crit_success') {
-    const key = pickRating();
-    ratings[key] = clamp(ratings[key] + 3);
-    summary = `+3 ${key}`;
-  } else if (outcome === 'success') {
-    const key = pickRating();
-    ratings[key] = clamp(ratings[key] + 1);
-    summary = `+1 ${key}`;
-  } else if (outcome === 'crit_failure') {
-    const key = pickRating();
-    ratings[key] = clamp(ratings[key] - 3);
-    summary = `-3 ${key}`;
+// ── Work Ethic modifier ───────────────────────────────────────────────────────
+
+function getWorkEthic(player: Player): number {
+  const r = player.trueRatings;
+  if (r.position === 'QB') return 50; // QB has no personality ratings
+  return (r as { personality?: { workEthic?: number } }).personality?.workEthic ?? 50;
+}
+
+/** Applies Work Ethic shift to the band's base improve/decline probabilities. */
+function applyWorkEthic(
+  band: AgeBand,
+  workEthic: number,
+): { improveChance: number; declineChance: number } {
+  let improveChance = band.improveChance;
+  let declineChance = band.declineChance;
+
+  if (workEthic >= PROG.workEthicHighThreshold) {
+    improveChance = Math.min(0.95, improveChance + PROG.workEthicImproveBonus);
+    declineChance = Math.max(0.01, declineChance - PROG.workEthicDeclineSave);
+  } else if (workEthic <= PROG.workEthicLowThreshold) {
+    improveChance = Math.max(0.01, improveChance - PROG.workEthicImprovePenalty);
+    declineChance = Math.min(0.95, declineChance + PROG.workEthicDeclineBonus);
   }
 
-  const prevOverall = player.overall;
-  const updatedPlayer = refreshScouting({
-    ...player,
-    age: player.age + 1,
-    trueRatings: ratings,
-    overall: calcOverall(player.position, ratings),
-    injuryWeeksRemaining: 0, // all players heal over the off-season
-  });
-
-  return {
-    player: updatedPlayer,
-    outcome,
-    delta: updatedPlayer.overall - prevOverall,
-    summary,
-  };
+  return { improveChance, declineChance };
 }
 
-// ── League-wide progression ───────────────────────────────────────────────────
+// ── Outcome type ──────────────────────────────────────────────────────────────
+
+type Outcome = 'improve' | 'stable' | 'decline';
+
+// ── Public types ──────────────────────────────────────────────────────────────
+
+export interface ProgressionResult {
+  player:  Player;
+  outcome: Outcome;
+  delta:   number;   // change in overall
+  summary: string;   // human-readable description of what changed
+}
 
 export interface LeagueProgressionSummary {
   improved: ProgressionResult[];
   declined: ProgressionResult[];
 }
 
-function progressRoster(roster: Player[], isUserTeam: boolean): { roster: Player[]; results: ProgressionResult[] } {
-  const results = roster.map(p => progressPlayer(p));
+// ── Single player progression ─────────────────────────────────────────────────
+
+export function progressPlayer(player: Player): ProgressionResult {
+  const band = getAgeBand(player.age);
+  const we   = getWorkEthic(player);
+  const { improveChance, declineChance } = applyWorkEthic(band, we);
+
+  // Determine outcome
+  const roll = Math.random();
+  let outcome: Outcome;
+  if      (roll < improveChance)            outcome = 'improve';
+  else if (roll < 1.0 - declineChance)      outcome = 'stable';
+  else                                       outcome = 'decline';
+
+  // Apply rating changes
+  const fields  = getProgressableFields(player.trueRatings);
+  let   ratings = player.trueRatings;
+  const parts: string[] = [];
+
+  if (outcome !== 'stable') {
+    // Shuffle and pick the target ratings
+    const shuffled = [...fields].sort(() => Math.random() - 0.5);
+    const count    = band.numRatings;
+
+    for (let i = 0; i < count; i++) {
+      const key = shuffled[i];
+      if (!key) break;
+      const current = getRating(ratings, key);
+      const mag     = outcome === 'improve'
+        ? randInt(1, band.maxGain)
+        : -randInt(1, band.maxLoss);
+      const newVal = clamp(current + mag);
+      if (newVal !== current) {
+        ratings = setRating(ratings, key, newVal);
+        parts.push(`${mag > 0 ? '+' : ''}${mag} ${key}`);
+      }
+    }
+  }
+
+  // Stamina drift: outcome-driven direction + small random component
+  const staminaDir   = outcome === 'improve'
+    ? PROG.staminaGainPerImprove
+    : outcome === 'decline' ? -PROG.staminaLossPerDecline : 0;
+  const staminaRnd   = randInt(-PROG.staminaRandomRange, PROG.staminaRandomRange);
+  const newStamina   = Math.max(1, Math.min(99, (player.stamina ?? 60) + staminaDir + staminaRnd));
+
+  const prevOverall   = player.overall;
+  const updatedPlayer = refreshScouting({
+    ...player,
+    age:                  player.age + 1,
+    stamina:              newStamina,
+    trueRatings:          ratings,
+    overall:              calcOverall(ratings),
+    injuryWeeksRemaining: 0,
+  });
+
+  return {
+    player:  updatedPlayer,
+    outcome,
+    delta:   updatedPlayer.overall - prevOverall,
+    summary: parts.join(', ') || (outcome === 'stable' ? 'no change' : 'minimal change'),
+  };
+}
+
+// ── League-wide progression ───────────────────────────────────────────────────
+
+function progressRoster(roster: Player[]): { roster: Player[]; results: ProgressionResult[] } {
+  const results   = roster.map(p => progressPlayer(p));
   const newRoster = results.map(r => r.player);
   return { roster: newRoster, results };
 }
@@ -94,31 +194,40 @@ function progressRoster(roster: Player[], isUserTeam: boolean): { roster: Player
 export function progressLeague(league: League): { league: League; summary: LeagueProgressionSummary } {
   const improved: ProgressionResult[] = [];
   const declined: ProgressionResult[] = [];
-  const newFreeAgents: ReturnType<typeof progressPlayer>['player'][] = [];
+  const newFreeAgents: Player[] = [];
 
   const updatedTeams: Team[] = league.teams.map(team => {
     const isUserTeam = team.id === league.userTeamId;
-    const { roster, results } = progressRoster(team.roster, isUserTeam);
+    const { roster, results } = progressRoster(team.roster);
 
     for (const r of results) {
       if (r.delta > 0) improved.push(r);
       if (r.delta < 0) declined.push(r);
     }
 
-    // Expire contracts: decrement years, release anyone hitting 0, demand for anyone hitting 1
-    const active: typeof roster   = [];
-    const expired: typeof roster  = [];
+    const active: Player[]  = [];
+    const expired: Player[] = [];
     for (const p of roster) {
       const years = p.yearsRemaining - 1;
       if (years <= 0) {
         expired.push({ ...p, yearsRemaining: 0 });
       } else if (years === 1 && !p.contractDemand) {
-        // Final year — generate extension demand based on post-progression value
+        // Final year — generate extension demand
+        const greed = (() => {
+          const r = p.trueRatings;
+          if (r.position === 'QB') return 50;
+          return (r as { personality?: { greed?: number } }).personality?.greed ?? 50;
+        })();
+        const loyalty = (() => {
+          const r = p.trueRatings;
+          if (r.position === 'QB') return 50;
+          return (r as { personality?: { loyalty?: number } }).personality?.loyalty ?? 50;
+        })();
         let demandSalary = Math.max(p.salary, calcSalary(p.overall));
-        if (p.trait === 'greedy') demandSalary = Math.ceil(demandSalary  * 1.2);
-        if (p.trait === 'loyal')  demandSalary = Math.floor(demandSalary * 0.9);
+        if (greed  >= 70) demandSalary = Math.ceil(demandSalary  * 1.2);
+        if (loyalty >= 70) demandSalary = Math.floor(demandSalary * 0.9);
         demandSalary = Math.max(1, demandSalary);
-        const demandYears  = p.age < 26 ? 4 : p.age < 30 ? 3 : p.age < 33 ? 2 : 1;
+        const demandYears = p.age < 26 ? 4 : p.age < 30 ? 3 : p.age < 33 ? 2 : 1;
         active.push({ ...p, yearsRemaining: 1, contractDemand: { salary: demandSalary, years: demandYears } });
       } else {
         active.push({ ...p, yearsRemaining: years });
@@ -133,7 +242,6 @@ export function progressLeague(league: League): { league: League; summary: Leagu
     };
   });
 
-  // Progress existing free agents (no contract expiration for FAs)
   const updatedFreeAgents = [
     ...league.freeAgents.map(p => progressPlayer(p).player),
     ...newFreeAgents,
@@ -142,9 +250,9 @@ export function progressLeague(league: League): { league: League; summary: Leagu
   return {
     league: {
       ...league,
-      teams: updatedTeams,
-      freeAgents: updatedFreeAgents,
-      scoutingBudget: league.budgetAllocation.scouting,
+      teams:            updatedTeams,
+      freeAgents:       updatedFreeAgents,
+      scoutingBudget:   league.budgetAllocation.scouting,
       developmentBudget: league.budgetAllocation.development,
     },
     summary: { improved, declined },
