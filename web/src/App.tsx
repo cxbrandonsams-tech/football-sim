@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { deriveBoxScore } from './boxScore';
+import { aggregateSeasonStats } from './seasonStats';
 import {
   listLeagues, createLeague, joinLeague, fetchLeague, advanceWeek, saveLeague, loadLeague,
   claimTeam as claimTeamApi, proposeTrade as proposeTradeApi, respondTrade as respondTradeApi,
@@ -7,6 +9,22 @@ import {
 } from './api';
 import { computeStandings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord } from './types';
 import './App.css';
+
+// ── Shared helpers ─────────────────────────────────────────────────────────────
+
+/** Strip "Error: " prefix that JS adds to String(e) */
+function friendlyError(e: unknown): string {
+  const s = String(e);
+  return s.startsWith('Error: ') ? s.slice(7) : s;
+}
+
+/** Format a timestamp: time-only if today, date+time otherwise */
+function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return sameDay ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+}
 
 // ── Top-level screen ───────────────────────────────────────────────────────────
 
@@ -125,7 +143,7 @@ function CreateForm({ onBack, onEnter }: {
       const data = await fetchLeague(id);
       onEnter(id, data);
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -267,7 +285,7 @@ function BrowseLeagues({ onBack, onEnter }: {
       const data = await joinLeague(id);
       onEnter(id, data);
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e));
     } finally {
       setBusy(false); setJoiningId(null);
     }
@@ -325,7 +343,7 @@ function TeamSelect({ league, gmId, onClaim, onBack }: {
   async function claim(teamId: string) {
     setBusy(true); setError(null);
     try { await onClaim(teamId); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(friendlyError(e)); }
     finally { setBusy(false); }
   }
 
@@ -374,20 +392,20 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'standings' | 'week' | 'roster' | 'trades' | 'activity'>('standings');
+  const [tab, setTab] = useState<'standings' | 'week' | 'roster' | 'trades' | 'activity' | 'leaders'>('standings');
   const [rosterTeamId, setRosterTeamId] = useState(myTeamId);
 
   async function action(fn: (id: string) => Promise<League>) {
     setBusy(true); setError(null);
     try { setLeague(await fn(leagueId)); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(friendlyError(e)); }
     finally { setBusy(false); }
   }
 
   async function save() {
     setBusy(true); setError(null);
     try { await saveLeague(leagueId); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(friendlyError(e)); }
     finally { setBusy(false); }
   }
 
@@ -462,10 +480,10 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
       {error && <div className="error">{error}</div>}
 
       <nav>
-        {(['standings', 'week', 'roster', 'trades', 'activity'] as const).map(t => {
+        {(['standings', 'week', 'leaders', 'roster', 'trades', 'activity'] as const).map(t => {
           const label = t === 'week' ? weekTabLabel
-            : t === 'standings' ? 'Standings' : t === 'roster' ? 'Roster'
-            : t === 'trades' ? 'Trades' : 'Activity';
+            : t === 'standings' ? 'Standings' : t === 'leaders' ? 'Leaders'
+            : t === 'roster' ? 'Roster' : t === 'trades' ? 'Trades' : 'Activity';
           const pending = t === 'trades' ? league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length : 0;
           return (
             <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
@@ -515,6 +533,408 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, gmId, onLeave }: {
         />
       )}
       {tab === 'activity' && <ActivityFeed activities={league.activities} />}
+      {tab === 'leaders' && (
+        <LeadersView games={league.currentSeason.games} teams={league.teams} />
+      )}
+    </div>
+  );
+}
+
+// ── Leaders ────────────────────────────────────────────────────────────────────
+
+function LeadersView({ games, teams }: { games: League['currentSeason']['games']; teams: League['teams'] }) {
+  const stats      = aggregateSeasonStats(games);
+  const allPlayers = Object.values(stats);
+  const gamesPlayed = games.filter(g => g.status === 'final').length;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedPlayer = selectedId !== null ? (stats[selectedId] ?? null) : null;
+
+  const passers   = allPlayers.filter(p => p.attempts >= 1)
+    .sort((a, b) => b.passingYards   - a.passingYards).slice(0, 10);
+  const rushers   = allPlayers.filter(p => p.carries   >= 1)
+    .sort((a, b) => b.rushingYards   - a.rushingYards).slice(0, 10);
+  const receivers = allPlayers.filter(p => p.targets   >= 1)
+    .sort((a, b) => b.receivingYards - a.receivingYards).slice(0, 10);
+  const tdLeaders = allPlayers
+    .map(p => ({ ...p, totalTDs: p.passingTDs + p.rushingTDs + p.receivingTDs }))
+    .filter(p => p.totalTDs > 0)
+    .sort((a, b) => b.totalTDs - a.totalTDs)
+    .slice(0, 10);
+
+  function pName(id: string, name: string) {
+    return (
+      <button className="pd-trigger" onClick={() => setSelectedId(id)}>{name}</button>
+    );
+  }
+
+  if (gamesPlayed === 0) {
+    return (
+      <section className="leaders-section">
+        <div className="leaders-page-header">
+          <h2>League Leaders</h2>
+        </div>
+        <p className="muted" style={{ padding: '1rem 0' }}>No games have been played yet.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="leaders-section">
+      {selectedPlayer && (
+        <PlayerDetail
+          player={selectedPlayer}
+          games={games}
+          allTeams={teams}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
+      <div className="leaders-page-header">
+        <h2>League Leaders</h2>
+        <span className="leaders-meta">{gamesPlayed} game{gamesPlayed !== 1 ? 's' : ''} played</span>
+      </div>
+
+      <div className="leaders-grid">
+
+        {/* Passing */}
+        <div className="leaders-card">
+          <div className="lc-header">
+            <span className="lc-category">PASSING</span>
+            <span className="lc-stat-label">YDS</span>
+          </div>
+          <table className="leaders-table">
+            <thead>
+              <tr>
+                <th className="col-rank"></th>
+                <th className="col-player">Player</th>
+                <th className="col-team">Team</th>
+                <th className="col-num">C/ATT</th>
+                <th className="col-num col-primary">YDS</th>
+                <th className="col-num">TD</th>
+                <th className="col-num">INT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {passers.length === 0
+                ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
+                : passers.map((p, i) => (
+                  <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
+                    <td className="col-rank">{i + 1}</td>
+                    <td className="col-player">{pName(p.playerId, p.name)}</td>
+                    <td className="col-team">{p.teamAbbreviation}</td>
+                    <td className="col-num">{p.completions}/{p.attempts}</td>
+                    <td className="col-num col-primary">{p.passingYards}</td>
+                    <td className="col-num">{p.passingTDs}</td>
+                    <td className="col-num">{p.interceptions}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Rushing */}
+        <div className="leaders-card">
+          <div className="lc-header">
+            <span className="lc-category">RUSHING</span>
+            <span className="lc-stat-label">YDS</span>
+          </div>
+          <table className="leaders-table">
+            <thead>
+              <tr>
+                <th className="col-rank"></th>
+                <th className="col-player">Player</th>
+                <th className="col-team">Team</th>
+                <th className="col-num">CAR</th>
+                <th className="col-num col-primary">YDS</th>
+                <th className="col-num">AVG</th>
+                <th className="col-num">TD</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rushers.length === 0
+                ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
+                : rushers.map((p, i) => (
+                  <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
+                    <td className="col-rank">{i + 1}</td>
+                    <td className="col-player">{pName(p.playerId, p.name)}</td>
+                    <td className="col-team">{p.teamAbbreviation}</td>
+                    <td className="col-num">{p.carries}</td>
+                    <td className="col-num col-primary">{p.rushingYards}</td>
+                    <td className="col-num">{p.carries > 0 ? (p.rushingYards / p.carries).toFixed(1) : '—'}</td>
+                    <td className="col-num">{p.rushingTDs}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Receiving */}
+        <div className="leaders-card">
+          <div className="lc-header">
+            <span className="lc-category">RECEIVING</span>
+            <span className="lc-stat-label">YDS</span>
+          </div>
+          <table className="leaders-table">
+            <thead>
+              <tr>
+                <th className="col-rank"></th>
+                <th className="col-player">Player</th>
+                <th className="col-team">Team</th>
+                <th className="col-num">REC</th>
+                <th className="col-num col-primary">YDS</th>
+                <th className="col-num">AVG</th>
+                <th className="col-num">TD</th>
+              </tr>
+            </thead>
+            <tbody>
+              {receivers.length === 0
+                ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
+                : receivers.map((p, i) => (
+                  <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
+                    <td className="col-rank">{i + 1}</td>
+                    <td className="col-player">{pName(p.playerId, p.name)}</td>
+                    <td className="col-team">{p.teamAbbreviation}</td>
+                    <td className="col-num">{p.receptions}</td>
+                    <td className="col-num col-primary">{p.receivingYards}</td>
+                    <td className="col-num">{p.receptions > 0 ? (p.receivingYards / p.receptions).toFixed(1) : '—'}</td>
+                    <td className="col-num">{p.receivingTDs}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Touchdowns */}
+        <div className="leaders-card">
+          <div className="lc-header">
+            <span className="lc-category">TOUCHDOWNS</span>
+            <span className="lc-stat-label">TD</span>
+          </div>
+          <table className="leaders-table">
+            <thead>
+              <tr>
+                <th className="col-rank"></th>
+                <th className="col-player">Player</th>
+                <th className="col-team">Team</th>
+                <th className="col-num">PASS</th>
+                <th className="col-num">RUSH</th>
+                <th className="col-num">REC</th>
+                <th className="col-num col-primary">TOT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tdLeaders.length === 0
+                ? <tr><td colSpan={7} className="lc-empty">No touchdowns yet</td></tr>
+                : tdLeaders.map((p, i) => (
+                  <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
+                    <td className="col-rank">{i + 1}</td>
+                    <td className="col-player">{pName(p.playerId, p.name)}</td>
+                    <td className="col-team">{p.teamAbbreviation}</td>
+                    <td className="col-num">{p.passingTDs  || '—'}</td>
+                    <td className="col-num">{p.rushingTDs  || '—'}</td>
+                    <td className="col-num">{p.receivingTDs || '—'}</td>
+                    <td className="col-num col-primary">{p.totalTDs}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+  );
+}
+
+// ── Player Detail ──────────────────────────────────────────────────────────────
+
+interface GameLogRow {
+  week: number;
+  opponentAbbr: string;
+  homeAway: 'H' | 'A';
+  result: 'W' | 'L' | 'T';
+  teamScore: number;
+  oppScore: number;
+  completions: number; attempts: number; passingYards: number; passingTDs: number; interceptions: number;
+  carries: number; rushingYards: number; rushingTDs: number;
+  targets: number; receptions: number; receivingYards: number; receivingTDs: number;
+}
+
+function buildGameLog(player: { playerId: string; name: string }, games: Game[]): GameLogRow[] {
+  const rows: GameLogRow[] = [];
+  for (const game of games) {
+    if (game.status !== 'final') continue;
+    // Identify which side the player was on for this specific game (handles trades correctly)
+    const onHome = game.homeTeam.roster.some(p => p.id === player.playerId);
+    const onAway = !onHome && game.awayTeam.roster.some(p => p.id === player.playerId);
+    if (!onHome && !onAway) continue;
+
+    const bs = deriveBoxScore(game);
+
+    // Build name → playerId map from this game's rosters, then find the box
+    // score entry whose name resolves to our target player.playerId.
+    // This prevents a name collision from returning the wrong player's stats.
+    const nameToId = new Map<string, string>();
+    for (const p of [...game.homeTeam.roster, ...game.awayTeam.roster]) {
+      nameToId.set(p.name, p.id);
+    }
+    const pStats = Object.values(bs.players).find(s => nameToId.get(s.name) === player.playerId);
+    if (!pStats) continue; // Player dressed but had no recorded plays
+
+    const isHome    = onHome;
+    const teamScore = isHome ? game.homeScore : game.awayScore;
+    const oppScore  = isHome ? game.awayScore : game.homeScore;
+    rows.push({
+      week:         game.week,
+      opponentAbbr: isHome ? game.awayTeam.abbreviation : game.homeTeam.abbreviation,
+      homeAway:     isHome ? 'H' : 'A',
+      result:       teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'T',
+      teamScore,    oppScore,
+      completions:    pStats.completions,   attempts:      pStats.attempts,
+      passingYards:   pStats.passingYards,  passingTDs:    pStats.passingTDs,
+      interceptions:  pStats.interceptions,
+      carries:        pStats.carries,       rushingYards:  pStats.rushingYards,
+      rushingTDs:     pStats.rushingTDs,    targets:       pStats.targets,
+      receptions:     pStats.receptions,    receivingYards: pStats.receivingYards,
+      receivingTDs:   pStats.receivingTDs,
+    });
+  }
+  return rows.sort((a, b) => a.week - b.week);
+}
+
+function PlayerDetail({ player, games, allTeams, onClose }: {
+  player: import('./seasonStats').SeasonPlayerStats;
+  games: Game[];
+  allTeams: League['teams'];
+  onClose: () => void;
+}) {
+  const rosterPlayer = allTeams.flatMap(t => t.roster).find(p => p.id === player.playerId);
+  const gameLog      = buildGameLog(player, games);
+
+  const hasPassing   = player.attempts  > 0;
+  const hasRushing   = player.carries   > 0;
+  const hasReceiving = player.targets   > 0;
+
+  const totalTDs = player.passingTDs + player.rushingTDs + player.receivingTDs;
+
+  // Dynamic game-log columns
+  const glCols: { label: string; value: (r: GameLogRow) => string | number; primary?: boolean }[] = [];
+  if (hasPassing) {
+    glCols.push(
+      { label: 'C/ATT', value: r => `${r.completions}/${r.attempts}` },
+      { label: 'P.YDS', value: r => r.passingYards, primary: true },
+      { label: 'TD',    value: r => r.passingTDs },
+      { label: 'INT',   value: r => r.interceptions },
+    );
+  }
+  if (hasRushing) {
+    glCols.push(
+      { label: 'CAR',   value: r => r.carries },
+      { label: 'R.YDS', value: r => r.rushingYards, primary: !hasPassing },
+      { label: 'TD',    value: r => r.rushingTDs },
+    );
+  }
+  if (hasReceiving) {
+    glCols.push(
+      { label: 'TGT',   value: r => r.targets },
+      { label: 'REC',   value: r => r.receptions },
+      { label: 'R.YDS', value: r => r.receivingYards, primary: !hasPassing && !hasRushing },
+      { label: 'TD',    value: r => r.receivingTDs },
+    );
+  }
+
+  return (
+    <div className="pd-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="pd-modal">
+
+        {/* Header */}
+        <div className="pd-header">
+          <div className="pd-title">
+            <span className="pd-name">{player.name}</span>
+            <span className="pd-team">{player.teamAbbreviation}</span>
+            {rosterPlayer && (
+              <>
+                <span className="pd-badge">{rosterPlayer.position}</span>
+                <span className="pd-badge">Age {rosterPlayer.age}</span>
+                <span className="pd-badge">OVR {rosterPlayer.scoutedOverall}</span>
+              </>
+            )}
+          </div>
+          <button className="pd-close" onClick={onClose}>✕</button>
+        </div>
+
+        {/* Season totals */}
+        <div className="pd-section-label">Season Totals</div>
+        <div className="pd-stats-row">
+          {hasPassing && (
+            <>
+              <div className="pd-stat"><span className="pd-stat-val">{player.passingYards}</span><span className="pd-stat-lbl">Pass Yds</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.completions}/{player.attempts}</span><span className="pd-stat-lbl">C/ATT</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.passingTDs}</span><span className="pd-stat-lbl">Pass TD</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.interceptions}</span><span className="pd-stat-lbl">INT</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.attempts > 0 ? ((player.completions / player.attempts) * 100).toFixed(1) : '—'}%</span><span className="pd-stat-lbl">Comp%</span></div>
+            </>
+          )}
+          {hasRushing && (
+            <>
+              <div className="pd-stat"><span className="pd-stat-val">{player.rushingYards}</span><span className="pd-stat-lbl">Rush Yds</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.carries}</span><span className="pd-stat-lbl">Car</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.carries > 0 ? (player.rushingYards / player.carries).toFixed(1) : '—'}</span><span className="pd-stat-lbl">YPC</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.rushingTDs}</span><span className="pd-stat-lbl">Rush TD</span></div>
+            </>
+          )}
+          {hasReceiving && (
+            <>
+              <div className="pd-stat"><span className="pd-stat-val">{player.receivingYards}</span><span className="pd-stat-lbl">Rec Yds</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.receptions}/{player.targets}</span><span className="pd-stat-lbl">REC/TGT</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.receptions > 0 ? (player.receivingYards / player.receptions).toFixed(1) : '—'}</span><span className="pd-stat-lbl">YPR</span></div>
+              <div className="pd-stat"><span className="pd-stat-val">{player.receivingTDs}</span><span className="pd-stat-lbl">Rec TD</span></div>
+            </>
+          )}
+          {totalTDs > 0 && (
+            <div className="pd-stat pd-stat-total"><span className="pd-stat-val">{totalTDs}</span><span className="pd-stat-lbl">Total TD</span></div>
+          )}
+        </div>
+
+        {/* Game log */}
+        {gameLog.length > 0 && (
+          <>
+            <div className="pd-section-label">Game Log</div>
+            <div className="pd-table-wrap">
+              <table className="pd-table">
+                <thead>
+                  <tr>
+                    <th className="col-num">WK</th>
+                    <th>OPP</th>
+                    <th className="col-num">H/A</th>
+                    <th className="col-num">RESULT</th>
+                    {glCols.map(c => <th key={c.label} className="col-num">{c.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {gameLog.map((r, i) => (
+                    <tr key={i}>
+                      <td className="col-num pd-week">{r.week === 0 ? 'PO' : r.week}</td>
+                      <td className="pd-opp">{r.opponentAbbr}</td>
+                      <td className="col-num pd-ha">{r.homeAway}</td>
+                      <td className={`col-num pd-result pd-result-${r.result.toLowerCase()}`}>
+                        {r.result} {r.teamScore}–{r.oppScore}
+                      </td>
+                      {glCols.map(c => (
+                        <td key={c.label} className={`col-num${c.primary ? ' col-primary' : ''}`}>
+                          {c.value(r)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+        {gameLog.length === 0 && (
+          <p className="muted" style={{ padding: '1rem' }}>No game data available.</p>
+        )}
+
+      </div>
     </div>
   );
 }
@@ -657,7 +1077,7 @@ function WeekView({ games, week, busy, advanceBtnLabel, onAdvance }: {
           </tbody>
         </table>
       </section>
-      {selectedGame && <GameDetail game={selectedGame} />}
+      {selectedGame && <GameDetail key={selectedGame.id} game={selectedGame} />}
     </div>
   );
 }
@@ -665,23 +1085,41 @@ function WeekView({ games, week, busy, advanceBtnLabel, onAdvance }: {
 // ── Game Detail ────────────────────────────────────────────────────────────────
 
 function GameDetail({ game }: { game: Game }) {
-  const lines = game.status === 'final' ? formatGameLog(game) : null;
+  const isFinal = game.status === 'final';
+  const [tab, setTab] = useState<'pbp' | 'box' | 'watch'>('pbp');
+  const lines = isFinal ? formatGameLog(game) : null;
+
   return (
     <section className="game-detail">
       <div className="game-detail-header">
         <span className="game-matchup">
           {game.awayTeam.name} <span className="vs">@</span> {game.homeTeam.name}
         </span>
-        {game.status === 'final' && (
+        {isFinal && (
           <span className="game-score">{game.awayScore} – {game.homeScore}</span>
         )}
         <span className={`game-status ${game.status}`}>{game.status}</span>
       </div>
-      <div className="pbp-scroll">
-        {lines
-          ? lines.map((line, i) => <PbpLine key={i} line={line} game={game} />)
-          : <p className="pbp-empty">This game has not been played yet.</p>}
-      </div>
+
+      {isFinal && (
+        <nav className="detail-tabs">
+          {(['pbp', 'box', 'watch'] as const).map(t => (
+            <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
+              {t === 'pbp' ? 'Play-by-Play' : t === 'box' ? 'Box Score' : 'Watch'}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {(!isFinal || tab === 'pbp') && (
+        <div className="pbp-scroll">
+          {lines
+            ? lines.map((line, i) => <PbpLine key={i} line={line} game={game} />)
+            : <p className="pbp-empty">This game has not been played yet.</p>}
+        </div>
+      )}
+      {isFinal && tab === 'box'   && <BoxScoreView game={game} />}
+      {isFinal && tab === 'watch' && <GameViewer game={game} />}
     </section>
   );
 }
@@ -703,6 +1141,178 @@ function PbpLine({ line, game }: { line: string; game: Game }) {
   if (isAway)     cls += ' pbp-away';
 
   return <div className={cls}>{line || '\u00a0'}</div>;
+}
+
+// ── Box Score ──────────────────────────────────────────────────────────────────
+
+function BoxScoreView({ game }: { game: Game }) {
+  const bs = deriveBoxScore(game);
+
+  const passers  = Object.values(bs.players).filter(p => p.attempts > 0);
+  const rushers  = Object.values(bs.players).filter(p => p.carries > 0);
+  const receivers = Object.values(bs.players).filter(p => p.targets > 0);
+
+  function TeamRow({ ts }: { ts: typeof bs.home }) {
+    const name = ts.teamId === game.homeTeam.id ? game.homeTeam.abbreviation : game.awayTeam.abbreviation;
+    return (
+      <tr>
+        <td>{name}</td>
+        {ts.pointsByQuarter.map((q, i) => <td key={i}>{q}</td>)}
+        <td><strong>{ts.score}</strong></td>
+        <td>{ts.totalYards}</td>
+        <td>{ts.rushingYards}</td>
+        <td>{ts.passingYards}</td>
+        <td>{ts.firstDowns}</td>
+        <td>{ts.turnovers}</td>
+        <td>{ts.sacksAllowed}</td>
+      </tr>
+    );
+  }
+
+  return (
+    <div className="box-score">
+      <table>
+        <thead>
+          <tr><th>Team</th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th><th>Total</th><th>Yds</th><th>Rush</th><th>Pass</th><th>1D</th><th>TO</th><th>Sks</th></tr>
+        </thead>
+        <tbody>
+          <TeamRow ts={bs.away} />
+          <TeamRow ts={bs.home} />
+        </tbody>
+      </table>
+
+      {passers.length > 0 && (
+        <>
+          <h4>Passing</h4>
+          <table>
+            <thead><tr><th>Player</th><th>C/ATT</th><th>YDS</th><th>TD</th><th>INT</th><th>SCK</th></tr></thead>
+            <tbody>
+              {passers.sort((a, b) => b.passingYards - a.passingYards).map(p => (
+                <tr key={p.name}>
+                  <td>{p.name}</td>
+                  <td>{p.completions}/{p.attempts}</td>
+                  <td>{p.passingYards}</td>
+                  <td>{p.passingTDs}</td>
+                  <td>{p.interceptions}</td>
+                  <td>{p.sacksTotal}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {rushers.length > 0 && (
+        <>
+          <h4>Rushing</h4>
+          <table>
+            <thead><tr><th>Player</th><th>CAR</th><th>YDS</th><th>TD</th></tr></thead>
+            <tbody>
+              {rushers.sort((a, b) => b.rushingYards - a.rushingYards).map(p => (
+                <tr key={p.name}>
+                  <td>{p.name}</td>
+                  <td>{p.carries}</td>
+                  <td>{p.rushingYards}</td>
+                  <td>{p.rushingTDs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {receivers.length > 0 && (
+        <>
+          <h4>Receiving</h4>
+          <table>
+            <thead><tr><th>Player</th><th>TGT</th><th>REC</th><th>YDS</th><th>TD</th></tr></thead>
+            <tbody>
+              {receivers.sort((a, b) => b.receivingYards - a.receivingYards).map(p => (
+                <tr key={p.name}>
+                  <td>{p.name}</td>
+                  <td>{p.targets}</td>
+                  <td>{p.receptions}</td>
+                  <td>{p.receivingYards}</td>
+                  <td>{p.receivingTDs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Game Viewer (Watch mode) ────────────────────────────────────────────────────
+
+function GameViewer({ game }: { game: Game }) {
+  const events = game.events ?? [];
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const homeId = game.homeTeam.id;
+  const atEnd = events.length === 0 || idx >= events.length - 1;
+
+  // Compute running score up to (and including) current play
+  let homeScore = 0, awayScore = 0;
+  for (let i = 0; i <= idx && i < events.length; i++) {
+    const ev = events[i]!;
+    if (ev.result === 'touchdown')       { if (ev.offenseTeamId === homeId) homeScore += 7; else awayScore += 7; }
+    if (ev.result === 'field_goal_good') { if (ev.offenseTeamId === homeId) homeScore += 3; else awayScore += 3; }
+  }
+
+  useEffect(() => {
+    if (!playing) return;
+    if (atEnd) { setPlaying(false); return; }
+    timerRef.current = setTimeout(() => setIdx(i => i + 1), 800);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [playing, atEnd]);
+
+  function reset() { setPlaying(false); setIdx(0); }
+
+  const currentEvent = events[idx];
+  const quarter = currentEvent?.quarter ?? 1;
+  const offAbbr = currentEvent
+    ? (currentEvent.offenseTeamId === homeId ? game.homeTeam.abbreviation : game.awayTeam.abbreviation)
+    : '';
+  const playText = currentEvent ? `[${offAbbr}] ${formatPlay(currentEvent)}` : '';
+  const quarterLabel = atEnd && events.length > 0 ? 'Final' : `Q${Math.min(quarter, 4)}`;
+
+  return (
+    <div className="game-viewer">
+      <div className="viewer-score">
+        <span>{game.awayTeam.abbreviation} <strong>{awayScore}</strong></span>
+        <span className="viewer-quarter">{quarterLabel}</span>
+        <span><strong>{homeScore}</strong> {game.homeTeam.abbreviation}</span>
+      </div>
+
+      <div className="viewer-play">
+        {events.length === 0
+          ? <p className="muted">No play data available for this game.</p>
+          : <PbpLine line={playText} game={game} />}
+      </div>
+
+      {events.length > 0 && (
+        <div className="viewer-progress">
+          Play {idx + 1} / {events.length}{atEnd ? ' — Final' : ''}
+        </div>
+      )}
+
+      <div className="viewer-controls">
+        <button onClick={reset} disabled={idx === 0 && !playing}>Reset</button>
+        <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={playing || idx === 0}>◀ Prev</button>
+        <button
+          onClick={() => setPlaying(v => !v)}
+          disabled={events.length === 0 || (atEnd && !playing)}
+        >
+          {playing ? '⏸ Pause' : '▶ Play'}
+        </button>
+        <button onClick={() => setIdx(i => Math.min(events.length - 1, i + 1))} disabled={playing || atEnd}>Next ▶</button>
+      </div>
+    </div>
+  );
 }
 
 // ── Play-by-play formatter ─────────────────────────────────────────────────────
@@ -768,7 +1378,7 @@ function ActivityFeed({ activities }: { activities: Activity[] }) {
         : sorted.map((a: Activity) => (
           <div key={a.id} className="activity-item">
             <span className="activity-msg">{a.message}</span>
-            <span className="activity-time">{new Date(a.createdAt).toLocaleTimeString()}</span>
+            <span className="activity-time">{fmtTime(a.createdAt)}</span>
           </div>
         ))
       }
@@ -796,7 +1406,7 @@ function NotificationsPanel({ notifications, onMarkRead, onClose }: {
         : sorted.map((n: LeagueNotification) => (
           <div key={n.id} className={`notif-item${n.read ? '' : ' unread'}`}>
             <span className="notif-msg">{n.message}</span>
-            <span className="notif-time">{new Date(n.createdAt).toLocaleTimeString()}</span>
+            <span className="notif-time">{fmtTime(n.createdAt)}</span>
           </div>
         ))
       }
@@ -832,7 +1442,7 @@ function TradesView({ league, myTeamId, onRespond }: {
   async function respond(proposalId: string, accept: boolean) {
     setBusy(proposalId); setError(null);
     try { await onRespond(proposalId, accept); }
-    catch (e) { setError(String(e)); }
+    catch (e) { setError(friendlyError(e)); }
     finally { setBusy(null); }
   }
 

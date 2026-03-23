@@ -130,6 +130,13 @@ function getLeague(req: Request, res: Response): League | null {
   return league;
 }
 
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+function errMsg(e: unknown): string {
+  const s = String(e);
+  return s.startsWith('Error: ') ? s.slice(7) : s;
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
 const app = express();
@@ -144,6 +151,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
+
+// GET / — basic landing response so Render doesn't show "Cannot GET /"
+app.get('/', (_req: Request, res: Response) => {
+  res.json({ message: 'Football Sim backend is running.' });
+});
+
+// GET /health — deployment sanity check
+app.get('/health', (_req: Request, res: Response) => {
+  res.json({ ok: true });
+});
 
 // GET /leagues — list public leagues (summary only, no rosters/events).
 app.get('/leagues', (_req: Request, res: Response) => {
@@ -422,7 +439,7 @@ app.post('/league/:id/advance-week', (req: Request, res: Response) => {
     leagues[id] = doAdvance(league);
     res.json(leagues[id]);
   } catch (e) {
-    res.status(400).json({ error: String(e) });
+    res.status(400).json({ error: errMsg(e) });
   }
 });
 
@@ -434,7 +451,7 @@ app.post('/league/:id/save', (req: Request, res: Response) => {
     saveLeague(league);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
