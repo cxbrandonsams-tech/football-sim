@@ -1,6 +1,9 @@
 import { type League } from './types';
 
-const BASE = 'http://localhost:3000';
+const BASE =
+  window.location.hostname === 'localhost'
+    ? 'http://localhost:3000'
+    : 'https://football-sim-n7sl.onrender.com';
 
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
