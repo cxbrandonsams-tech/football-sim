@@ -2066,3 +2066,207 @@ tr:hover td { background: #232c3d; }
 .btn-danger:hover {
   background: #7f1d1d;
 }
+
+/* ── Season Timeline ──────────────────────────────────────────────────────── */
+
+.season-timeline {
+  border-bottom: 1px solid #1e293b;
+  background: #0a0e1a;
+}
+
+.stl-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1.5rem;
+}
+
+.stl-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.stl-season {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.stl-phase-tag {
+  font-size: 0.75rem;
+  background: #1e3a5f;
+  color: #93c5fd;
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stl-track {
+  display: flex;
+  overflow-x: auto;
+  padding: 0.4rem 1.5rem 0.5rem;
+  gap: 0.3rem;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+
+.stl-tile {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.3rem 0.5rem;
+  min-width: 3.2rem;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: #111827;
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  transition: background 0.15s;
+}
+
+.stl-tile:hover { background: #1e293b; }
+.stl-tile.stl-current { border-color: #3b82f6; color: #93c5fd; background: #172554; }
+.stl-tile.stl-done { color: #4ade80; }
+.stl-tile.stl-selected { background: #1e293b; border-color: #6366f1; color: #a5b4fc; }
+.stl-wk { font-weight: 600; }
+.stl-check { font-size: 0.65rem; color: #4ade80; }
+
+.stl-games-panel {
+  padding: 0 1.5rem 0.75rem;
+}
+
+.stl-games-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.stl-game-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #111827;
+  border: 1px solid #1e293b;
+  border-radius: 5px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+}
+
+.stl-game-row:hover { background: #1e293b; }
+.stl-game-row.stl-game-selected { border-color: #6366f1; background: #1e1b4b; color: #c7d2fe; }
+.stl-game-teams { font-weight: 600; }
+.stl-game-score { color: #4ade80; font-family: monospace; }
+.stl-game-detail { margin-top: 0.5rem; }
+
+/* ── Player name link in roster ──────────────────────────────────────────── */
+
+.player-name-link {
+  background: none;
+  border: none;
+  color: #93c5fd;
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  font-family: inherit;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.1s;
+}
+
+.player-name-link:hover {
+  text-decoration-color: #93c5fd;
+}
+
+/* ── Depth chart enhancements ─────────────────────────────────────────────── */
+
+.depth-drag-handle {
+  cursor: grab;
+  color: #475569;
+  font-size: 1rem;
+  line-height: 1;
+  padding-right: 0.25rem;
+  user-select: none;
+}
+
+.depth-drag-handle:active { cursor: grabbing; }
+
+.depth-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.depth-dragging {
+  opacity: 0.4;
+}
+
+.depth-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #ef4444;
+  font-size: 0.85rem;
+  padding: 0 0.15rem;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.1s;
+}
+
+.depth-remove:hover:not(:disabled) { opacity: 1; }
+.depth-remove:disabled { opacity: 0.25; cursor: not-allowed; }
+
+/* ── Gameplan / Playbooks / Coaching placeholder pages ───────────────────── */
+
+.placeholder-view {
+  padding: 1.5rem;
+}
+
+.placeholder-view h2 {
+  margin-bottom: 0.5rem;
+}
+
+.placeholder-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1.25rem 0;
+}
+
+.ph-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #111827;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 0.75rem 1.25rem;
+  min-width: 7rem;
+}
+
+.ph-val {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  text-transform: capitalize;
+}
+
+.ph-lbl {
+  font-size: 0.72rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.2rem;
+}
+
+.coaching-table-wrap table {
+  width: 100%;
+  max-width: 36rem;
+}

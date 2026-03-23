@@ -1,8 +1,10 @@
 import { type League, type TradeAsset } from './types';
 
+// In dev, Vite proxies /league, /leagues, /auth, /my-leagues → localhost:3000
+// In production (Vercel), requests go directly to the Render backend.
 const BASE =
-  window.location.hostname === 'localhost'
-    ? 'http://localhost:3000'
+  import.meta.env.DEV
+    ? ''
     : 'https://football-sim-n7sl.onrender.com';
 
 // ── Auth token storage ────────────────────────────────────────────────────────

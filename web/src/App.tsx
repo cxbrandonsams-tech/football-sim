@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { deriveBoxScore } from './boxScore';
-import { aggregateSeasonStats } from './seasonStats';
+import { aggregateSeasonStats, type SeasonPlayerStats } from './seasonStats';
 import { DashboardSchedule } from './DashboardSchedule';
 import {
   listLeagues, createLeague, joinLeague, fetchLeague, advanceWeek,
@@ -21,6 +21,9 @@ import './App.css';
 
 /** Strip "Error: " prefix that JS adds to String(e) */
 function friendlyError(e: unknown): string {
+  if (e instanceof TypeError && e.message.toLowerCase().includes('fetch')) {
+    return 'Network error — the server may be unavailable or starting up. Please try again.';
+  }
   const s = String(e);
   return s.startsWith('Error: ') ? s.slice(7) : s;
 }
@@ -450,7 +453,9 @@ function TeamSelect({ league, userId, onClaim, onBack }: {
         <table>
           <thead><tr><th>Team</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {league.teams.map(t => {
+            {[...league.teams]
+              .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+              .map(t => {
               const claimed = !!t.ownerId && t.ownerId !== userId;
               return (
                 <tr key={t.id}>
@@ -487,8 +492,9 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'dashboard' | 'standings' | 'schedule' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'standings' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner' | 'gameplan' | 'playbooks' | 'coaching'>('dashboard');
   const [rosterTeamId, setRosterTeamId] = useState(myTeamId);
+  const [detailPlayerId, setDetailPlayerId] = useState<string | null>(null);
 
   async function action(fn: (id: string) => Promise<League>) {
     setBusy(true); setError(null);
@@ -561,6 +567,14 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
   const weekGames = league.currentSeason.games.filter(g => g.week === league.currentWeek);
   const maxWeek   = Math.max(...league.currentSeason.games.map(g => g.week));
   const rosterTeam = league.teams.find(t => t.id === rosterTeamId) ?? league.teams[0]!;
+  const seasonStats = useMemo(
+    () => aggregateSeasonStats(league.currentSeason.games),
+    [league.currentSeason.games],
+  );
+
+  function handleViewPlayer(playerId: string) {
+    setDetailPlayerId(playerId);
+  }
 
   const isRegularSeason  = league.phase === 'regular_season';
   const hasPlayoffs      = !!(league.playoff || league.phase === 'postseason' || league.phase === 'offseason' || league.phase === 'draft');
@@ -622,17 +636,21 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
 
       {error && <div className="error">{error}</div>}
 
+      <SeasonTimeline
+        league={league}
+        busy={busy}
+        advanceBtnLabel={advanceBtnLabel()}
+        onAdvance={() => action(advanceWeek)}
+      />
+
       <nav className="app-nav">
         <div className="nav-group">
           <span className="nav-group-label">League</span>
           <button className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>Dashboard</button>
           <button className={tab === 'standings' ? 'active' : ''} onClick={() => setTab('standings')}>Standings</button>
-          {isRegularSeason && (
-            <button className={tab === 'schedule' ? 'active' : ''} onClick={() => setTab('schedule')}>Schedule</button>
-          )}
           {hasPlayoffs && (
             <button className={tab === 'playoffs' ? 'active' : ''} onClick={() => setTab('playoffs')}>
-              {league.phase === 'postseason' ? 'Playoffs' : league.phase === 'offseason' || league.phase === 'draft' ? 'Offseason' : 'Playoffs'}
+              {league.phase === 'postseason' ? 'Playoffs' : 'Offseason'}
             </button>
           )}
           <button className={tab === 'news'    ? 'active' : ''} onClick={() => setTab('news')}>News</button>
@@ -657,6 +675,9 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           <button className={tab === 'trades'    ? 'active' : ''} onClick={() => setTab('trades')}>
             Trades{pendingTrades > 0 && <span className="badge">{pendingTrades}</span>}
           </button>
+          <button className={tab === 'gameplan'  ? 'active' : ''} onClick={() => setTab('gameplan')}>Gameplan</button>
+          <button className={tab === 'playbooks' ? 'active' : ''} onClick={() => setTab('playbooks')}>Playbooks</button>
+          <button className={tab === 'coaching'  ? 'active' : ''} onClick={() => setTab('coaching')}>Coaching</button>
           {isCommissioner && (
             <button className={tab === 'commissioner' ? 'active' : ''} onClick={() => setTab('commissioner')}>
               Commissioner
@@ -675,15 +696,6 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
       )}
       {tab === 'standings' && (
         <StandingsView standings={standings} userTeamId={myTeamId} divisions={league.divisions ?? []} />
-      )}
-      {tab === 'schedule' && isRegularSeason && (
-        <WeekView
-          games={weekGames}
-          week={league.currentWeek}
-          busy={busy}
-          advanceBtnLabel={advanceBtnLabel()}
-          onAdvance={() => action(advanceWeek)}
-        />
       )}
       {tab === 'playoffs' && !isRegularSeason && (
         <PlayoffView
@@ -706,6 +718,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           busy={busy}
           onRelease={handleReleasePlayer}
           onExtend={handleExtendPlayer}
+          onViewPlayer={handleViewPlayer}
         />
       )}
       {tab === 'trades' && (
@@ -772,7 +785,204 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           onLeagueUpdated={setLeague}
         />
       )}
+      {tab === 'gameplan'  && <GameplanView  team={league.teams.find(t => t.id === myTeamId)!} />}
+      {tab === 'playbooks' && <PlaybooksView team={league.teams.find(t => t.id === myTeamId)!} />}
+      {tab === 'coaching'  && <CoachingView  team={league.teams.find(t => t.id === myTeamId)!} />}
+
+      {detailPlayerId && (() => {
+        const allPlayers = league.teams.flatMap(t => t.roster).concat(league.freeAgents);
+        const rp = allPlayers.find(p => p.id === detailPlayerId);
+        if (!rp) return null;
+        const teamAbbr = league.teams.find(t => t.roster.some(p => p.id === detailPlayerId))?.abbreviation ?? '?';
+        const stats: SeasonPlayerStats = seasonStats[detailPlayerId] ?? {
+          playerId: rp.id, name: rp.name, teamId: '', teamAbbreviation: teamAbbr,
+          completions: 0, attempts: 0, passingYards: 0, passingTDs: 0, interceptions: 0, sacksTotal: 0,
+          carries: 0, rushingYards: 0, rushingTDs: 0,
+          targets: 0, receptions: 0, receivingYards: 0, receivingTDs: 0,
+        };
+        return (
+          <PlayerDetail
+            player={stats}
+            games={league.currentSeason.games}
+            allTeams={league.teams}
+            onClose={() => setDetailPlayerId(null)}
+          />
+        );
+      })()}
     </div>
+  );
+}
+
+// ── Season Timeline ────────────────────────────────────────────────────────────
+
+function SeasonTimeline({ league, busy, advanceBtnLabel, onAdvance }: {
+  league: League;
+  busy: boolean;
+  advanceBtnLabel: string;
+  onAdvance: () => void;
+}) {
+  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+
+  const games       = league.currentSeason.games;
+  const maxWeek     = games.length > 0 ? Math.max(...games.map(g => g.week)) : 0;
+  const canAdvance  = advanceBtnLabel !== 'Season Complete' && advanceBtnLabel !== 'Draft In Progress';
+
+  const expandedGames = selectedWeek !== null
+    ? games.filter(g => g.week === selectedWeek)
+    : [];
+  const selectedGame = selectedGameId ? games.find(g => g.id === selectedGameId) ?? null : null;
+
+  function phaseTag() {
+    if (league.phase === 'postseason') return 'Playoffs';
+    if (league.phase === 'offseason')  return 'Offseason';
+    if (league.phase === 'draft')      return 'Draft';
+    return null;
+  }
+
+  const tag = phaseTag();
+
+  return (
+    <div className="season-timeline">
+      <div className="stl-header">
+        <div className="stl-meta">
+          <span className="stl-season">Season {league.currentSeason.year}</span>
+          {tag && <span className="stl-phase-tag">{tag}</span>}
+        </div>
+        <button
+          className="advance-btn"
+          disabled={busy || !canAdvance}
+          onClick={onAdvance}
+        >
+          {busy ? 'Simulating…' : advanceBtnLabel}
+        </button>
+      </div>
+
+      {maxWeek > 0 && (
+        <div className="stl-track">
+          {Array.from({ length: maxWeek }, (_, i) => i + 1).map(w => {
+            const weekGames = games.filter(g => g.week === w);
+            const allDone   = weekGames.length > 0 && weekGames.every(g => g.status === 'final');
+            const isCurrent = w === league.currentWeek && league.phase === 'regular_season';
+            const isSelected = selectedWeek === w;
+            const cls = ['stl-tile', allDone ? 'stl-done' : isCurrent ? 'stl-current' : 'stl-future', isSelected ? 'stl-selected' : ''].filter(Boolean).join(' ');
+            return (
+              <button
+                key={w}
+                className={cls}
+                onClick={() => {
+                  setSelectedWeek(prev => prev === w ? null : w);
+                  setSelectedGameId(null);
+                }}
+              >
+                <span className="stl-wk">WK {w}</span>
+                {allDone && <span className="stl-check">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {selectedWeek !== null && expandedGames.length > 0 && (
+        <div className="stl-games-panel">
+          <div className="stl-games-list">
+            {expandedGames.map(g => (
+              <button
+                key={g.id}
+                className={`stl-game-row${selectedGameId === g.id ? ' stl-game-selected' : ''}`}
+                onClick={() => setSelectedGameId(prev => prev === g.id ? null : g.id)}
+              >
+                <span className="stl-game-teams">{g.awayTeam.abbreviation} @ {g.homeTeam.abbreviation}</span>
+                {g.status === 'final'
+                  ? <span className="stl-game-score">{g.awayScore}–{g.homeScore}</span>
+                  : <span className="stl-game-status muted">scheduled</span>}
+              </button>
+            ))}
+          </div>
+          {selectedGame && (
+            <div className="stl-game-detail">
+              <GameDetail key={selectedGame.id} game={selectedGame} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Gameplan / Playbooks / Coaching (stubs ready for future work) ──────────────
+
+function GameplanView({ team }: { team: League['teams'][0] }) {
+  const pc = team.playcalling;
+  return (
+    <section className="placeholder-view">
+      <h2>Gameplan — {team.name}</h2>
+      <p className="muted">Adjust your team's playcalling tendencies. Full gameplan editor coming in a future update.</p>
+      <div className="placeholder-stats">
+        <div className="ph-stat"><span className="ph-val">{pc.runPct}%</span><span className="ph-lbl">Run Rate</span></div>
+        <div className="ph-stat"><span className="ph-val">{pc.insideRunPct}%</span><span className="ph-lbl">Inside Run %</span></div>
+        <div className="ph-stat"><span className="ph-val">{pc.shortPassPct}%</span><span className="ph-lbl">Short Pass %</span></div>
+        <div className="ph-stat"><span className="ph-val">{pc.mediumPassPct}%</span><span className="ph-lbl">Medium Pass %</span></div>
+        <div className="ph-stat"><span className="ph-val">{100 - pc.shortPassPct - pc.mediumPassPct}%</span><span className="ph-lbl">Deep Pass %</span></div>
+      </div>
+      <p className="muted" style={{ marginTop: '1.5rem', fontSize: '0.85rem' }}>
+        ⚙ Gameplan editing (run/pass balance, red-zone tendencies, two-minute drill) will be added in Phase 20.
+      </p>
+    </section>
+  );
+}
+
+function PlaybooksView({ team }: { team: League['teams'][0] }) {
+  const hc = team.coaches.hc;
+  const oc = team.coaches.oc;
+  const dc = team.coaches.dc;
+  return (
+    <section className="placeholder-view">
+      <h2>Playbooks — {team.name}</h2>
+      <p className="muted">Offensive and defensive scheme selection. Full playbook editor coming in a future update.</p>
+      <div className="placeholder-stats">
+        <div className="ph-stat"><span className="ph-val">{oc.offensiveScheme ?? 'balanced'}</span><span className="ph-lbl">Off. Scheme</span></div>
+        <div className="ph-stat"><span className="ph-val">{dc.defensiveScheme ?? 'balanced'}</span><span className="ph-lbl">Def. Scheme</span></div>
+        <div className="ph-stat"><span className="ph-val">{hc.overall}</span><span className="ph-lbl">HC Rating</span></div>
+      </div>
+      <p className="muted" style={{ marginTop: '1.5rem', fontSize: '0.85rem' }}>
+        ⚙ Scheme selection and playbook customization will be added in Phase 20.
+      </p>
+    </section>
+  );
+}
+
+function CoachingView({ team }: { team: League['teams'][0] }) {
+  const { hc, oc, dc } = team.coaches;
+  const coaches = [
+    { role: 'Head Coach',         coach: hc, scheme: null },
+    { role: 'Offensive Coord.',   coach: oc, scheme: oc.offensiveScheme ?? 'balanced' },
+    { role: 'Defensive Coord.',   coach: dc, scheme: dc.defensiveScheme ?? 'balanced' },
+  ] as const;
+  return (
+    <section className="placeholder-view">
+      <h2>Coaching Staff — {team.name}</h2>
+      <div className="coaching-table-wrap">
+        <table>
+          <thead>
+            <tr><th>Role</th><th>Name</th><th>OVR</th><th>Scheme</th></tr>
+          </thead>
+          <tbody>
+            {coaches.map(({ role, coach, scheme }) => (
+              <tr key={coach.id}>
+                <td className="muted">{role}</td>
+                <td>{coach.name}</td>
+                <td className="ovr-cell">{coach.overall}</td>
+                <td className="muted">{scheme ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted" style={{ marginTop: '1.5rem', fontSize: '0.85rem' }}>
+        ⚙ Coach hiring, firing, and development will be added in Phase 20.
+      </p>
+    </section>
   );
 }
 
@@ -2365,13 +2575,14 @@ const ROSTER_POS_GROUPS: { label: string; positions: string[] }[] = [
   { label: 'Special Teams',  positions: ['K', 'P'] },
 ];
 
-function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason, onRelease, onExtend, busy }: {
+function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason, onRelease, onExtend, busy, onViewPlayer }: {
   teams: League['teams']; selectedId: string; userTeamId: string;
   onSelect: (id: string) => void; team: League['teams'][0];
   isOffseason: boolean;
   busy: boolean;
   onRelease: (playerId: string) => void;
   onExtend: (playerId: string) => void;
+  onViewPlayer?: (playerId: string) => void;
 }) {
   const isMyTeam = selectedId === userTeamId;
   const payroll  = team.roster.reduce((s, p) => s + p.salary, 0);
@@ -2420,6 +2631,7 @@ function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason
                     busy={busy}
                     onRelease={() => onRelease(p.id)}
                     onExtend={() => onExtend(p.id)}
+                    onViewPlayer={onViewPlayer}
                   />
                 ))}
               </tbody>
@@ -2431,7 +2643,7 @@ function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason
   );
 }
 
-function PlayerRow({ player: p, isStarter, isMyTeam, isOffseason, busy, onRelease, onExtend }: {
+function PlayerRow({ player: p, isStarter, isMyTeam, isOffseason, busy, onRelease, onExtend, onViewPlayer }: {
   player: Player;
   isStarter?: boolean;
   isMyTeam?: boolean;
@@ -2439,13 +2651,16 @@ function PlayerRow({ player: p, isStarter, isMyTeam, isOffseason, busy, onReleas
   busy?: boolean;
   onRelease?: () => void;
   onExtend?: () => void;
+  onViewPlayer?: (playerId: string) => void;
 }) {
   const injured = p.injuryWeeksRemaining > 0;
   return (
     <tr className={injured ? 'injured' : ''}>
       <td>
         {isStarter && <span className="starter-badge">S</span>}
-        {p.name}
+        {onViewPlayer
+          ? <button className="player-name-link" onClick={() => onViewPlayer(p.id)}>{p.name}</button>
+          : p.name}
         {p.contractDemand && <span className="contract-demand-badge" title={`Wants $${p.contractDemand.salary}M/${p.contractDemand.years}yr`}> !</span>}
         {p.isRookie && <span className="rookie-badge">R</span>}
       </td>
@@ -2472,53 +2687,114 @@ const STARTER_COUNTS: Record<string, number> = {
   QB: 1, RB: 1, WR: 2, TE: 1, OL: 5,
   DE: 2, DT: 2, LB: 2, CB: 2, S: 2, K: 1, P: 1,
 };
+const SLOT_POSITIONS: Record<string, string[]> = {
+  QB: ['QB'], RB: ['RB'], WR: ['WR'], TE: ['TE'],
+  OL: ['OT', 'OG', 'C'], DE: ['DE'], DT: ['DT'],
+  LB: ['OLB', 'MLB'], CB: ['CB'], S: ['FS', 'SS'],
+  K: ['K'], P: ['P'],
+};
 
 function DepthChartView({ team, busy, onReorder }: {
   team: League['teams'][0];
   busy: boolean;
   onReorder: (slot: string, playerIds: string[]) => void;
 }) {
-  if (!team.depthChart) {
-    return <section><h2>Depth Chart</h2><p className="muted">Depth chart not available.</p></section>;
+  const [dragState, setDragState] = useState<{ slot: string; idx: number } | null>(null);
+
+  // IDs of all players already in any depth chart slot
+  const allAssignedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const slot of DEPTH_SLOTS) {
+      for (const p of (team.depthChart?.[slot] ?? [])) {
+        if (p) ids.add(p.id);
+      }
+    }
+    return ids;
+  }, [team.depthChart]);
+
+  /** Depth chart players + any unassigned roster players for this slot's positions */
+  function getSlotPlayers(slot: string): Player[] {
+    const inChart = (team.depthChart?.[slot] ?? []).filter((p): p is Player => p !== null);
+    const positions = SLOT_POSITIONS[slot] ?? [];
+    const unassigned = team.roster.filter(
+      p => positions.includes(p.position) && !allAssignedIds.has(p.id),
+    );
+    return [...inChart, ...unassigned];
   }
 
-  function moveUp(slot: string, idx: number) {
+  function moveUp(slot: string, idx: number, players: Player[]) {
     if (idx === 0) return;
-    const players = (team.depthChart![slot] ?? []).filter((p): p is Player => p !== null);
-    const ids = [...players.map(p => p.id)];
+    const ids = players.map(p => p.id);
     [ids[idx - 1], ids[idx]] = [ids[idx]!, ids[idx - 1]!];
     onReorder(slot, ids);
   }
 
-  function moveDown(slot: string, idx: number, len: number) {
-    if (idx >= len - 1) return;
-    const players = (team.depthChart![slot] ?? []).filter((p): p is Player => p !== null);
-    const ids = [...players.map(p => p.id)];
+  function moveDown(slot: string, idx: number, players: Player[]) {
+    if (idx >= players.length - 1) return;
+    const ids = players.map(p => p.id);
     [ids[idx], ids[idx + 1]] = [ids[idx + 1]!, ids[idx]!];
     onReorder(slot, ids);
+  }
+
+  function removeFromSlot(slot: string, idx: number, players: Player[]) {
+    const ids = players.map(p => p.id).filter((_, i) => i !== idx);
+    onReorder(slot, ids);
+  }
+
+  function handleDragStart(slot: string, idx: number) {
+    setDragState({ slot, idx });
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+  }
+
+  function handleDrop(slot: string, dropIdx: number, players: Player[]) {
+    if (!dragState || dragState.slot !== slot) { setDragState(null); return; }
+    const ids = players.map(p => p.id);
+    const [moved] = ids.splice(dragState.idx, 1);
+    if (moved !== undefined) ids.splice(dropIdx, 0, moved);
+    onReorder(slot, ids);
+    setDragState(null);
   }
 
   return (
     <section>
       <h2>Depth Chart — {team.name}</h2>
-      <p className="muted" style={{ marginBottom: '1rem' }}>Starters are listed first. Use arrows to reorder.</p>
+      <p className="muted" style={{ marginBottom: '1rem' }}>
+        Drag rows to reorder · ▲▼ to nudge · 🗑 to remove from slot (player stays on roster)
+      </p>
       <div className="depth-chart-grid">
         {DEPTH_SLOTS.map(slot => {
-          const players = (team.depthChart![slot] ?? []).filter((p): p is Player => p !== null);
+          const players = getSlotPlayers(slot);
           if (players.length === 0) return null;
           const starters = STARTER_COUNTS[slot] ?? 1;
           return (
             <div key={slot} className="depth-slot">
               <div className="depth-slot-header">{slot}</div>
               {players.map((p, i) => (
-                <div key={p.id} className={`depth-slot-row${i < starters ? ' depth-starter' : ' depth-backup'}`}>
+                <div
+                  key={p.id}
+                  className={`depth-slot-row${i < starters ? ' depth-starter' : ' depth-backup'}${dragState?.slot === slot && dragState.idx === i ? ' depth-dragging' : ''}`}
+                  draggable
+                  onDragStart={() => handleDragStart(slot, i)}
+                  onDragOver={handleDragOver}
+                  onDrop={() => handleDrop(slot, i, players)}
+                >
+                  <span className="depth-drag-handle" title="Drag to reorder">⠿</span>
                   <span className="depth-rank">{i + 1}</span>
                   <span className="depth-name">{p.name}</span>
                   <span className="depth-ovr">{p.scoutedOverall}</span>
                   <div className="depth-arrows">
-                    <button className="depth-arrow" disabled={busy || i === 0} onClick={() => moveUp(slot, i)}>▲</button>
-                    <button className="depth-arrow" disabled={busy || i === players.length - 1} onClick={() => moveDown(slot, i, players.length)}>▼</button>
+                    <button className="depth-arrow" disabled={busy || i === 0} onClick={() => moveUp(slot, i, players)}>▲</button>
+                    <button className="depth-arrow" disabled={busy || i === players.length - 1} onClick={() => moveDown(slot, i, players)}>▼</button>
                   </div>
+                  <button
+                    className="depth-remove"
+                    disabled={busy}
+                    title="Remove from this slot"
+                    onClick={() => removeFromSlot(slot, i, players)}
+                  >🗑</button>
                 </div>
               ))}
             </div>
