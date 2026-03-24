@@ -574,6 +574,72 @@ export const TUNING = {
     // only applied to team-filtered seasons instead of full career.
   },
 
+  // ── Front-office personality biases (Phase 36) ───────────────────────────
+  //
+  // All values are modest adjustments on top of existing football logic.
+  // Personality biases the decision, never replaces it.
+  frontOffice: {
+    /**
+     * Draft scoring adjustments.
+     *   youthBonus     — extra score for prospects aged ≤ 22
+     *   veteranBonus   — extra score for prospects aged ≥ 25 (negative = penalty)
+     *   needMultiplier — scales the existing posNeedBonus (1.0 = no change)
+     */
+    draft: {
+      balanced:     { youthBonus: 0,  veteranBonus: 0,  needMultiplier: 1.0 },
+      aggressive:   { youthBonus: 0,  veteranBonus: 3,  needMultiplier: 1.2 },
+      conservative: { youthBonus: 0,  veteranBonus: 0,  needMultiplier: 0.9 },
+      win_now:      { youthBonus: -2, veteranBonus: 4,  needMultiplier: 1.3 },
+      rebuilder:    { youthBonus: 6,  veteranBonus: -3, needMultiplier: 0.8 },
+      development:  { youthBonus: 8,  veteranBonus: -2, needMultiplier: 0.9 },
+    } as Record<string, { youthBonus: number; veteranBonus: number; needMultiplier: number }>,
+
+    /**
+     * Free-agency scoring adjustments.
+     *   agePenaltyMult — multiplier on the existing direction age penalty
+     *   highOvrBonus   — flat bonus for FA overall ≥ 75 (negative = penalty)
+     */
+    freeAgency: {
+      balanced:     { agePenaltyMult: 1.0, highOvrBonus:  0 },
+      aggressive:   { agePenaltyMult: 0.7, highOvrBonus:  4 },
+      conservative: { agePenaltyMult: 1.2, highOvrBonus: -2 },
+      win_now:      { agePenaltyMult: 0.5, highOvrBonus:  6 },
+      rebuilder:    { agePenaltyMult: 1.5, highOvrBonus: -3 },
+      development:  { agePenaltyMult: 1.2, highOvrBonus: -2 },
+    } as Record<string, { agePenaltyMult: number; highOvrBonus: number }>,
+
+    /**
+     * Trade evaluation adjustments.
+     *   thresholdAdjust — added to the direction-based acceptance threshold
+     *                     (negative = more willing to accept; positive = pickier)
+     *   pickValueBonus  — added to incoming-pick value when team evaluates picks
+     *                     (positive = values picks highly; negative = indifferent)
+     */
+    trades: {
+      balanced:     { thresholdAdjust:  0,     pickValueBonus:  0 },
+      aggressive:   { thresholdAdjust: -0.03,  pickValueBonus: -3 },
+      conservative: { thresholdAdjust:  0.04,  pickValueBonus:  0 },
+      win_now:      { thresholdAdjust: -0.05,  pickValueBonus: -5 },
+      rebuilder:    { thresholdAdjust:  0.02,  pickValueBonus:  8 },
+      development:  { thresholdAdjust:  0.03,  pickValueBonus:  6 },
+    } as Record<string, { thresholdAdjust: number; pickValueBonus: number }>,
+
+    /**
+     * Coaching carousel adjustments.
+     *   firingProbAdjust — added to each firing probability tier
+     *                      (positive = more trigger-happy; negative = patient)
+     *   hiringPoolSize   — how many pool candidates to consider (lower = pickier)
+     */
+    coaching: {
+      balanced:     { firingProbAdjust:  0,     hiringPoolSize: 3 },
+      aggressive:   { firingProbAdjust:  0.06,  hiringPoolSize: 2 },
+      conservative: { firingProbAdjust: -0.06,  hiringPoolSize: 3 },
+      win_now:      { firingProbAdjust:  0.08,  hiringPoolSize: 1 },
+      rebuilder:    { firingProbAdjust:  0.03,  hiringPoolSize: 4 },
+      development:  { firingProbAdjust: -0.02,  hiringPoolSize: 5 },
+    } as Record<string, { firingProbAdjust: number; hiringPoolSize: number }>,
+  },
+
   // ── GM Career / Personal Legacy (Phase 35) ──────────────────────────────
   gmLegacy: {
     /** Points per championship won as GM. */

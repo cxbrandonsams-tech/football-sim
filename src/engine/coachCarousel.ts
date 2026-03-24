@@ -302,10 +302,17 @@ function shouldFireHC(teamId: string, league: League): boolean {
   const lastSeason = record[record.length - 1];
   if (!lastSeason) return false;
 
+  // Personality adjusts firing patience
+  const team        = league.teams.find(t => t.id === teamId);
+  const personality = team?.frontOffice ?? 'balanced';
+  const foCfg       = TUNING.frontOffice.coaching[personality]
+                   ?? TUNING.frontOffice.coaching['balanced']!;
+  const adj = foCfg.firingProbAdjust;
+
   const wins = lastSeason.wins;
-  if (wins < cfg.belowWinThreshold)     return Math.random() < cfg.probBelowThreshold;
-  if (wins < cfg.midWinThreshold)       return Math.random() < cfg.probMidWins;
-  return Math.random() < cfg.probHighWins;
+  if (wins < cfg.belowWinThreshold) return Math.random() < cfg.probBelowThreshold + adj;
+  if (wins < cfg.midWinThreshold)   return Math.random() < cfg.probMidWins + adj;
+  return Math.random() < cfg.probHighWins + adj;
 }
 
 /** Auto-fill any vacant coordinator slots for an AI team using the pool. */
@@ -371,13 +378,17 @@ export function runAICoachCarousel(league: League): League {
     if (team.id === current.userTeamId) continue;
     if (team.coaches.hc) continue; // already has HC
 
-    const pool     = current.unemployedCoaches ?? [];
-    const hcPool   = pool.filter(c => c.role === 'HC').sort((a, b) => b.overall - a.overall);
+    const pool      = current.unemployedCoaches ?? [];
+    const hcPool    = pool.filter(c => c.role === 'HC').sort((a, b) => b.overall - a.overall);
     let   newHC: Coach;
 
     if (hcPool.length > 0) {
-      // Pick from top-3 available HCs with some randomness
-      const candidates = hcPool.slice(0, Math.min(3, hcPool.length));
+      // Pool size depends on personality: win_now always grabs the best; development looks deeper
+      const personality = team.frontOffice ?? 'balanced';
+      const foCfg       = TUNING.frontOffice.coaching[personality]
+                       ?? TUNING.frontOffice.coaching['balanced']!;
+      const poolSize    = foCfg.hiringPoolSize;
+      const candidates  = hcPool.slice(0, Math.min(poolSize, hcPool.length));
       newHC = candidates[Math.floor(Math.random() * candidates.length)]!;
       current = {
         ...current,

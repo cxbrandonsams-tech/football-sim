@@ -5,6 +5,7 @@ import { calcStandings } from '../models/Standings';
 import { buildDepthChart } from '../models/DepthChart';
 import { getTeamDirection, posGroup, WANT_COUNTS } from './teamDirection';
 import { convertProspectToPlayer } from './scoutingEngine';
+import { TUNING } from './config';
 
 // ── Name / position pools ─────────────────────────────────────────────────────
 
@@ -199,7 +200,9 @@ export function generateTieredDraftClass(year: number): Player[] {
 }
 
 export function aiPickProspect(available: Player[], team: Team, league: League): Player {
-  const direction = getTeamDirection(team, league);
+  const direction   = getTeamDirection(team, league);
+  const personality = team.frontOffice ?? 'balanced';
+  const foCfg       = TUNING.frontOffice.draft[personality] ?? TUNING.frontOffice.draft['balanced']!;
 
   // Count current roster by group
   const have: Record<string, number> = {};
@@ -213,8 +216,9 @@ export function aiPickProspect(available: Player[], team: Team, league: League):
   for (const p of available) {
     const group = posGroup(p.position);
     const want  = WANT_COUNTS[group] ?? 0;
-    // Need bonus: missing depth at this position
-    const posNeedBonus = Math.max(0, Math.min(15, (want - (have[group] ?? 0)) * 4));
+    // Need bonus: missing depth at this position (scaled by personality)
+    const rawNeedBonus = Math.max(0, Math.min(15, (want - (have[group] ?? 0)) * 4));
+    const posNeedBonus = rawNeedBonus * foCfg.needMultiplier;
     // Overstock penalty: already well above desired depth, avoid stacking
     const have_now = have[group] ?? 0;
     const overstockPenalty = want > 0 && have_now > want + 1 ? (have_now - want - 1) * 5 : 0;
@@ -222,8 +226,12 @@ export function aiPickProspect(available: Player[], team: Team, league: League):
     let directionBonus = 0;
     if (direction === 'rebuilding' && p.age <= 22) directionBonus = 5;
     if (direction === 'contender'  && p.age >= 24) directionBonus = 3;
+    // Personality bonus: front-office philosophy on top of direction
+    let personalityBonus = 0;
+    if (p.age <= 22) personalityBonus += foCfg.youthBonus;
+    if (p.age >= 25) personalityBonus += foCfg.veteranBonus;
 
-    const score = p.overall + posNeedBonus + directionBonus - overstockPenalty;
+    const score = p.overall + posNeedBonus + directionBonus + personalityBonus - overstockPenalty;
     if (score > bestScore) { bestScore = score; best = p; }
   }
   return best;

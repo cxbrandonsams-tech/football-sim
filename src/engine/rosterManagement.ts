@@ -1,5 +1,5 @@
 import { calcSalary } from '../models/Player';
-import { type Team } from '../models/Team';
+import { type Team, type FrontOfficePersonality } from '../models/Team';
 import { type League, getUserTeam } from '../models/League';
 import { buildDepthChart } from '../models/DepthChart';
 import { getTeamDirection, evaluateRosterNeeds, posGroup } from './teamDirection';
@@ -67,19 +67,29 @@ export function signPlayer(league: League, playerId: string): { league: League; 
  *                 (keep the FA pool moving; each team signs what fits their window)
  */
 function scoreFAForTeam(
-  fa:        { overall: number; age: number; position: Parameters<typeof posGroup>[0] },
-  direction: ReturnType<typeof getTeamDirection>,
-  needs:     ReturnType<typeof evaluateRosterNeeds>,
+  fa:          { overall: number; age: number; position: Parameters<typeof posGroup>[0] },
+  direction:   ReturnType<typeof getTeamDirection>,
+  needs:       ReturnType<typeof evaluateRosterNeeds>,
+  personality: FrontOfficePersonality = 'balanced',
 ): number {
   const group     = posGroup(fa.position);
   const need      = needs[group] ?? 0;
   const needBonus = Math.min(12, Math.max(0, need * 4));
 
+  const foCfg = TUNING.frontOffice.freeAgency[personality]
+             ?? TUNING.frontOffice.freeAgency['balanced']!;
+
   let agePenalty = 0;
   if (direction === 'contender'  && fa.age >= 33) agePenalty = 8;
   if (direction === 'rebuilding' && fa.age >= 30) agePenalty = (fa.age - 29) * 4;
 
-  return fa.overall + needBonus - agePenalty;
+  // Apply personality age-penalty multiplier
+  agePenalty = agePenalty * foCfg.agePenaltyMult;
+
+  // High-OVR bonus/penalty: win_now/aggressive love elite vets; rebuilders penalise them
+  const highOvrBonus = fa.overall >= 75 ? foCfg.highOvrBonus : 0;
+
+  return fa.overall + needBonus - agePenalty + highOvrBonus;
 }
 
 // Each AI team signs free agents until its roster is full or cap is tight.
@@ -92,12 +102,13 @@ export function aiSignFreeAgents(league: League): { league: League; signed: { te
     if (team.id === current.userTeamId) continue;
 
     let currentTeam = current.teams.find(t => t.id === team.id)!;
-    const direction = getTeamDirection(currentTeam, current);
-    const needs     = evaluateRosterNeeds(currentTeam);
+    const direction   = getTeamDirection(currentTeam, current);
+    const needs       = evaluateRosterNeeds(currentTeam);
+    const personality = currentTeam.frontOffice ?? 'balanced';
 
-    // Score and sort FAs for this specific team's context
+    // Score and sort FAs for this specific team's context (direction + personality)
     const sortedFAs = [...current.freeAgents].sort(
-      (a, b) => scoreFAForTeam(b, direction, needs) - scoreFAForTeam(a, direction, needs),
+      (a, b) => scoreFAForTeam(b, direction, needs, personality) - scoreFAForTeam(a, direction, needs, personality),
     );
 
     for (const fa of sortedFAs) {

@@ -239,11 +239,9 @@ export function applyTrade(league: League, proposal: TradeProposal): League {
 
 /** Returns true if the AI toTeam should accept the proposal. */
 export function shouldAIAcceptTrade(proposal: TradeProposal, league: League): boolean {
-  const incomingValue = totalAssetsValue(proposal.fromAssets, league);
-  const outgoingValue = totalAssetsValue(proposal.toAssets, league);
-
-  const toTeam    = league.teams.find(t => t.id === proposal.toTeamId);
-  const direction = toTeam ? getTeamDirection(toTeam, league) : 'neutral';
+  const toTeam     = league.teams.find(t => t.id === proposal.toTeamId);
+  const direction  = toTeam ? getTeamDirection(toTeam, league) : 'neutral';
+  const personality = toTeam?.frontOffice ?? 'balanced';
 
   const incomingHasPick  = proposal.fromAssets.some(a => a.type === 'pick');
   const incomingHasYouth = proposal.fromAssets.some(
@@ -256,6 +254,19 @@ export function shouldAIAcceptTrade(proposal: TradeProposal, league: League): bo
   if (direction === 'contender')  threshold = t.contenderThreshold;
   if (direction === 'rebuilding' && (incomingHasPick || incomingHasYouth)) threshold = t.rebuilderPickThreshold;
   if (direction === 'rebuilding' && !incomingHasPick && !incomingHasYouth) threshold = t.rebuilderNoPickThreshold;
+
+  // Apply personality adjustment (win_now more willing; conservative pickier)
+  const foCfg = TUNING.frontOffice.trades[personality]
+             ?? TUNING.frontOffice.trades['balanced']!;
+  threshold += foCfg.thresholdAdjust;
+
+  // Personality pick-value bonus: rebuilder/development teams value incoming picks higher
+  let incomingValue = totalAssetsValue(proposal.fromAssets, league);
+  if (incomingHasPick && foCfg.pickValueBonus !== 0) {
+    const pickCount = proposal.fromAssets.filter(a => a.type === 'pick').length;
+    incomingValue += pickCount * foCfg.pickValueBonus;
+  }
+  const outgoingValue = totalAssetsValue(proposal.toAssets, league);
 
   return incomingValue >= outgoingValue * threshold;
 }
@@ -414,10 +425,18 @@ export function runAITrades(league: League): League {
     const sellerDir = getTeamDirection(seller, cur);
     const buyerDir  = getTeamDirection(buyer, cur);
 
+    const sellerPersonality = seller.frontOffice ?? 'balanced';
+    const buyerPersonality  = buyer.frontOffice  ?? 'balanced';
+
+    // Rebuilder/development sellers protect youth + upside
+    const sellerProtectsYouth = sellerDir === 'rebuilding'
+      || sellerPersonality === 'rebuilder'
+      || sellerPersonality === 'development';
+
     const sellerCandidates = [...seller.roster]
       .sort((a, b) => calcPlayerValue(b) - calcPlayerValue(a))
       .filter(p => {
-        if (sellerDir === 'rebuilding' && p.age <= 26 && p.overall >= 70) return false;
+        if (sellerProtectsYouth && p.age <= 26 && p.overall >= 70) return false;
         return true;
       });
 
@@ -426,8 +445,13 @@ export function runAITrades(league: League): League {
     if (!player1) continue;
     const val1 = calcPlayerValue(player1);
 
+    // Win-now/aggressive buyers protect prime-age stars; conservative/development protect differently
+    const buyerProtectsPrime = buyerDir === 'contender'
+      || buyerPersonality === 'win_now'
+      || buyerPersonality === 'aggressive';
+
     const buyerCandidates = buyer.roster.filter(p => {
-      if (buyerDir === 'contender' && p.age >= 27 && p.age <= 32 && p.overall >= 70) return false;
+      if (buyerProtectsPrime && p.age >= 27 && p.age <= 32 && p.overall >= 70) return false;
       return true;
     });
 

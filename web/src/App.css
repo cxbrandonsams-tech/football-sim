@@ -4015,3 +4015,38 @@ details[open] summary .muted { color: #94a3b8; }
 .dash-hof-name { color: #fbbf24; font-weight: 500; flex: 1; }
 .dash-hof-pos { font-size: 0.75rem; background: #1e3a5f; color: #93c5fd; padding: 0.1rem 0.3rem; border-radius: 3px; }
 .dash-hof-year { font-size: 0.75rem; }
+
+/* ── Front Office Personality Badges ─────────────────────────────────────── */
+.fo-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.fo-badge-sm { font-size: 0.72rem; }
+.fo-badge-md { font-size: 0.82rem; }
+
+/* balanced — neutral blue */
+.fo-balanced     { background: #1e3a5f; color: #93c5fd; border-color: #2d5a8e; }
+/* aggressive — orange */
+.fo-aggressive   { background: #431407; color: #fb923c; border-color: #7c2d12; }
+/* conservative — slate */
+.fo-conservative { background: #1e293b; color: #94a3b8; border-color: #334155; }
+/* win_now — gold */
+.fo-win-now      { background: #451a03; color: #fcd34d; border-color: #92400e; }
+/* rebuilder — green */
+.fo-rebuilder    { background: #052e16; color: #4ade80; border-color: #14532d; }
+/* development — purple */
+.fo-development  { background: #2e1065; color: #c084fc; border-color: #4c1d95; }
+
+/* Trade builder partner identity row */
+.trade-partner-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  font-size: 0.85rem;
+}

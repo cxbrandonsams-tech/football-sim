@@ -19,7 +19,7 @@ import {
   setAuthToken, authToken,
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
-import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type NewsMention, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type GmSeasonRecord, type GmAchievement } from './types';
+import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type NewsMention, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type GmSeasonRecord, type GmAchievement, type FrontOfficePersonality } from './types';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -39,6 +39,35 @@ function fmtTime(ts: number): string {
   const sameDay = d.toDateString() === new Date().toDateString();
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return sameDay ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+}
+
+// ── Front-office personality helpers ────────────────────────────────────────────
+
+const FO_LABEL: Record<FrontOfficePersonality, string> = {
+  balanced:     'Balanced',
+  aggressive:   'Aggressive',
+  conservative: 'Conservative',
+  win_now:      'Win-Now',
+  rebuilder:    'Rebuilder',
+  development:  'Development',
+};
+
+const FO_DESC: Record<FrontOfficePersonality, string> = {
+  balanced:     'Even-handed approach; no strong bias in any direction.',
+  aggressive:   'Prioritises impact players and is willing to spend and take risks.',
+  conservative: 'Patient and value-driven; avoids overpaying in free agency or trades.',
+  win_now:      'Maximises the current championship window; trades future for today.',
+  rebuilder:    'Trades veterans for youth and picks; building for the long term.',
+  development:  'Invests in young players and internal growth; tolerates short-term results.',
+};
+
+function FoPersonalityBadge({ personality, size = 'sm' }: { personality: FrontOfficePersonality | undefined; size?: 'sm' | 'md' }) {
+  if (!personality) return null;
+  return (
+    <span className={`fo-badge fo-${personality.replace('_', '-')} fo-badge-${size}`} title={FO_DESC[personality]}>
+      {FO_LABEL[personality]}
+    </span>
+  );
 }
 
 // ── Top-level screen ───────────────────────────────────────────────────────────
@@ -3033,7 +3062,13 @@ function StandingsView({ standings, userTeamId, divisions }: {
           <tbody>
             {rows.map(s => (
               <tr key={s.team.id} className={s.team.id === userTeamId ? 'user-row' : ''}>
-                <td>{s.team.name} {s.team.id === userTeamId && <span className="you">YOU</span>}</td>
+                <td>
+                  <span className="stand-team-name">{s.team.name}</span>
+                  {s.team.id === userTeamId && <span className="you">YOU</span>}
+                  {s.team.frontOffice && s.team.id !== userTeamId && (
+                    <FoPersonalityBadge personality={s.team.frontOffice} size="sm" />
+                  )}
+                </td>
                 <td>{s.w}</td><td>{s.l}</td><td>{s.t}</td>
                 <td>{s.pf}</td><td>{s.pa}</td>
                 <td className={s.pf - s.pa >= 0 ? 'pos' : 'neg'}>{s.pf - s.pa > 0 ? '+' : ''}{s.pf - s.pa}</td>
@@ -4620,7 +4655,11 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
             const rv = p.toAssets.reduce((s, a) => s + assetDisplayValue(a), 0);
             return (
               <div key={p.id} className="trade-card">
-                <div className="trade-teams"><strong>{teamName(p.fromTeamId)}</strong> → <strong>You</strong></div>
+                <div className="trade-teams">
+                  <strong>{teamName(p.fromTeamId)}</strong>
+                  <FoPersonalityBadge personality={league.teams.find(t => t.id === p.fromTeamId)?.frontOffice} size="sm" />
+                  {' → '}<strong>You</strong>
+                </div>
                 <div className="trade-sides">
                   <div className="trade-side">
                     <span className="trade-side-label">They give ({gv})</span>
@@ -4656,6 +4695,12 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
 
         {targetTeam && (
           <>
+            {targetTeam.frontOffice && (
+              <div className="trade-partner-identity">
+                <FoPersonalityBadge personality={targetTeam.frontOffice} size="md" />
+                <span className="muted">{FO_DESC[targetTeam.frontOffice]}</span>
+              </div>
+            )}
             <div className="trade-sides">
               <div className="trade-side">
                 <strong>You give</strong>
@@ -4833,7 +4878,12 @@ function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason
   return (
     <section>
       <div className="roster-header">
-        <h2>Roster — {team.name}</h2>
+        <h2>
+          Roster — {team.name}
+          {!isMyTeam && team.frontOffice && (
+            <FoPersonalityBadge personality={team.frontOffice} size="sm" />
+          )}
+        </h2>
         <select value={selectedId} onChange={e => onSelect(e.target.value)}>
           {teams.map(t => (
             <option key={t.id} value={t.id}>{t.name}{t.id === userTeamId ? ' (You)' : ''}</option>
@@ -5257,7 +5307,15 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
 
   return (
     <section>
-      <h2>{team.name}</h2>
+      <div className="team-overview-header">
+        <h2 style={{ margin: 0 }}>{team.name}</h2>
+        {team.frontOffice && (
+          <div className="team-fo-identity">
+            <FoPersonalityBadge personality={team.frontOffice} size="md" />
+            <span className="team-fo-desc muted">{FO_DESC[team.frontOffice]}</span>
+          </div>
+        )}
+      </div>
 
       <div className="team-overview-grid">
         {/* Record */}

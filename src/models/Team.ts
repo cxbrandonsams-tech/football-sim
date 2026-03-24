@@ -62,6 +62,21 @@ export function derivePlaycalling(g: GameplanSettings): PlaycallingWeights {
   });
 }
 
+// ── Front-office personality ──────────────────────────────────────────────────
+
+/**
+ * Persistent front-office building philosophy for a CPU-controlled team.
+ * Influences draft, free-agency, trade, and coaching carousel decisions.
+ * Does not override football logic — biases it.
+ */
+export type FrontOfficePersonality =
+  | 'balanced'       // Even-handed; no strong bias
+  | 'aggressive'     // Prioritises impact; willing to spend and take risks
+  | 'conservative'   // Patient and value-driven; avoids overpaying
+  | 'win_now'        // Maximises present-window; trades future for today
+  | 'rebuilder'      // Trades veterans for youth and picks; builds long-term
+  | 'development';   // Invests in young players; tolerates short-term losses
+
 // ── Team ──────────────────────────────────────────────────────────────────────
 
 export interface Team {
@@ -92,6 +107,8 @@ export interface Team {
   scoutingData?:     Record<string, ProspectScoutingState>;
   /** Ordered list of prospect IDs this team wants to target */
   draftBoard?:       string[];
+  /** Persistent front-office building philosophy (CPU teams only). */
+  frontOffice?:      FrontOfficePersonality;
 }
 
 export function createTeam(
@@ -107,6 +124,7 @@ export function createTeam(
     gameplan?:      GameplanSettings;
     scout?:         HeadScout;
     scoutingBudget?: number;
+    frontOffice?:   FrontOfficePersonality;
   } = {},
 ): Team {
   const gameplan = opts.gameplan ?? DEFAULT_GAMEPLAN;
@@ -128,6 +146,7 @@ export function createTeam(
       scoutingData:    {} as Record<string, ProspectScoutingState>,
       draftBoard:      [] as string[],
     }),
+    ...(opts.frontOffice !== undefined && { frontOffice: opts.frontOffice }),
   };
 }
 

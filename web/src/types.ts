@@ -379,6 +379,16 @@ export const DEFAULT_GAMEPLAN: GameplanSettings = {
   defensivePlaybook: 'balanced',
 };
 
+// ── Front-office personality ──────────────────────────────────────────────────
+
+export type FrontOfficePersonality =
+  | 'balanced'
+  | 'aggressive'
+  | 'conservative'
+  | 'win_now'
+  | 'rebuilder'
+  | 'development';
+
 // ── Team ──────────────────────────────────────────────────────────────────────
 
 export interface Team {
@@ -396,6 +406,8 @@ export interface Team {
   scoutingPoints?: number;
   scoutingData?:  Record<string, ProspectScoutingState>;
   draftBoard?:    string[];
+  /** Persistent front-office building philosophy. */
+  frontOffice?:   FrontOfficePersonality;
 }
 
 // ── Game events ───────────────────────────────────────────────────────────────

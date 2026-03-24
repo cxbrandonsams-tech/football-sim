@@ -9,7 +9,7 @@
  */
 
 import { createPlayer, clamp, type AnyRatings } from './models/Player';
-import { createTeam }                            from './models/Team';
+import { createTeam, type FrontOfficePersonality } from './models/Team';
 import { createCoach, type CoachPersonality, type CoachTrait } from './models/Coach';
 import { createLeague, type LeagueOptions, type Division, type ConferenceName, type DivisionName } from './models/League';
 import { type HeadScout } from './models/Scout';
@@ -430,6 +430,61 @@ const TEAM_DEFS: TeamDef[] = [
   { id:'sc_ari', name:'Arizona Scorpions',      abbr:'ARI', conf:'SC', div:'West',  tier:1 },
 ];
 
+// ── Front-office personalities ────────────────────────────────────────────────
+//
+// Assigned deterministically per team (index matches TEAM_DEFS order).
+// High-tier teams tend toward win_now/aggressive; low-tier toward rebuilder/development.
+
+const TEAM_FRONT_OFFICES: FrontOfficePersonality[] = [
+  // Iron Conference — North (indices 0–3)
+  'win_now',      // ic_pit  (PIT) — perennial powerhouse
+  'rebuilder',    // ic_cle  (CLE) — long-suffering franchise
+  'balanced',     // ic_cin  (CIN) — methodical builder
+  'aggressive',   // ic_buf  (BUF) — hungry contender
+
+  // Iron Conference — South (indices 4–7)
+  'conservative', // ic_hou  (HOU) — steady front office
+  'development',  // ic_ten  (TEN) — patient rebuild
+  'rebuilder',    // ic_jax  (JAX) — starting over
+  'balanced',     // ic_ind  (IND) — mid-tier steady state
+
+  // Iron Conference — East (indices 8–11)
+  'aggressive',   // ic_ne   (NE)  — proven winner, still hungry
+  'conservative', // ic_nye  (NYE) — big market, risk-averse
+  'development',  // ic_mia  (MIA) — investing in youth
+  'win_now',      // ic_bal  (BAL) — championship window now
+
+  // Iron Conference — West (indices 12–15)
+  'conservative', // ic_den  (DEN) — value-conscious
+  'aggressive',   // ic_kc   (KC)  — aggressive dynasty builder
+  'rebuilder',    // ic_lv   (LV)  — franchise reset
+  'balanced',     // ic_lac  (LAC) — even-keeled operation
+
+  // Shield Conference — North (indices 16–19)
+  'win_now',      // sc_gb   (GB)  — tradition-rich title window
+  'balanced',     // sc_chi  (CHI) — no strong lean
+  'aggressive',   // sc_min  (MIN) — hungry to break through
+  'rebuilder',    // sc_det  (DET) — ground-up rebuild
+
+  // Shield Conference — South (indices 20–23)
+  'development',  // sc_no   (NO)  — youth investment era
+  'conservative', // sc_atl  (ATL) — slow and steady
+  'rebuilder',    // sc_car  (CAR) — long rebuild underway
+  'aggressive',   // sc_tb   (TB)  — aggressive free spender
+
+  // Shield Conference — East (indices 24–27)
+  'win_now',      // sc_dal  (DAL) — always win-now mentality
+  'balanced',     // sc_phi  (PHI) — disciplined front office
+  'development',  // sc_was  (WAS) — investing in future
+  'rebuilder',    // sc_nyg  (NYG) — major rebuild
+
+  // Shield Conference — West (indices 28–31)
+  'balanced',     // sc_lar  (LAR) — stable mid-tier
+  'aggressive',   // sc_sf   (SF)  — aggressive analytics shop
+  'conservative', // sc_sea  (SEA) — value-driven
+  'development',  // sc_ari  (ARI) — youth movement
+];
+
 // ── Division structure ────────────────────────────────────────────────────────
 
 function buildDivisions(): Division[] {
@@ -450,12 +505,13 @@ export function createInitialLeague(id: string, options: LeagueOptions = {}) {
   const divisions = buildDivisions();
 
   const teams = TEAM_DEFS.map((td, i) => {
-    const roster  = buildRoster(i, td.tier);
-    const coaches = buildCoaches(i, td.tier);
-    const scout   = buildScout(i, td.tier);
+    const roster       = buildRoster(i, td.tier);
+    const coaches      = buildCoaches(i, td.tier);
+    const scout        = buildScout(i, td.tier);
     const scoutingBudget = SCOUT_BUDGETS[td.tier] ?? 5;
+    const frontOffice  = TEAM_FRONT_OFFICES[i] ?? 'balanced';
     return createTeam(td.id, td.name, td.abbr, roster, coaches,
-      { conference: td.conf, division: td.div, scout, scoutingBudget });
+      { conference: td.conf, division: td.div, scout, scoutingBudget, frontOffice });
   });
 
   // User team is Pittsburgh Ironmen (ic_pit) — top-tier, IC North
