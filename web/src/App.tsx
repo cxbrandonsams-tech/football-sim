@@ -7,7 +7,7 @@ import {
   claimTeam as claimTeamApi, proposeTrade as proposeTradeApi, respondTrade as respondTradeApi,
   markNotificationsRead as markReadApi,
   extendPlayer as extendPlayerApi, releasePlayer as releasePlayerApi,
-  signFreeAgent as signFreeAgentApi, setDepthChart as setDepthChartApi, setGameplan as setGameplanApi,
+  setDepthChart as setDepthChartApi, setGameplan as setGameplanApi,
   draftPick as draftPickApi, simDraft as simDraftApi,
   scoutProspect as scoutProspectApi, updateDraftBoard as updateDraftBoardApi,
   advanceDraftPick as advanceDraftPickApi, advanceToUserPick as advanceToUserPickApi,
@@ -19,7 +19,7 @@ import {
   setAuthToken, setAuthUser, clearAuth, authToken, authUserId, authUsername,
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
-import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type NewsMention, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type GmSeasonRecord, type GmAchievement, type FrontOfficePersonality } from './types';
+import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type FrontOfficePersonality } from './types';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -607,13 +607,6 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
     finally { setBusy(false); }
   }
 
-  async function handleSignFreeAgent(playerId: string) {
-    setBusy(true); setError(null);
-    try { setLeague(await signFreeAgentApi(leagueId, playerId)); }
-    catch (e) { setError(friendlyError(e)); }
-    finally { setBusy(false); }
-  }
-
   async function handleOfferContract(playerId: string, salary: number, years: number) {
     setBusy(true); setError(null);
     try {
@@ -878,7 +871,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
         />
       )}
       {tab === 'awards'  && (
-        <AwardsView history={league.history} myTeamId={myTeamId} teams={league.teams} onViewPlayer={handleViewPlayer} />
+        <AwardsView history={league.history} myTeamId={myTeamId} onViewPlayer={handleViewPlayer} />
       )}
       {tab === 'history' && (
         <HistoryView history={league.history} teams={league.teams} myTeamId={myTeamId} />
@@ -2278,7 +2271,7 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
   const gameLog       = buildGameLog(player, games);
   const seasonHistory = history?.playerHistory[player.playerId] ?? [];
   const playerAwards  = history?.seasonAwards.flatMap(sa => sa.awards.filter(a => a.playerId === player.playerId)) ?? [];
-  const visibleRatings = rosterPlayer?.ratings ? getVisibleRatings(rosterPlayer.ratings) : null;
+  const visibleRatings = rosterPlayer?.scoutedRatings ? getVisibleRatings(rosterPlayer.scoutedRatings) : null;
   const devBadge = rosterPlayer?.devTrait && rosterPlayer.devTrait !== 'normal' ? DEV_TRAIT_BADGE[rosterPlayer.devTrait] : null;
 
   // Legacy / HoF
@@ -2391,7 +2384,7 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
         )}
 
         {pdTab === 'career' && seasonHistory.length > 0 ? (
-          <PlayerCareerView seasons={seasonHistory} position={rosterPlayer?.position} awards={playerAwards} />
+          <PlayerCareerView seasons={seasonHistory} awards={playerAwards} />
         ) : (
           <>
 
@@ -2477,9 +2470,8 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
 
 // ── Player career view ─────────────────────────────────────────────────────────
 
-function PlayerCareerView({ seasons, position, awards }: {
+function PlayerCareerView({ seasons, awards }: {
   seasons: PlayerSeasonHistoryLine[];
-  position?: string;
   awards?: AwardRecord[];
 }) {
 
@@ -2590,10 +2582,9 @@ function formatPlayoffRound(madePlayoffs: boolean, round?: string): string {
 
 // ── Awards view ────────────────────────────────────────────────────────────────
 
-function AwardsView({ history, myTeamId, teams, onViewPlayer }: {
+function AwardsView({ history, myTeamId, onViewPlayer }: {
   history: LeagueHistory;
   myTeamId: string;
-  teams: League['teams'];
   onViewPlayer?: (id: string) => void;
 }) {
   const pastSeasons = [...history.seasonAwards].reverse();
@@ -3832,6 +3823,24 @@ function getPositionGroupClient(position: string): string {
   }
 }
 
+/** Typed numeric stat lookup for PlayerSeasonHistoryLine — avoids unsafe Record cast. */
+function getSeasonStat(s: PlayerSeasonHistoryLine, stat: string): number {
+  switch (stat) {
+    case 'passingYards':       return s.passingYards;
+    case 'passingTDs':         return s.passingTDs;
+    case 'interceptions':      return s.interceptions;
+    case 'rushingYards':       return s.rushingYards;
+    case 'rushingTDs':         return s.rushingTDs;
+    case 'receivingYards':     return s.receivingYards;
+    case 'receivingTDs':       return s.receivingTDs;
+    case 'receptions':         return s.receptions;
+    case 'sacks':              return s.sacks;
+    case 'interceptionsCaught': return s.interceptionsCaught;
+    case 'gamesPlayed':        return s.gamesPlayed;
+    default:                   return 0;
+  }
+}
+
 function computeClientLegacyScore(playerId: string, position: string, history: LeagueHistory): number {
   const seasons = history.playerHistory[playerId];
   if (!seasons || seasons.length === 0) return 0;
@@ -3882,7 +3891,7 @@ function computeClientLegacyScore(playerId: string, position: string, history: L
     const leaders = Object.entries(history.playerHistory)
       .map(([pid, pSeasons]) => ({
         playerId: pid,
-        total: pSeasons.reduce((sum, s) => sum + ((s as Record<string, number>)[stat] ?? 0), 0),
+        total: pSeasons.reduce((sum, s) => sum + getSeasonStat(s, stat), 0),
       }))
       .filter(e => e.total > 0)
       .sort((a, b) => b.total - a.total);
