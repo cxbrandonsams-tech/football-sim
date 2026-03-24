@@ -76,75 +76,72 @@ function makeRatings(position: Position, tier: Tier): AnyRatings {
     };
     case 'RB': return {
       position: 'RB',
-      speed: r(tier), acceleration: r(tier), power: r(tier), agility: r(tier),
-      vision: r(tier), ballSecurity: r(tier), passBlocking: r(tier), routeRunning: r(tier),
+      speed: r(tier), elusiveness: r(tier), power: r(tier),
+      vision: r(tier), ballSecurity: r(tier),
       personality: personality(tier),
     };
     case 'WR': return {
       position: 'WR',
-      speed: r(tier), acceleration: r(tier), catching: r(tier), routeRunning: r(tier),
-      separation: r(tier), release: r(tier), blocking: r(tier),
+      speed: r(tier), routeRunning: r(tier), hands: r(tier),
+      yac: r(tier), size: r(tier),
       personality: personality(tier),
     };
     case 'TE': return {
       position: 'TE',
-      strength: r(tier), speed: r(tier), catching: r(tier), routeRunning: r(tier),
-      blocking: r(tier), release: r(tier),
+      speed: r(tier), routeRunning: r(tier), hands: r(tier),
+      yac: r(tier), size: r(tier), blocking: r(tier),
       personality: personality(tier),
     };
     case 'OT': return {
       position: 'OT',
-      passBlocking: r(tier), runBlocking: r(tier), strength: r(tier), agility: r(tier), awareness: r(tier),
+      passBlocking: r(tier), runBlocking: r(tier), awareness: r(tier),
       personality: personality(tier),
     };
     case 'OG': return {
       position: 'OG',
-      passBlocking: r(tier), runBlocking: r(tier), strength: r(tier), agility: r(tier), awareness: r(tier),
+      passBlocking: r(tier), runBlocking: r(tier), awareness: r(tier),
       personality: personality(tier),
     };
     case 'C': return {
       position: 'C',
-      passBlocking: r(tier), runBlocking: r(tier), strength: r(tier), agility: r(tier), awareness: r(tier),
+      passBlocking: r(tier), runBlocking: r(tier), awareness: r(tier),
       personality: personality(tier),
     };
     case 'DE': return {
       position: 'DE',
-      passRush: r(tier), runStop: r(tier), strength: r(tier), athleticism: r(tier), motor: r(tier),
+      passRush: r(tier), runDefense: r(tier), discipline: r(tier),
       personality: personality(tier),
     };
     case 'DT': return {
       position: 'DT',
-      passRush: r(tier), runStop: r(tier), strength: r(tier), athleticism: r(tier), motor: r(tier),
+      passRush: r(tier), runDefense: r(tier), discipline: r(tier),
       personality: personality(tier),
     };
     case 'OLB': return {
       position: 'OLB',
-      passRush: r(tier), runStop: r(tier), coverage: r(tier), athleticism: r(tier),
-      awareness: r(tier), pursuit: r(tier),
+      passRush: r(tier), runDefense: r(tier), coverage: r(tier),
+      speed: r(tier), pursuit: r(tier),
       personality: personality(tier),
     };
     case 'MLB': return {
       position: 'MLB',
-      passRush: r(tier), runStop: r(tier), coverage: r(tier), athleticism: r(tier),
-      awareness: r(tier), pursuit: r(tier),
+      passRush: r(tier), runDefense: r(tier), coverage: r(tier),
+      speed: r(tier), pursuit: r(tier),
       personality: personality(tier),
     };
     case 'CB': return {
       position: 'CB',
-      manCoverage: r(tier), zoneCoverage: r(tier), ballSkills: r(tier), press: r(tier),
-      speed: r(tier), athleticism: r(tier),
+      coverage: r(tier), ballSkills: r(tier), speed: r(tier), size: r(tier),
       personality: personality(tier),
     };
     case 'FS': return {
       position: 'FS',
-      zoneCoverage: r(tier), manCoverage: r(tier), ballSkills: r(tier), range: r(tier),
-      hitPower: r(tier), athleticism: r(tier),
+      coverage: r(tier), ballSkills: r(tier), speed: r(tier), size: r(tier), range: r(tier),
       personality: personality(tier),
     };
     case 'SS': return {
       position: 'SS',
-      zoneCoverage: r(tier), manCoverage: r(tier), ballSkills: r(tier), range: r(tier),
-      hitPower: r(tier), athleticism: r(tier),
+      coverage: r(tier), ballSkills: r(tier), speed: r(tier), size: r(tier), range: r(tier),
       personality: personality(tier),
     };
     case 'K': return {

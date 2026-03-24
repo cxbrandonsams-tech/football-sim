@@ -14,13 +14,11 @@ export interface BlockingResult {
  * The result modulates available lanes and base yards.
  */
 export function evaluateBlocking(
-  olRunBlocking: number,
-  olStrength:    number,
-  dlRunStop:     number,
-  dlStrength:    number,
+  olRunBlocking:  number,
+  dlRunDefense:   number,
 ): BlockingResult {
-  const olScore = olRunBlocking * cfg.blockingRunBlockWeight + olStrength * cfg.blockingStrengthWeight;
-  const dlScore = dlRunStop     * cfg.defRunStopResistance   + dlStrength * cfg.defRunStopResistance;
+  const olScore = olRunBlocking;
+  const dlScore = dlRunDefense * cfg.defRunDefenseResistance;
 
   const rawScore = (olScore - dlScore) / 100 + cfg.blockingBase;
   const score    = Math.max(0, Math.min(1, rawScore));
@@ -65,13 +63,13 @@ export interface EngagementResult {
 }
 
 /**
- * First-contact engagement between RB power and DL strength at the point of attack.
+ * First-contact engagement between RB power and DL run defense at the point of attack.
  */
 export function evaluateEngagement(
-  rbPower:    number,
-  dlStrength: number,
+  rbPower:      number,
+  dlRunDefense: number,
 ): EngagementResult {
-  const powerAdvantage = (rbPower - dlStrength) * cfg.powerVsStrengthScale;
+  const powerAdvantage = (rbPower - dlRunDefense) * cfg.powerVsRunDefenseScale;
   return { powerAdvantage: Math.max(-1, Math.min(1, powerAdvantage)) };
 }
 
@@ -84,25 +82,25 @@ export interface ContactResult {
 
 /**
  * Determine whether the RB breaks the initial tackle attempt.
- * LB hitPower and pursuit increase tackle success.
- * RB agility and power increase break-tackle chance.
+ * LB pursuit and speed increase tackle success.
+ * RB elusiveness and power increase break-tackle chance (Power OR Elusiveness per play type).
  */
 export function evaluateContact(
-  rbAgility:   number,
-  rbPower:     number,
-  lbPursuit:   number,
-  lbHitPower:  number,
+  rbElusiveness: number,
+  rbPower:       number,
+  lbPursuit:     number,
+  lbSpeed:       number,
   powerAdvantage: number,
 ): ContactResult {
   const breakChance =
     cfg.breakTackleBase +
-    (rbAgility - 50) * cfg.breakTackleAgilityScale +
-    (rbPower   - 50) * cfg.breakTacklePowerScale   +
+    (rbElusiveness - 50) * cfg.breakTackleElusivenessScale +
+    (rbPower       - 50) * cfg.breakTacklePowerScale       +
     powerAdvantage * 0.15;
 
   const tackleBonus  =
-    (lbPursuit  - 50) * cfg.tackleHitPowerScale +
-    (lbHitPower - 50) * cfg.tackleHitPowerScale;
+    (lbPursuit - 50) * cfg.tackleSpeedScale +
+    (lbSpeed   - 50) * cfg.tackleSpeedScale;
 
   const breakProb      = Math.max(0.05, Math.min(0.70, breakChance - tackleBonus));
   const brokeFirstTackle = Math.random() < breakProb;
@@ -122,19 +120,17 @@ export interface BreakawayResult {
 
 /**
  * If the RB breaks into the second level after breaking the first tackle,
- * speed and acceleration determine whether they pull away for extra yards.
+ * speed determines whether they pull away for extra yards (open field only).
  */
 export function evaluateBreakaway(
-  rbSpeed:        number,
-  rbAcceleration: number,
+  rbSpeed:          number,
   brokeFirstTackle: boolean,
 ): BreakawayResult {
   if (!brokeFirstTackle) {
     return { bonusYards: 0, gotFreeRun: false };
   }
 
-  const speedScore = (rbSpeed + rbAcceleration) / 2;
-  if (speedScore < cfg.breakawaySpeedThreshold) {
+  if (rbSpeed < cfg.breakawaySpeedThreshold) {
     return { bonusYards: 0, gotFreeRun: false };
   }
 

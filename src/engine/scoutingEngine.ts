@@ -126,22 +126,22 @@ function makeRatings(position: Position, tier: DraftTier): AnyRatings {
   switch (position) {
     case 'QB':  return { position: 'QB', armStrength: r(), pocketPresence: r(), mobility: r(),
       shortAccuracy: r(), mediumAccuracy: r(), deepAccuracy: r(), processing: r(), decisionMaking: r() };
-    case 'RB':  return { position: 'RB', speed: r(), acceleration: r(), power: r(), agility: r(),
-      vision: r(), ballSecurity: r(), passBlocking: r(), routeRunning: r(), personality: personality(tier) };
-    case 'WR':  return { position: 'WR', speed: r(), acceleration: r(), catching: r(), routeRunning: r(),
-      separation: r(), release: r(), blocking: r(), personality: personality(tier) };
-    case 'TE':  return { position: 'TE', strength: r(), speed: r(), catching: r(), routeRunning: r(),
-      blocking: r(), release: r(), personality: personality(tier) };
-    case 'OT':  return { position: 'OT', passBlocking: r(), runBlocking: r(), strength: r(), agility: r(), awareness: r(), personality: personality(tier) };
-    case 'OG':  return { position: 'OG', passBlocking: r(), runBlocking: r(), strength: r(), agility: r(), awareness: r(), personality: personality(tier) };
-    case 'C':   return { position: 'C',  passBlocking: r(), runBlocking: r(), strength: r(), agility: r(), awareness: r(), personality: personality(tier) };
-    case 'DE':  return { position: 'DE', passRush: r(), runStop: r(), strength: r(), athleticism: r(), motor: r(), personality: personality(tier) };
-    case 'DT':  return { position: 'DT', passRush: r(), runStop: r(), strength: r(), athleticism: r(), motor: r(), personality: personality(tier) };
-    case 'OLB': return { position: 'OLB', passRush: r(), runStop: r(), coverage: r(), athleticism: r(), awareness: r(), pursuit: r(), personality: personality(tier) };
-    case 'MLB': return { position: 'MLB', passRush: r(), runStop: r(), coverage: r(), athleticism: r(), awareness: r(), pursuit: r(), personality: personality(tier) };
-    case 'CB':  return { position: 'CB', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), press: r(), speed: r(), athleticism: r(), personality: personality(tier) };
-    case 'FS':  return { position: 'FS', zoneCoverage: r(), manCoverage: r(), ballSkills: r(), range: r(), hitPower: r(), athleticism: r(), personality: personality(tier) };
-    case 'SS':  return { position: 'SS', zoneCoverage: r(), manCoverage: r(), ballSkills: r(), range: r(), hitPower: r(), athleticism: r(), personality: personality(tier) };
+    case 'RB':  return { position: 'RB', speed: r(), elusiveness: r(), power: r(),
+      vision: r(), ballSecurity: r(), personality: personality(tier) };
+    case 'WR':  return { position: 'WR', speed: r(), routeRunning: r(), hands: r(),
+      yac: r(), size: r(), personality: personality(tier) };
+    case 'TE':  return { position: 'TE', speed: r(), routeRunning: r(), hands: r(),
+      yac: r(), size: r(), blocking: r(), personality: personality(tier) };
+    case 'OT':  return { position: 'OT', passBlocking: r(), runBlocking: r(), awareness: r(), personality: personality(tier) };
+    case 'OG':  return { position: 'OG', passBlocking: r(), runBlocking: r(), awareness: r(), personality: personality(tier) };
+    case 'C':   return { position: 'C',  passBlocking: r(), runBlocking: r(), awareness: r(), personality: personality(tier) };
+    case 'DE':  return { position: 'DE', passRush: r(), runDefense: r(), discipline: r(), personality: personality(tier) };
+    case 'DT':  return { position: 'DT', passRush: r(), runDefense: r(), discipline: r(), personality: personality(tier) };
+    case 'OLB': return { position: 'OLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), personality: personality(tier) };
+    case 'MLB': return { position: 'MLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), personality: personality(tier) };
+    case 'CB':  return { position: 'CB', coverage: r(), ballSkills: r(), speed: r(), size: r(), personality: personality(tier) };
+    case 'FS':  return { position: 'FS', coverage: r(), ballSkills: r(), speed: r(), size: r(), range: r(), personality: personality(tier) };
+    case 'SS':  return { position: 'SS', coverage: r(), ballSkills: r(), speed: r(), size: r(), range: r(), personality: personality(tier) };
     case 'K':   return { position: 'K',  kickPower: r(), kickAccuracy: r(), composure: r(), personality: personality(tier) };
     case 'P':   return { position: 'P',  kickPower: r(), kickAccuracy: r(), composure: r(), personality: personality(tier) };
   }
@@ -178,60 +178,52 @@ function getRatingEntries(ratings: AnyRatings): RatingEntry[] {
     ];
     case 'RB': return [
       { key:'speed',        value: ratings.speed,        hiText:'Blazing speed with legitimate home-run ability',              loText:'Speed limits his big-play ceiling at this level' },
-      { key:'acceleration', value: ratings.acceleration, hiText:'Explosive first step that hits the hole immediately',          loText:'Takes too long to reach full speed' },
+      { key:'elusiveness',  value: ratings.elusiveness,  hiText:'Exceptional change of direction and open-field wiggle',       loText:'Limited ability to make defenders miss in space' },
       { key:'power',        value: ratings.power,        hiText:'Powerful runner who falls forward for extra yards',            loText:'Gets stopped in his tracks by physical defenders' },
-      { key:'agility',      value: ratings.agility,      hiText:'Exceptional change of direction and open-field wiggle',       loText:'Limited ability to make defenders miss in space' },
       { key:'vision',       value: ratings.vision,       hiText:'Natural vision reading blocks and finding creases',           loText:'Struggles to set up blocks and find cutback lanes' },
       { key:'ballSecurity', value: ratings.ballSecurity, hiText:'Excellent ball security, takes care of the football',         loText:'Fumble risk that must be cleaned up at the next level' },
     ];
     case 'WR': return [
       { key:'speed',        value: ratings.speed,        hiText:'Elite speed and a consistent vertical threat downfield',       loText:'Average speed limits separation potential' },
-      { key:'catching',     value: ratings.catching,     hiText:'Reliable hands, makes the tough catches in traffic',          loText:'Drops are a recurring problem on film' },
       { key:'routeRunning', value: ratings.routeRunning, hiText:'Crisp, precise routes with sharp breaks at every level',      loText:'Route running needs refinement at the pro level' },
-      { key:'separation',   value: ratings.separation,   hiText:'Creates consistent separation against all coverage types',    loText:'Gets locked up by physical corners at the line' },
-      { key:'release',      value: ratings.release,      hiText:'Quick and varied release off the line of scrimmage',         loText:'Struggles to get off the line vs. press coverage' },
+      { key:'hands',        value: ratings.hands,        hiText:'Reliable hands, makes the tough catches in traffic',          loText:'Drops are a recurring problem on film' },
+      { key:'yac',          value: ratings.yac,          hiText:'Exceptional after-the-catch ability, turns short gains long', loText:'Limited ability to create after the catch' },
+      { key:'size',         value: ratings.size,         hiText:'Size advantage in contested catch situations',                loText:'Smaller frame can be a disadvantage on contested balls' },
     ];
     case 'TE': return [
-      { key:'catching',     value: ratings.catching,     hiText:'Reliable hands in traffic and over the middle',               loText:'Catching inconsistency will cost him targets' },
+      { key:'hands',        value: ratings.hands,        hiText:'Reliable hands in traffic and over the middle',               loText:'Catching inconsistency will cost him targets' },
       { key:'blocking',     value: ratings.blocking,     hiText:'Physical and capable as an in-line blocker',                  loText:'Blocking needs significant development to play early' },
       { key:'routeRunning', value: ratings.routeRunning, hiText:'Athletic mover with a varied and well-run route tree',        loText:'Route tree is limited for the position' },
-      { key:'strength',     value: ratings.strength,     hiText:'Physically imposing, hard to move off his spot',             loText:'Needs to add strength to hold up at the line' },
+      { key:'yac',          value: ratings.yac,          hiText:'Dangerous after the catch, hard to bring down in space',      loText:'Stops at the catch point rather than creating yards' },
       { key:'speed',        value: ratings.speed,        hiText:'Rare speed for the position, creates real matchup problems',  loText:'Limited speed reduces his mismatch potential' },
     ];
     case 'OT': case 'OG': case 'C': return [
       { key:'passBlocking', value: ratings.passBlocking, hiText:'Stout in pass protection, anchors well vs. bull rushes',      loText:'Gives up pressure and struggles on spin/speed moves' },
       { key:'runBlocking',  value: ratings.runBlocking,  hiText:'Dominant in the run game, drives defenders off the ball',    loText:'Inconsistent run blocker who gets washed out' },
-      { key:'strength',     value: ratings.strength,     hiText:'Extremely powerful at the point of attack',                  loText:'Needs to add strength to compete consistently' },
-      { key:'agility',      value: ratings.agility,      hiText:'Good lateral agility and athleticism for the position',      loText:'Limited lateral movement hurts him in space' },
       { key:'awareness',    value: ratings.awareness,    hiText:'Smart and communicates well, handles stunts and games',       loText:'Gets confused by complex defensive stunts' },
     ];
     case 'DE': case 'DT': return [
       { key:'passRush',    value: ratings.passRush,    hiText:'Relentless pass rusher with a varied and effective move set',  loText:'Pass rush production is inconsistent on film' },
-      { key:'runStop',     value: ratings.runStop,     hiText:'Stout against the run, holds his gap with authority',         loText:'Gets pushed around and washed out vs. the run' },
-      { key:'strength',    value: ratings.strength,    hiText:'Exceptional physical power at the point of attack',           loText:'Needs to add strength to hold the point of attack' },
-      { key:'athleticism', value: ratings.athleticism, hiText:'Outstanding burst and first-step quickness off the ball',     loText:'Limited athleticism for his position' },
-      { key:'motor',       value: ratings.motor,       hiText:'High motor, relentless effort and pursuit on every play',     loText:'Motor tends to disappear for stretches in games' },
+      { key:'runDefense',  value: ratings.runDefense,  hiText:'Stout against the run, holds his gap with authority',         loText:'Gets pushed around and washed out vs. the run' },
+      { key:'discipline',  value: ratings.discipline,  hiText:'Disciplined gap integrity, never out of position',            loText:'Gets caught out of gap responsibility too often' },
     ];
     case 'OLB': case 'MLB': return [
-      { key:'runStop',     value: ratings.runStop,     hiText:'Physical tackler who fills the hole with authority',           loText:'Struggles to disengage blocks and reach the ball' },
+      { key:'runDefense',  value: ratings.runDefense,  hiText:'Physical tackler who fills the hole with authority',           loText:'Struggles to disengage blocks and reach the ball' },
       { key:'coverage',    value: ratings.coverage,    hiText:'Natural coverage instincts, mirrors well in open space',       loText:'Coverage is a significant liability vs. spread teams' },
-      { key:'athleticism', value: ratings.athleticism, hiText:'Athletic range to cover sideline-to-sideline',                loText:'Limited athleticism affects his range and recovery' },
-      { key:'awareness',   value: ratings.awareness,   hiText:'Smart and pre-snap awareness helps him anticipate plays',     loText:'Gets fooled by misdirection and play-action' },
+      { key:'speed',       value: ratings.speed,       hiText:'Athletic range to cover sideline-to-sideline',                loText:'Limited athleticism affects his range and recovery' },
       { key:'pursuit',     value: ratings.pursuit,     hiText:'Elite pursuit angles, rarely overruns or loses contain',      loText:'Takes poor pursuit angles and gets cut back on' },
     ];
     case 'CB': return [
-      { key:'manCoverage',  value: ratings.manCoverage,  hiText:'Can lock receivers down in tight man coverage',              loText:'Struggles to stay with quicker receivers in man' },
-      { key:'speed',        value: ratings.speed,        hiText:'Closing speed to run with any receiver on the field',        loText:'Average speed is a liability against speed receivers' },
-      { key:'zoneCoverage', value: ratings.zoneCoverage, hiText:'Natural zone instincts and ball-tracking ability',           loText:'Gets lost in zone and bites on route combinations' },
-      { key:'press',        value: ratings.press,        hiText:'Aggressive press technique that disrupts timing routes',     loText:'Gets beaten over the top when pressing' },
-      { key:'ballSkills',   value: ratings.ballSkills,   hiText:'Ball hawk who goes up and takes the football away',          loText:'Ball skills and playmaking need improvement' },
+      { key:'coverage',    value: ratings.coverage,    hiText:'Can lock receivers down in man or zone coverage',             loText:'Struggles to stay with quicker receivers' },
+      { key:'speed',       value: ratings.speed,       hiText:'Closing speed to run with any receiver on the field',        loText:'Average speed is a liability against speed receivers' },
+      { key:'ballSkills',  value: ratings.ballSkills,  hiText:'Ball hawk who goes up and takes the football away',          loText:'Ball skills and playmaking need improvement' },
+      { key:'size',        value: ratings.size,        hiText:'Size advantage in contested catch situations',               loText:'Smaller frame is a disadvantage on contested catches' },
     ];
     case 'FS': case 'SS': return [
-      { key:'zoneCoverage', value: ratings.zoneCoverage, hiText:'Natural center fielder who covers ground effortlessly',      loText:'Zone coverage reads are slow and inconsistent' },
-      { key:'range',        value: ratings.range,        hiText:'Elite range that erases the deep half of the field',        loText:'Limited range restricts the coverage he can play' },
-      { key:'hitPower',     value: ratings.hitPower,     hiText:'Physical hitter who sets the tone in run support',          loText:'Lacks the physicality needed at the next level' },
-      { key:'athleticism',  value: ratings.athleticism,  hiText:'Fluid and athletic, takes great angles to the football',    loText:'Average athleticism limits positional versatility' },
-      { key:'manCoverage',  value: ratings.manCoverage,  hiText:'Can match up in press on TEs and slot receivers',           loText:'Man coverage is a consistent liability on film' },
+      { key:'coverage',    value: ratings.coverage,    hiText:'Natural center fielder who covers ground effortlessly',      loText:'Zone coverage reads are slow and inconsistent' },
+      { key:'range',       value: ratings.range,       hiText:'Elite range that erases the deep half of the field',        loText:'Limited range restricts the coverage he can play' },
+      { key:'speed',       value: ratings.speed,       hiText:'Fluid and athletic, takes great angles to the football',    loText:'Average athleticism limits positional versatility' },
+      { key:'ballSkills',  value: ratings.ballSkills,  hiText:'Ball hawk with instincts to read and jump routes',          loText:'Ball skills need improvement at the next level' },
     ];
     case 'K': case 'P': return [
       { key:'kickPower',    value: ratings.kickPower,    hiText:'Powerful leg with range from 55+ yards',                    loText:'Limited leg strength restricts the playable range' },

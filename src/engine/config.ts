@@ -12,10 +12,9 @@ export const TUNING = {
     sackRatingScale:       0.002,   // per point of (passRush − passBlocking)
 
     // Separation phase (coverage suppresses separation; does NOT gate completion)
-    separationRouteWeight: 0.50,    // routeRunning contribution
-    separationSpeedWeight: 0.30,
-    separationReleaseWeight: 0.20,
-    coverageResistance:    0.40,    // how much manCoverage suppresses separation
+    separationRouteWeight: 0.60,    // routeRunning contribution
+    separationSpeedWeight: 0.40,
+    coverageResistance:    0.40,    // how much coverage suppresses separation
 
     // Decision phase
     processingReadlineScalar: 0.01, // per point above 50
@@ -29,7 +28,7 @@ export const TUNING = {
 
     // Catch phase
     catchingBase:          0.80,
-    catchingRatingScale:   0.003,   // per point of catching above 70
+    handsRatingScale:      0.003,   // per point of hands above 70
 
     // Ball Skills: affects pass breakups only (not coverage/separation)
     ballSkillsBreakupChance: 0.15,  // base chance DB breaks up a catchable ball
@@ -39,7 +38,7 @@ export const TUNING = {
     baseIntChance:         0.05,
     minIntChance:          0.02,
     maxIntChance:          0.12,
-    intCoverageScale:      0.001,   // per point (manCoverage − decisionMaking)
+    intCoverageScale:      0.001,   // per point (coverage − decisionMaking)
 
     // Play action deception bonus to separation
     playActionDeceptionBase:       0.08,
@@ -50,10 +49,8 @@ export const TUNING = {
   // ── Run engine ────────────────────────────────────────────────────────────
   run: {
     // Blocking phase
-    blockingBase:            0.55,
-    blockingRunBlockWeight:  0.50,
-    blockingStrengthWeight:  0.50,
-    defRunStopResistance:    0.40,
+    blockingBase:               0.55,
+    defRunDefenseResistance:    0.40,
 
     // Vision phase
     visionBonusThreshold:    75,      // vision above this grants bonus yards
@@ -61,13 +58,13 @@ export const TUNING = {
     visionBonusMax:          3,
 
     // Engagement phase
-    powerVsStrengthScale:    0.01,    // per point (RB power − DL strength)
+    powerVsRunDefenseScale:       0.01,    // per point (RB power − DL runDefense)
 
     // Contact / break-tackle phase
-    breakTackleBase:         0.20,
-    breakTackleAgilityScale: 0.004,
-    breakTacklePowerScale:   0.003,
-    tackleHitPowerScale:     0.003,   // LB hitPower increases tackle chance
+    breakTackleBase:              0.20,
+    breakTackleElusivenessScale:  0.004,
+    breakTacklePowerScale:        0.003,
+    tackleSpeedScale:             0.003,   // LB speed increases tackle chance
 
     // Breakaway phase
     breakawaySpeedThreshold: 85,

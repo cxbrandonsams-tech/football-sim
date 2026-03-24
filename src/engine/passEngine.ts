@@ -16,12 +16,10 @@ export interface ProtectionResult {
  */
 export function evaluateProtection(
   olPassBlocking: number,
-  olStrength:     number,
   dlPassRush:     number,
-  dlAthleticism:  number,
 ): ProtectionResult {
-  const olRating  = (olPassBlocking + olStrength)   / 2;
-  const dlRating  = (dlPassRush    + dlAthleticism) / 2;
+  const olRating  = olPassBlocking;
+  const dlRating  = dlPassRush;
   const advantage = dlRating - olRating;
 
   const sackChance = Math.max(
@@ -196,12 +194,12 @@ export interface CatchResult {
  * - Catching (WR): increases catch probability on contested or difficult balls.
  */
 export function evaluateCatch(
-  catching:       number,
+  hands:          number,
   dbBallSkills:   number,
   throwQuality:   number,
 ): CatchResult {
   // Catch chance
-  const catchMod  = (catching - 70) * cfg.catchingRatingScale;
+  const catchMod  = (hands - 70) * cfg.handsRatingScale;
   const catchProb = Math.max(0, Math.min(1, cfg.catchingBase + catchMod + throwQuality * 0.15));
 
   // DB breakup chance (only if ball is catchable)
@@ -218,14 +216,14 @@ export function evaluateCatch(
 
 /**
  * On an incompletion, check whether the DB intercepted the ball.
- * manCoverage vs decisionMaking — poor decisions under pressure are punished.
+ * coverage vs decisionMaking — poor decisions under pressure are punished.
  */
 export function checkInterception(
-  dbManCoverage:  number,
+  dbCoverage:       number,
   qbDecisionMaking: number,
-  pressureLevel:  number,
+  pressureLevel:    number,
 ): boolean {
-  const advantage = (dbManCoverage - qbDecisionMaking) * cfg.intCoverageScale;
+  const advantage = (dbCoverage - qbDecisionMaking) * cfg.intCoverageScale;
   const pressureBonus = pressureLevel * 0.04;
   const chance = Math.max(
     cfg.minIntChance,

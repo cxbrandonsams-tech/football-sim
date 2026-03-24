@@ -24,36 +24,31 @@ export interface QBRatings {
 export interface RBRatings {
   position: 'RB';
   speed:        number;
-  acceleration: number;
+  elusiveness:  number;
   power:        number;
-  agility:      number;
   vision:       number;
   ballSecurity: number;
-  passBlocking: number;
-  routeRunning: number;
   personality:  PersonalityRatings;
 }
 
 export interface WRRatings {
   position: 'WR';
   speed:        number;
-  acceleration: number;
-  catching:     number;
   routeRunning: number;
-  separation:   number;
-  release:      number;
-  blocking:     number;
+  hands:        number;
+  yac:          number;
+  size:         number;
   personality:  PersonalityRatings;
 }
 
 export interface TERatings {
   position: 'TE';
-  strength:     number;
   speed:        number;
-  catching:     number;
   routeRunning: number;
+  hands:        number;
+  yac:          number;
+  size:         number;
   blocking:     number;
-  release:      number;
   personality:  PersonalityRatings;
 }
 
@@ -61,8 +56,6 @@ export interface OLRatings {
   position: 'OT' | 'OG' | 'C';
   passBlocking: number;
   runBlocking:  number;
-  strength:     number;
-  agility:      number;
   awareness:    number;
   personality:  PersonalityRatings;
 }
@@ -70,44 +63,38 @@ export interface OLRatings {
 export interface DLRatings {
   position: 'DE' | 'DT';
   passRush:    number;
-  runStop:     number;
-  strength:    number;
-  athleticism: number;
-  motor:       number;
+  runDefense:  number;
+  discipline:  number;
   personality: PersonalityRatings;
 }
 
 export interface LBRatings {
   position: 'OLB' | 'MLB';
   passRush:    number;
-  runStop:     number;
+  runDefense:  number;
   coverage:    number;
-  athleticism: number;
-  awareness:   number;
+  speed:       number;
   pursuit:     number;
   personality: PersonalityRatings;
 }
 
 export interface CBRatings {
   position: 'CB';
-  manCoverage:  number;
-  zoneCoverage: number;
-  ballSkills:   number;
-  press:        number;
-  speed:        number;
-  athleticism:  number;
-  personality:  PersonalityRatings;
+  coverage:    number;
+  ballSkills:  number;
+  speed:       number;
+  size:        number;
+  personality: PersonalityRatings;
 }
 
 export interface SafetyRatings {
   position: 'FS' | 'SS';
-  zoneCoverage: number;
-  manCoverage:  number;
-  ballSkills:   number;
-  range:        number;
-  hitPower:     number;
-  athleticism:  number;
-  personality:  PersonalityRatings;
+  coverage:    number;
+  ballSkills:  number;
+  speed:       number;
+  size:        number;
+  range:       number;
+  personality: PersonalityRatings;
 }
 
 export interface SpecialTeamsRatings {
@@ -142,26 +129,25 @@ export function getVisibleRatings(ratings: AnyRatings): Record<string, number> {
     case 'RB':
       return {
         Speed:        ratings.speed,
-        Accel:        ratings.acceleration,
+        Elusiveness:  ratings.elusiveness,
         Power:        ratings.power,
-        Agility:      ratings.agility,
         Vision:       ratings.vision,
         'Ball Sec':   ratings.ballSecurity,
       };
     case 'WR':
       return {
         Speed:        ratings.speed,
-        Catching:     ratings.catching,
         'Route Run':  ratings.routeRunning,
-        Separation:   ratings.separation,
-        Release:      ratings.release,
+        Hands:        ratings.hands,
+        YAC:          ratings.yac,
+        Size:         ratings.size,
       };
     case 'TE':
       return {
-        Catching:     ratings.catching,
+        Hands:        ratings.hands,
         'Route Run':  ratings.routeRunning,
         Blocking:     ratings.blocking,
-        Strength:     ratings.strength,
+        YAC:          ratings.yac,
         Speed:        ratings.speed,
       };
     case 'OT':
@@ -170,43 +156,36 @@ export function getVisibleRatings(ratings: AnyRatings): Record<string, number> {
       return {
         'Pass Blk':   ratings.passBlocking,
         'Run Blk':    ratings.runBlocking,
-        Strength:     ratings.strength,
-        Agility:      ratings.agility,
         Awareness:    ratings.awareness,
       };
     case 'DE':
     case 'DT':
       return {
         'Pass Rush':  ratings.passRush,
-        'Run Stop':   ratings.runStop,
-        Strength:     ratings.strength,
-        Athleticism:  ratings.athleticism,
-        Motor:        ratings.motor,
+        'Run Def':    ratings.runDefense,
+        Discipline:   ratings.discipline,
       };
     case 'OLB':
     case 'MLB':
       return {
-        'Run Stop':   ratings.runStop,
+        'Run Def':    ratings.runDefense,
         Coverage:     ratings.coverage,
-        Athleticism:  ratings.athleticism,
-        Awareness:    ratings.awareness,
+        Speed:        ratings.speed,
         Pursuit:      ratings.pursuit,
       };
     case 'CB':
       return {
-        'Man Cov':    ratings.manCoverage,
-        'Zone Cov':   ratings.zoneCoverage,
+        Coverage:     ratings.coverage,
         'Ball Skl':   ratings.ballSkills,
-        Press:        ratings.press,
         Speed:        ratings.speed,
+        Size:         ratings.size,
       };
     case 'FS':
     case 'SS':
       return {
-        'Zone Cov':   ratings.zoneCoverage,
+        Coverage:     ratings.coverage,
         Range:        ratings.range,
-        Athleticism:  ratings.athleticism,
-        'Hit Power':  ratings.hitPower,
+        Speed:        ratings.speed,
         'Ball Skl':   ratings.ballSkills,
       };
     case 'K':

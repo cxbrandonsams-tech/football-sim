@@ -33,13 +33,13 @@ function keyRatings(r: AnyRatings): [number, number, number] {
   switch (r.position) {
     case 'QB':    return [r.armStrength, r.pocketPresence, r.mobility];
     case 'RB':    return [r.speed, r.power, r.vision];
-    case 'WR':    return [r.speed, r.catching, r.separation];
-    case 'TE':    return [r.catching, r.blocking, r.routeRunning];
-    case 'OT': case 'OG': case 'C': return [r.passBlocking, r.runBlocking, r.strength];
-    case 'DE': case 'DT': return [r.passRush, r.runStop, r.athleticism];
-    case 'OLB': case 'MLB': return [r.runStop, r.coverage, r.athleticism];
-    case 'CB':    return [r.manCoverage, r.speed, r.ballSkills];
-    case 'FS': case 'SS': return [r.zoneCoverage, r.range, r.athleticism];
+    case 'WR':    return [r.speed, r.hands, r.routeRunning];
+    case 'TE':    return [r.hands, r.blocking, r.routeRunning];
+    case 'OT': case 'OG': case 'C': return [r.passBlocking, r.runBlocking, r.awareness];
+    case 'DE': case 'DT': return [r.passRush, r.runDefense, r.discipline];
+    case 'OLB': case 'MLB': return [r.runDefense, r.coverage, r.speed];
+    case 'CB':    return [r.coverage, r.speed, r.ballSkills];
+    case 'FS': case 'SS': return [r.coverage, r.range, r.speed];
     case 'K': case 'P':   return [r.kickPower, r.kickAccuracy, r.composure];
   }
 }

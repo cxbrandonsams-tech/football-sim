@@ -49,6 +49,128 @@ db.exec(`
 try { db.exec(`ALTER TABLE leagues ADD COLUMN commissionerId TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE leagues ADD COLUMN inviteCode TEXT`); } catch { /* already exists */ }
 
+// ── Phase 37 in-memory rating migration ───────────────────────────────────────
+// Remaps old legacy rating field names to GDD-aligned names for saved leagues.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateRatings(r: any): any {
+  if (!r || typeof r !== 'object') return r;
+  const pos = r.position as string | undefined;
+  switch (pos) {
+    case 'RB': {
+      const out: Record<string, unknown> = { position: 'RB' };
+      out.speed        = r.speed        ?? 50;
+      out.elusiveness  = r.elusiveness  ?? r.agility ?? 50;
+      out.power        = r.power        ?? 50;
+      out.vision       = r.vision       ?? 50;
+      out.ballSecurity = r.ballSecurity ?? 50;
+      if (r.personality) out.personality = r.personality;
+      return out;
+    }
+    case 'WR': {
+      const out: Record<string, unknown> = { position: 'WR' };
+      out.speed        = r.speed        ?? 50;
+      out.routeRunning = r.routeRunning ?? 50;
+      out.hands        = r.hands        ?? r.catching ?? 50;
+      out.yac          = r.yac          ?? 50;
+      out.size         = r.size         ?? 50;
+      if (r.personality) out.personality = r.personality;
+      return out;
+    }
+    case 'TE': {
+      const out: Record<string, unknown> = { position: 'TE' };
+      out.speed        = r.speed        ?? 50;
+      out.routeRunning = r.routeRunning ?? 50;
+      out.hands        = r.hands        ?? r.catching ?? 50;
+      out.yac          = r.yac          ?? 50;
+      out.size         = r.size         ?? 50;
+      out.blocking     = r.blocking     ?? 50;
+      if (r.personality) out.personality = r.personality;
+      return out;
+    }
+    case 'OT': case 'OG': case 'C': {
+      const out: Record<string, unknown> = { position: pos };
+      out.passBlocking = r.passBlocking ?? 50;
+      out.runBlocking  = r.runBlocking  ?? 50;
+      out.awareness    = r.awareness    ?? 50;
+      if (r.personality) out.personality = r.personality;
+      return out;
+    }
+    case 'DE': case 'DT': {
+      const out: Record<string, unknown> = { position: pos };
+      out.passRush    = r.passRush    ?? 50;
+      out.runDefense  = r.runDefense  ?? r.runStop ?? 50;
+      out.discipline  = r.discipline  ?? 50;
+      if (r.personality) out.personality = r.personality;
+      return out;
+    }
+    case 'OLB': case 'MLB': {
+      const out: Record<string, unknown> = { position: pos };
+      out.passRush    = r.passRush    ?? 50;
+      out.runDefense  = r.runDefense  ?? r.runStop ?? 50;
+      out.coverage    = r.coverage    ?? 50;
+      out.speed       = r.speed       ?? r.athleticism ?? 50;
+      out.pursuit     = r.pursuit     ?? 50;
+      if (r.personality) out.personality = r.personality;
+      return out;
+    }
+    case 'CB': {
+      const out: Record<string, unknown> = { position: 'CB' };
+      out.coverage    = r.coverage    ?? r.manCoverage ?? 50;
+      out.ballSkills  = r.ballSkills  ?? 50;
+      out.speed       = r.speed       ?? 50;
+      out.size        = r.size        ?? 50;
+      if (r.personality) out.personality = r.personality;
+      return out;
+    }
+    case 'FS': case 'SS': {
+      const out: Record<string, unknown> = { position: pos };
+      out.coverage    = r.coverage    ?? r.zoneCoverage ?? 50;
+      out.ballSkills  = r.ballSkills  ?? 50;
+      out.speed       = r.speed       ?? r.athleticism ?? 50;
+      out.size        = r.size        ?? 50;
+      out.range       = r.range       ?? 50;
+      if (r.personality) out.personality = r.personality;
+      return out;
+    }
+    default:
+      return r;
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migratePlayer(p: any): any {
+  if (!p || typeof p !== 'object') return p;
+  return {
+    ...p,
+    trueRatings:    migrateRatings(p.trueRatings),
+    scoutedRatings: migrateRatings(p.scoutedRatings),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLeagueState(state: any): any {
+  if (!state || typeof state !== 'object') return state;
+
+  const migrateTeam = (team: any) => ({
+    ...team,
+    roster: (team.roster ?? []).map(migratePlayer),
+  });
+
+  return {
+    ...state,
+    teams:       (state.teams       ?? []).map(migrateTeam),
+    freeAgents:  (state.freeAgents  ?? []).map(migratePlayer),
+    draftClasses: (state.draftClasses ?? []).map((dc: any) => ({
+      ...dc,
+      prospects: (dc.prospects ?? []).map((p: any) => ({
+        ...p,
+        trueRatings: migrateRatings(p.trueRatings),
+      })),
+    })),
+  };
+}
+
 // ── Row types ─────────────────────────────────────────────────────────────────
 
 interface UserRow {
@@ -106,7 +228,7 @@ interface UserLeagueRow {
 export function getLeague(id: string): League | null {
   const row = db.prepare('SELECT stateJson FROM leagues WHERE id = ?').get(id) as Pick<LeagueRow, 'stateJson'> | undefined;
   if (!row) return null;
-  return JSON.parse(row.stateJson) as League;
+  return migrateLeagueState(JSON.parse(row.stateJson)) as League;
 }
 
 export function saveLeague(league: League): void {

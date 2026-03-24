@@ -41,36 +41,31 @@ export interface QBRatings {
 export interface RBRatings {
   position: 'RB';
   speed:        number;
-  acceleration: number;
+  elusiveness:  number;
   power:        number;
-  agility:      number;
   vision:       number;
   ballSecurity: number;
-  passBlocking: number;
-  routeRunning: number;
   personality:  PersonalityRatings;
 }
 
 export interface WRRatings {
   position: 'WR';
   speed:        number;
-  acceleration: number;
-  catching:     number;
   routeRunning: number;
-  separation:   number;
-  release:      number;
-  blocking:     number;
+  hands:        number;
+  yac:          number;
+  size:         number;
   personality:  PersonalityRatings;
 }
 
 export interface TERatings {
   position: 'TE';
-  strength:     number;
   speed:        number;
-  catching:     number;
   routeRunning: number;
+  hands:        number;
+  yac:          number;
+  size:         number;
   blocking:     number;
-  release:      number;
   personality:  PersonalityRatings;
 }
 
@@ -78,8 +73,6 @@ export interface OLRatings {
   position: 'OT' | 'OG' | 'C';
   passBlocking: number;
   runBlocking:  number;
-  strength:     number;
-  agility:      number;
   awareness:    number;
   personality:  PersonalityRatings;
 }
@@ -87,44 +80,38 @@ export interface OLRatings {
 export interface DLRatings {
   position: 'DE' | 'DT';
   passRush:    number;
-  runStop:     number;
-  strength:    number;
-  athleticism: number;
-  motor:       number;
+  runDefense:  number;
+  discipline:  number;
   personality: PersonalityRatings;
 }
 
 export interface LBRatings {
   position: 'OLB' | 'MLB';
   passRush:    number;
-  runStop:     number;
+  runDefense:  number;
   coverage:    number;
-  athleticism: number;
-  awareness:   number;
+  speed:       number;
   pursuit:     number;
   personality: PersonalityRatings;
 }
 
 export interface CBRatings {
   position: 'CB';
-  manCoverage:  number;
-  zoneCoverage: number;
-  ballSkills:   number;
-  press:        number;
-  speed:        number;
-  athleticism:  number;
-  personality:  PersonalityRatings;
+  coverage:    number;
+  ballSkills:  number;
+  speed:       number;
+  size:        number;
+  personality: PersonalityRatings;
 }
 
 export interface SafetyRatings {
   position: 'FS' | 'SS';
-  zoneCoverage: number;
-  manCoverage:  number;
-  ballSkills:   number;
-  range:        number;  // only used for deep pass defense
-  hitPower:     number;
-  athleticism:  number;
-  personality:  PersonalityRatings;
+  coverage:    number;
+  ballSkills:  number;
+  speed:       number;
+  size:        number;
+  range:       number;  // only used for deep pass defense
+  personality: PersonalityRatings;
 }
 
 export interface SpecialTeamsRatings {
@@ -164,81 +151,68 @@ export function calcOverall(ratings: AnyRatings): number {
       );
     case 'RB':
       return Math.round(
-        ratings.speed        * 0.22 +
-        ratings.acceleration * 0.18 +
-        ratings.vision       * 0.18 +
-        ratings.agility      * 0.15 +
-        ratings.power        * 0.15 +
-        ratings.ballSecurity * 0.07 +
-        ratings.passBlocking * 0.03 +
-        ratings.routeRunning * 0.02
+        ratings.speed        * 0.25 +
+        ratings.vision       * 0.20 +
+        ratings.power        * 0.20 +
+        ratings.elusiveness  * 0.20 +
+        ratings.ballSecurity * 0.15
       );
     case 'WR':
       return Math.round(
-        ratings.catching     * 0.25 +
-        ratings.separation   * 0.22 +
-        ratings.speed        * 0.20 +
-        ratings.routeRunning * 0.18 +
-        ratings.release      * 0.10 +
-        ratings.acceleration * 0.03 +
-        ratings.blocking     * 0.02
+        ratings.hands        * 0.30 +
+        ratings.routeRunning * 0.25 +
+        ratings.speed        * 0.25 +
+        ratings.yac          * 0.12 +
+        ratings.size         * 0.08
       );
     case 'TE':
       return Math.round(
-        ratings.catching     * 0.25 +
+        ratings.hands        * 0.25 +
         ratings.blocking     * 0.22 +
         ratings.routeRunning * 0.20 +
-        ratings.strength     * 0.15 +
-        ratings.speed        * 0.12 +
-        ratings.release      * 0.06
+        ratings.speed        * 0.15 +
+        ratings.yac          * 0.10 +
+        ratings.size         * 0.08
       );
     case 'OT':
     case 'OG':
     case 'C':
       return Math.round(
-        ratings.passBlocking * 0.35 +
-        ratings.runBlocking  * 0.30 +
-        ratings.strength     * 0.18 +
-        ratings.awareness    * 0.12 +
-        ratings.agility      * 0.05
+        ratings.passBlocking * 0.45 +
+        ratings.runBlocking  * 0.40 +
+        ratings.awareness    * 0.15
       );
     case 'DE':
     case 'DT':
       return Math.round(
-        ratings.passRush    * 0.35 +
-        ratings.runStop     * 0.28 +
-        ratings.athleticism * 0.20 +
-        ratings.strength    * 0.12 +
-        ratings.motor       * 0.05
+        ratings.passRush    * 0.45 +
+        ratings.runDefense  * 0.35 +
+        ratings.discipline  * 0.20
       );
     case 'OLB':
     case 'MLB':
       return Math.round(
-        ratings.runStop     * 0.28 +
-        ratings.athleticism * 0.22 +
-        ratings.pursuit     * 0.18 +
-        ratings.coverage    * 0.15 +
-        ratings.awareness   * 0.12 +
-        ratings.passRush    * 0.05
+        ratings.runDefense  * 0.28 +
+        ratings.speed       * 0.22 +
+        ratings.pursuit     * 0.20 +
+        ratings.coverage    * 0.20 +
+        ratings.passRush    * 0.10
       );
     case 'CB':
       return Math.round(
-        ratings.manCoverage  * 0.30 +
-        ratings.speed        * 0.25 +
-        ratings.zoneCoverage * 0.20 +
-        ratings.athleticism  * 0.12 +
-        ratings.press        * 0.08 +
-        ratings.ballSkills   * 0.05
+        ratings.coverage   * 0.40 +
+        ratings.speed      * 0.30 +
+        ratings.ballSkills * 0.20 +
+        ratings.size       * 0.10
       );
     case 'FS':
     case 'SS':
       return Math.round(
-        ratings.zoneCoverage * 0.28 +
-        ratings.athleticism  * 0.22 +
-        ratings.range        * 0.18 +
-        ratings.manCoverage  * 0.15 +
-        ratings.hitPower     * 0.10 +
-        ratings.ballSkills   * 0.07
+        ratings.coverage   * 0.30 +
+        ratings.speed      * 0.22 +
+        ratings.range      * 0.22 +
+        ratings.ballSkills * 0.18 +
+        ratings.size       * 0.08
       );
     case 'K':
     case 'P':
@@ -292,36 +266,31 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
       return {
         position:     'RB',
         speed:        clamp(trueRatings.speed        + n()),
-        acceleration: clamp(trueRatings.acceleration + n()),
+        elusiveness:  clamp(trueRatings.elusiveness  + n()),
         power:        clamp(trueRatings.power        + n()),
-        agility:      clamp(trueRatings.agility      + n()),
         vision:       clamp(trueRatings.vision       + n()),
         ballSecurity: clamp(trueRatings.ballSecurity + n()),
-        passBlocking: clamp(trueRatings.passBlocking + n()),
-        routeRunning: clamp(trueRatings.routeRunning + n()),
-        personality:  trueRatings.personality, // personality known accurately
+        personality:  trueRatings.personality,
       };
     case 'WR':
       return {
         position:     'WR',
         speed:        clamp(trueRatings.speed        + n()),
-        acceleration: clamp(trueRatings.acceleration + n()),
-        catching:     clamp(trueRatings.catching     + n()),
         routeRunning: clamp(trueRatings.routeRunning + n()),
-        separation:   clamp(trueRatings.separation   + n()),
-        release:      clamp(trueRatings.release      + n()),
-        blocking:     clamp(trueRatings.blocking     + n()),
+        hands:        clamp(trueRatings.hands        + n()),
+        yac:          clamp(trueRatings.yac          + n()),
+        size:         clamp(trueRatings.size         + n()),
         personality:  trueRatings.personality,
       };
     case 'TE':
       return {
         position:     'TE',
-        strength:     clamp(trueRatings.strength     + n()),
         speed:        clamp(trueRatings.speed        + n()),
-        catching:     clamp(trueRatings.catching     + n()),
         routeRunning: clamp(trueRatings.routeRunning + n()),
+        hands:        clamp(trueRatings.hands        + n()),
+        yac:          clamp(trueRatings.yac          + n()),
+        size:         clamp(trueRatings.size         + n()),
         blocking:     clamp(trueRatings.blocking     + n()),
-        release:      clamp(trueRatings.release      + n()),
         personality:  trueRatings.personality,
       };
     case 'OT':
@@ -331,8 +300,6 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
         position:     trueRatings.position,
         passBlocking: clamp(trueRatings.passBlocking + n()),
         runBlocking:  clamp(trueRatings.runBlocking  + n()),
-        strength:     clamp(trueRatings.strength     + n()),
-        agility:      clamp(trueRatings.agility      + n()),
         awareness:    clamp(trueRatings.awareness    + n()),
         personality:  trueRatings.personality,
       };
@@ -341,10 +308,8 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
       return {
         position:    trueRatings.position,
         passRush:    clamp(trueRatings.passRush    + n()),
-        runStop:     clamp(trueRatings.runStop     + n()),
-        strength:    clamp(trueRatings.strength    + n()),
-        athleticism: clamp(trueRatings.athleticism + n()),
-        motor:       clamp(trueRatings.motor       + n()),
+        runDefense:  clamp(trueRatings.runDefense  + n()),
+        discipline:  clamp(trueRatings.discipline  + n()),
         personality: trueRatings.personality,
       };
     case 'OLB':
@@ -352,35 +317,31 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
       return {
         position:    trueRatings.position,
         passRush:    clamp(trueRatings.passRush    + n()),
-        runStop:     clamp(trueRatings.runStop     + n()),
+        runDefense:  clamp(trueRatings.runDefense  + n()),
         coverage:    clamp(trueRatings.coverage    + n()),
-        athleticism: clamp(trueRatings.athleticism + n()),
-        awareness:   clamp(trueRatings.awareness   + n()),
+        speed:       clamp(trueRatings.speed       + n()),
         pursuit:     clamp(trueRatings.pursuit     + n()),
         personality: trueRatings.personality,
       };
     case 'CB':
       return {
-        position:     'CB',
-        manCoverage:  clamp(trueRatings.manCoverage  + n()),
-        zoneCoverage: clamp(trueRatings.zoneCoverage + n()),
-        ballSkills:   clamp(trueRatings.ballSkills   + n()),
-        press:        clamp(trueRatings.press        + n()),
-        speed:        clamp(trueRatings.speed        + n()),
-        athleticism:  clamp(trueRatings.athleticism  + n()),
-        personality:  trueRatings.personality,
+        position:    'CB',
+        coverage:    clamp(trueRatings.coverage    + n()),
+        ballSkills:  clamp(trueRatings.ballSkills  + n()),
+        speed:       clamp(trueRatings.speed       + n()),
+        size:        clamp(trueRatings.size        + n()),
+        personality: trueRatings.personality,
       };
     case 'FS':
     case 'SS':
       return {
-        position:     trueRatings.position,
-        zoneCoverage: clamp(trueRatings.zoneCoverage + n()),
-        manCoverage:  clamp(trueRatings.manCoverage  + n()),
-        ballSkills:   clamp(trueRatings.ballSkills   + n()),
-        range:        clamp(trueRatings.range        + n()),
-        hitPower:     clamp(trueRatings.hitPower     + n()),
-        athleticism:  clamp(trueRatings.athleticism  + n()),
-        personality:  trueRatings.personality,
+        position:    trueRatings.position,
+        coverage:    clamp(trueRatings.coverage    + n()),
+        ballSkills:  clamp(trueRatings.ballSkills  + n()),
+        speed:       clamp(trueRatings.speed       + n()),
+        size:        clamp(trueRatings.size        + n()),
+        range:       clamp(trueRatings.range       + n()),
+        personality: trueRatings.personality,
       };
     case 'K':
     case 'P':

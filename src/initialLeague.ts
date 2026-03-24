@@ -54,13 +54,10 @@ function makeRB(rand: () => number, tier: number): AnyRatings {
   return {
     position: 'RB',
     speed:        rng(rand, c + 6),
-    acceleration: rng(rand, c + 4),
+    elusiveness:  rng(rand, c + 3),
     power:        rng(rand, c),
-    agility:      rng(rand, c + 3),
     vision:       rng(rand, c),
     ballSecurity: rng(rand, c - 2),
-    passBlocking: rng(rand, c - 8),
-    routeRunning: rng(rand, c - 6),
     personality:  p(rng(rand, 70, 15), rng(rand, 60, 20), rng(rand, 45, 20), rng(rand, 68, 15)),
   };
 }
@@ -70,12 +67,10 @@ function makeWR(rand: () => number, tier: number): AnyRatings {
   return {
     position: 'WR',
     speed:        rng(rand, c + 8),
-    acceleration: rng(rand, c + 6),
-    catching:     rng(rand, c + 2),
     routeRunning: rng(rand, c),
-    separation:   rng(rand, c + 3),
-    release:      rng(rand, c),
-    blocking:     rng(rand, c - 10),
+    hands:        rng(rand, c + 2),
+    yac:          rng(rand, c + 1),
+    size:         rng(rand, c - 3),
     personality:  p(rng(rand, 68, 15), rng(rand, 58, 20), rng(rand, 50, 20), rng(rand, 65, 15)),
   };
 }
@@ -84,12 +79,12 @@ function makeTE(rand: () => number, tier: number): AnyRatings {
   const c = 50 + tier * 5;
   return {
     position: 'TE',
-    strength:     rng(rand, c + 2),
     speed:        rng(rand, c),
-    catching:     rng(rand, c + 1),
     routeRunning: rng(rand, c - 2),
+    hands:        rng(rand, c + 1),
+    yac:          rng(rand, c),
+    size:         rng(rand, c + 2),
     blocking:     rng(rand, c + 3),
-    release:      rng(rand, c - 1),
     personality:  p(rng(rand, 72, 15), rng(rand, 65, 20), rng(rand, 42, 20), rng(rand, 70, 15)),
   };
 }
@@ -100,8 +95,6 @@ function makeOL(rand: () => number, tier: number, pos: 'OT' | 'OG' | 'C'): AnyRa
     position:     pos,
     passBlocking: rng(rand, c + 2),
     runBlocking:  rng(rand, c + 1),
-    strength:     rng(rand, c + 3),
-    agility:      rng(rand, c - 2),
     awareness:    rng(rand, c),
     personality:  p(rng(rand, 74, 15), rng(rand, 68, 20), rng(rand, 38, 20), rng(rand, 74, 15)),
   };
@@ -112,10 +105,8 @@ function makeDE(rand: () => number, tier: number): AnyRatings {
   return {
     position:    'DE',
     passRush:    rng(rand, c + 4),
-    runStop:     rng(rand, c),
-    strength:    rng(rand, c + 2),
-    athleticism: rng(rand, c + 4),
-    motor:       rng(rand, c + 1),
+    runDefense:  rng(rand, c),
+    discipline:  rng(rand, c + 1),
     personality: p(rng(rand, 72, 15), rng(rand, 62, 20), rng(rand, 44, 20), rng(rand, 68, 15)),
   };
 }
@@ -125,10 +116,8 @@ function makeDT(rand: () => number, tier: number): AnyRatings {
   return {
     position:    'DT',
     passRush:    rng(rand, c + 1),
-    runStop:     rng(rand, c + 4),
-    strength:    rng(rand, c + 6),
-    athleticism: rng(rand, c),
-    motor:       rng(rand, c),
+    runDefense:  rng(rand, c + 4),
+    discipline:  rng(rand, c + 2),
     personality: p(rng(rand, 74, 15), rng(rand, 66, 20), rng(rand, 40, 20), rng(rand, 72, 15)),
   };
 }
@@ -138,10 +127,9 @@ function makeLB(rand: () => number, tier: number, pos: 'OLB' | 'MLB'): AnyRating
   return {
     position:    pos,
     passRush:    rng(rand, pos === 'OLB' ? c + 3 : c - 2),
-    runStop:     rng(rand, c + 2),
+    runDefense:  rng(rand, c + 2),
     coverage:    rng(rand, pos === 'MLB' ? c + 3 : c),
-    athleticism: rng(rand, c + 2),
-    awareness:   rng(rand, c + 1),
+    speed:       rng(rand, c + 2),
     pursuit:     rng(rand, c + 1),
     personality: p(rng(rand, 76, 15), rng(rand, 68, 20), rng(rand, 40, 20), rng(rand, 74, 15)),
   };
@@ -150,28 +138,25 @@ function makeLB(rand: () => number, tier: number, pos: 'OLB' | 'MLB'): AnyRating
 function makeCB(rand: () => number, tier: number): AnyRatings {
   const c = 50 + tier * 5;
   return {
-    position:     'CB',
-    manCoverage:  rng(rand, c + 3),
-    zoneCoverage: rng(rand, c + 1),
-    ballSkills:   rng(rand, c),
-    press:        rng(rand, c),
-    speed:        rng(rand, c + 6),
-    athleticism:  rng(rand, c + 3),
-    personality:  p(rng(rand, 70, 15), rng(rand, 62, 20), rng(rand, 48, 20), rng(rand, 68, 15)),
+    position:    'CB',
+    coverage:    rng(rand, c + 3),
+    ballSkills:  rng(rand, c),
+    speed:       rng(rand, c + 6),
+    size:        rng(rand, c - 2),
+    personality: p(rng(rand, 70, 15), rng(rand, 62, 20), rng(rand, 48, 20), rng(rand, 68, 15)),
   };
 }
 
 function makeSafety(rand: () => number, tier: number, pos: 'FS' | 'SS'): AnyRatings {
   const c = 50 + tier * 5;
   return {
-    position:     pos,
-    zoneCoverage: rng(rand, pos === 'FS' ? c + 3 : c),
-    manCoverage:  rng(rand, c),
-    ballSkills:   rng(rand, c + 1),
-    range:        rng(rand, pos === 'FS' ? c + 4 : c),
-    hitPower:     rng(rand, pos === 'SS' ? c + 4 : c),
-    athleticism:  rng(rand, c + 2),
-    personality:  p(rng(rand, 72, 15), rng(rand, 66, 20), rng(rand, 42, 20), rng(rand, 72, 15)),
+    position:    pos,
+    coverage:    rng(rand, pos === 'FS' ? c + 3 : c),
+    ballSkills:  rng(rand, c + 1),
+    speed:       rng(rand, c + 2),
+    size:        rng(rand, pos === 'SS' ? c + 2 : c - 1),
+    range:       rng(rand, pos === 'FS' ? c + 4 : c),
+    personality: p(rng(rand, 72, 15), rng(rand, 66, 20), rng(rand, 42, 20), rng(rand, 72, 15)),
   };
 }
 

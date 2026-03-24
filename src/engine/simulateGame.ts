@@ -204,37 +204,37 @@ function offRating(off: Team, type: PlayType): number {
     case 'inside_run':
       return avg(
         ol(off)?.runBlocking  ?? 50,
-        ol(off)?.strength     ?? 50,
+        ol(off)?.awareness    ?? 50,
         rb(off)?.power        ?? 50,
         rb(off)?.vision       ?? 50,
       );
     case 'outside_run':
       return avg(
         rb(off)?.speed        ?? 50,
-        rb(off)?.acceleration ?? 50,
-        rb(off)?.agility      ?? 50,
-        ol(off)?.agility      ?? 50,
+        rb(off)?.elusiveness  ?? 50,
+        rb(off)?.vision       ?? 50,
+        ol(off)?.runBlocking  ?? 50,
       );
     case 'short_pass':
       return avg(
         qb(off)?.shortAccuracy  ?? 50,
         qb(off)?.decisionMaking ?? 50,
         wr(off)?.routeRunning   ?? 50,
-        wr(off)?.release        ?? 50,
+        wr(off)?.hands          ?? 50,
       );
     case 'medium_pass':
       return avg(
         qb(off)?.mediumAccuracy ?? 50,
         qb(off)?.processing     ?? 50,
         wr(off)?.routeRunning   ?? 50,
-        wr(off)?.separation     ?? 50,
+        wr(off)?.yac            ?? 50,
       );
     case 'deep_pass':
       return avg(
         qb(off)?.deepAccuracy ?? 50,
         qb(off)?.armStrength  ?? 50,
         wr(off)?.speed        ?? 50,
-        wr(off)?.separation   ?? 50,
+        wr(off)?.yac          ?? 50,
       );
     default:
       return 60;
@@ -245,37 +245,35 @@ function defRating(def: Team, type: PlayType): number {
   switch (type) {
     case 'inside_run':
       return avg(
-        dl(def, 'DT')?.runStop     ?? 50,
-        dl(def, 'DT')?.strength    ?? 50,
-        lb(def)?.runStop           ?? 50,
+        dl(def, 'DT')?.runDefense  ?? 50,
+        dl(def, 'DT')?.discipline  ?? 50,
+        lb(def)?.runDefense        ?? 50,
         lb(def)?.pursuit           ?? 50,
       );
     case 'outside_run':
       return avg(
         dl(def, 'DE')?.passRush    ?? 50,  // edge speed matters on outside runs
-        lb(def)?.athleticism       ?? 50,
+        lb(def)?.speed             ?? 50,
         lb(def)?.pursuit           ?? 50,
-        cb(def)?.athleticism       ?? 50,
+        cb(def)?.speed             ?? 50,
       );
     case 'short_pass':
       return avg(
-        cb(def)?.manCoverage  ?? 50,
-        cb(def)?.press        ?? 50,
-        lb(def)?.coverage     ?? 50,
-        lb(def)?.awareness    ?? 50,
+        cb(def)?.coverage          ?? 50,
+        lb(def)?.coverage          ?? 50,
+        safety(def)?.coverage      ?? 50,
       );
     case 'medium_pass':
       return avg(
-        cb(def)?.manCoverage  ?? 50,
-        cb(def)?.zoneCoverage ?? 50,
-        safety(def)?.zoneCoverage ?? 50,
+        cb(def)?.coverage          ?? 50,
+        safety(def)?.coverage      ?? 50,
       );
     case 'deep_pass':
       return avg(
-        cb(def)?.speed        ?? 50,
-        cb(def)?.manCoverage  ?? 50,
-        safety(def)?.range    ?? 50,
-        safety(def)?.athleticism ?? 50,
+        cb(def)?.speed             ?? 50,
+        cb(def)?.coverage          ?? 50,
+        safety(def)?.range         ?? 50,
+        safety(def)?.speed         ?? 50,
       );
     default:
       return 60;
@@ -351,9 +349,8 @@ function simulatePlay(
   // Sack check
   if (isPass) {
     const dePassRush   = dl(def, 'DE')?.passRush    ?? 50;
-    const deAth        = dl(def, 'DE')?.athleticism ?? 50;
     const olBlocking   = ol(off)?.passBlocking ?? 50;
-    const advantage    = ((dePassRush + deAth) / 2) - olBlocking;
+    const advantage    = dePassRush - olBlocking;
     const sackChance   = Math.max(
       cfg.pass.minSackChance,
       Math.min(cfg.pass.maxSackChance, cfg.pass.baseSackChance + advantage * cfg.pass.sackRatingScale),
@@ -403,7 +400,7 @@ function simulatePlay(
 
   // Interception on failed pass
   if (isPass && !success) {
-    const cbCoverage    = cb(def)?.manCoverage ?? 50;
+    const cbCoverage    = cb(def)?.coverage ?? 50;
     const qbDecision    = qb(off)?.decisionMaking ?? 50;
     const intAdvantage  = (cbCoverage - qbDecision) * cfg.pass.intCoverageScale;
     const intChance     = Math.max(

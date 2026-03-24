@@ -29,21 +29,21 @@ function getProgressableFields(ratings: AnyRatings): string[] {
     case 'QB':
       return ['armStrength', 'pocketPresence', 'mobility', 'shortAccuracy', 'mediumAccuracy', 'deepAccuracy', 'processing', 'decisionMaking'];
     case 'RB':
-      return ['speed', 'acceleration', 'power', 'agility', 'vision', 'ballSecurity', 'passBlocking', 'routeRunning'];
+      return ['speed', 'elusiveness', 'power', 'vision', 'ballSecurity'];
     case 'WR':
-      return ['speed', 'acceleration', 'catching', 'routeRunning', 'separation', 'release', 'blocking'];
+      return ['speed', 'routeRunning', 'hands', 'yac', 'size'];
     case 'TE':
-      return ['strength', 'speed', 'catching', 'routeRunning', 'blocking', 'release'];
+      return ['speed', 'routeRunning', 'hands', 'yac', 'size', 'blocking'];
     case 'OT': case 'OG': case 'C':
-      return ['passBlocking', 'runBlocking', 'strength', 'agility', 'awareness'];
+      return ['passBlocking', 'runBlocking', 'awareness'];
     case 'DE': case 'DT':
-      return ['passRush', 'runStop', 'strength', 'athleticism', 'motor'];
+      return ['passRush', 'runDefense', 'discipline'];
     case 'OLB': case 'MLB':
-      return ['passRush', 'runStop', 'coverage', 'athleticism', 'awareness', 'pursuit'];
+      return ['passRush', 'runDefense', 'coverage', 'speed', 'pursuit'];
     case 'CB':
-      return ['manCoverage', 'zoneCoverage', 'ballSkills', 'press', 'speed', 'athleticism'];
+      return ['coverage', 'ballSkills', 'speed', 'size'];
     case 'FS': case 'SS':
-      return ['zoneCoverage', 'manCoverage', 'ballSkills', 'range', 'hitPower', 'athleticism'];
+      return ['coverage', 'ballSkills', 'speed', 'size', 'range'];
     case 'K': case 'P':
       return ['kickPower', 'kickAccuracy', 'composure'];
   }
