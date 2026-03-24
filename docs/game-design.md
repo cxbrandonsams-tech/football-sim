@@ -432,3 +432,143 @@ Uses:
 - Clear phase separation  
 - Tunable system  
 - Realistic without unnecessary complexity  
+
+
+# Future System: Playbooks and Play Calling
+
+## Design Goal
+The long-term playbook system should give users meaningful control over offensive identity without requiring manual play calling every snap. Users will build custom playbooks from a large shared database of available plays, and the simulation engine will call from those playbooks based on down and distance.
+
+This system is intentionally planned as a later feature. The current priority is building a strong, believable simulation engine first.
+
+---
+
+## Core Vision
+
+### 1. Plays are route-based, not globally tagged as Short / Medium / Deep
+A play should not be labeled as only “Short,” “Medium,” or “Deep.”
+
+Instead, each eligible receiver route within the play has its own route type and depth classification.
+
+**Example: Singleback-Big: Quick Slants**
+- WR1: Slant — Short  
+- TE: Flat — Short  
+- WR2: Go — Deep  
+
+This allows one play to contain a mix of short, medium, and deep concepts, which better matches real football and gives the engine more realistic read and coverage interactions.
+
+---
+
+### 2. Users create playbooks from a large play database
+The game should eventually include a large library of available plays.
+
+Users will:
+- Browse the available play pool  
+- Select plays they want in their team’s playbook  
+- Build a custom offensive identity from those plays  
+
+The system should support broad variety so different teams can feel meaningfully different.
+
+---
+
+### 3. Playbooks are organized by down and distance
+Users should assign plays into situational buckets rather than using one flat list.
+
+**Examples:**
+- 1st & 10  
+- 2nd & Short  
+- 2nd & Medium  
+- 2nd & Long  
+- 3rd & Short  
+- 3rd & Medium  
+- 3rd & Long  
+- 4th & Short  
+- Goal Line  
+- Red Zone  
+- 2-Minute Drill  
+- Backed Up  
+
+The CPU will call plays from the appropriate situational bucket during simulation.
+
+---
+
+### 4. Plays have call weights
+Within each down-and-distance bucket, plays should have configurable weights.
+
+This allows users to influence call frequency without requiring exact percentages.
+
+**Example:**
+- Inside Zone — weight 10  
+- Slant Flat — weight 8  
+- Four Verticals — weight 2  
+
+The CPU should randomly select from the bucket using these weights.
+
+This creates both identity and variation.
+
+---
+
+### 5. Repetition should create a penalty
+Repeatedly calling the same play too often should create diminishing effectiveness.
+
+This prevents unrealistic abuse and encourages variety.
+
+Repetition penalties can affect:
+- Defensive anticipation  
+- Reduced separation  
+- Faster defensive reactions  
+- Lower overall play success  
+
+The goal is not to make a play unusable, but to reduce effectiveness if overused.
+
+---
+
+## Relationship to the Engine
+This system should sit on top of the simulation engine, not replace it.
+
+The engine will still resolve:
+- Protection  
+- Separation  
+- Coverage interaction  
+- QB decision making  
+- Throw quality  
+- Catch outcome  
+- YAC  
+- Run success  
+
+The playbook system determines:
+- Which play is called  
+- Which routes are run  
+- Which players are involved in the concept  
+- How often certain concepts appear in specific situations  
+
+---
+
+## Current Development Priority
+This system is important, but not the current priority.
+
+For now:
+- Focus remains on building a strong simulation engine  
+- The existing Gameplan system should be removed from the long-term design  
+- The current Playbook system should also be removed from the long-term design  
+- Both will be reintroduced later in a redesigned form  
+
+The goal is a polished simulation engine before adding user-driven playbook customization.
+
+---
+
+## Future Implementation Notes
+When implemented, this system should support:
+
+- A large predefined database of offensive plays  
+- Route-by-route tagging for each eligible receiver  
+- Situational playbook buckets by down and distance  
+- Weighted play selection  
+- Repetition penalties  
+- Easy user customization  
+- CPU teams using the same system  
+
+---
+
+## Summary
+The future playbook system will be a customizable, situational, weighted play-calling framework built from a large play database. Plays are defined by the individual routes within them rather than a single depth label. This system will be implemented after the core simulation engine is fully stable and refined.
