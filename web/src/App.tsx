@@ -556,9 +556,10 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'dashboard' | 'standings' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner' | 'gameplan' | 'playbooks' | 'coaching' | 'scouting' | 'draft-board' | 'awards' | 'history' | 'hof' | 'legacy' | 'gm'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'standings' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner' | 'gameplan' | 'playbooks' | 'coaching' | 'scouting' | 'draft-board' | 'awards' | 'history' | 'hof' | 'legacy' | 'gm' | 'game-center'>('dashboard');
   const [rosterTeamId, setRosterTeamId] = useState(myTeamId);
   const [detailPlayerId, setDetailPlayerId] = useState<string | null>(null);
+  const [watchedGameId, setWatchedGameId] = useState<string | null>(null);
 
   async function action(fn: (id: string) => Promise<League>) {
     setBusy(true); setError(null);
@@ -594,6 +595,16 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
     catch (e) { setError(friendlyError(e)); }
     finally { setBusy(false); }
   }
+
+  async function handleWatchGame(gameId: string) {
+    setWatchedGameId(gameId);
+    setBusy(true); setError(null);
+    try { setLeague(await advanceWeek(leagueId)); setTab('game-center'); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  function handleSimGame() { action(advanceWeek); }
 
   async function handleReleasePlayer(playerId: string) {
     setBusy(true); setError(null);
@@ -799,7 +810,10 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           league={league}
           myTeamId={myTeamId}
           standings={standings}
+          busy={busy}
           onNavTo={setTab as (t: string) => void}
+          onWatchGame={handleWatchGame}
+          onSimGame={handleSimGame}
         />
       )}
       {tab === 'standings' && (
@@ -874,6 +888,14 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
       )}
       {tab === 'gm' && league.gmCareer && (
         <GmCareerView career={league.gmCareer} />
+      )}
+      {tab === 'game-center' && (
+        <GameCenterView
+          league={league}
+          myTeamId={myTeamId}
+          watchedGameId={watchedGameId}
+          onBack={() => setTab('dashboard')}
+        />
       )}
       {tab === 'depth' && (
         <DepthChartView
@@ -2517,11 +2539,14 @@ function fmtNewsAge(createdAt: number): string {
   return `${diffD}d`;
 }
 
-function DashboardView({ league, myTeamId, standings, onNavTo }: {
+function DashboardView({ league, myTeamId, standings, busy, onNavTo, onWatchGame, onSimGame }: {
   league: League;
   myTeamId: string;
   standings: Standing[];
+  busy: boolean;
   onNavTo: (t: string) => void;
+  onWatchGame: (gameId: string) => void;
+  onSimGame: () => void;
 }) {
   const team    = league.teams.find(t => t.id === myTeamId)!;
   const games   = league.currentSeason.games;
@@ -2619,10 +2644,16 @@ function DashboardView({ league, myTeamId, standings, onNavTo }: {
           </div>
           {nextGame && (
             <div className="dash-team-next">
-              <span className="muted">Week {nextGame.week} · </span>
-              {nextGame.homeTeam.id === myTeamId
-                ? <>vs <strong>{nextGame.awayTeam.name}</strong></>
-                : <>@ <strong>{nextGame.homeTeam.name}</strong></>}
+              <div className="dash-next-matchup">
+                <span className="muted">Week {nextGame.week} · </span>
+                {nextGame.homeTeam.id === myTeamId
+                  ? <>vs <strong>{nextGame.awayTeam.name}</strong></>
+                  : <>@ <strong>{nextGame.homeTeam.name}</strong></>}
+              </div>
+              <div className="dash-next-actions">
+                <button className="btn-watch" disabled={busy} onClick={() => onWatchGame(nextGame.id)}>Watch Game</button>
+                <button className="btn-sim" disabled={busy} onClick={onSimGame}>Sim Game</button>
+              </div>
             </div>
           )}
         </div>
@@ -2832,6 +2863,251 @@ function DashboardView({ league, myTeamId, standings, onNavTo }: {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Game Center ────────────────────────────────────────────────────────────────
+
+function GameCenterView({ league, myTeamId, watchedGameId, onBack }: {
+  league: League;
+  myTeamId: string;
+  watchedGameId: string | null;
+  onBack: () => void;
+}) {
+  const allGames = league.currentSeason.games;
+  const focusGame = watchedGameId ? allGames.find(g => g.id === watchedGameId) ?? null : null;
+  const watchedWeek = focusGame?.week ?? league.currentWeek;
+  const weekGames = allGames.filter(g => g.week === watchedWeek);
+
+  // Lifted viewer state (shared with live box score)
+  const events = focusGame?.events ?? [];
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const atEnd = events.length === 0 || idx >= events.length - 1;
+
+  useEffect(() => {
+    if (!playing) return;
+    if (atEnd) { setPlaying(false); return; }
+    timerRef.current = setTimeout(() => setIdx(i => i + 1), 800);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [playing, atEnd, idx]);
+
+  useEffect(() => { setIdx(0); setPlaying(false); }, [watchedGameId]);
+
+  // Box score team toggle
+  const [boxSide, setBoxSide] = useState<'home' | 'away'>('home');
+
+  if (!focusGame) {
+    return (
+      <div className="game-center">
+        <p className="muted">No game found. <button className="btn-sm" onClick={onBack}>Back to Dashboard</button></p>
+      </div>
+    );
+  }
+
+  const homeId = focusGame.homeTeam.id;
+
+  // Running score up to current play
+  let homeScore = 0, awayScore = 0;
+  for (let i = 0; i <= idx && i < events.length; i++) {
+    const ev = events[i]!;
+    if (ev.result === 'touchdown')       { if (ev.offenseTeamId === homeId) homeScore += 7; else awayScore += 7; }
+    if (ev.result === 'field_goal_good') { if (ev.offenseTeamId === homeId) homeScore += 3; else awayScore += 3; }
+  }
+
+  const currentEvent = events[idx];
+  const quarter = currentEvent?.quarter ?? 1;
+  const quarterLabel = atEnd && events.length > 0 ? 'Final' : `Q${Math.min(quarter, 4)}`;
+  const offAbbr = currentEvent
+    ? (currentEvent.offenseTeamId === homeId ? focusGame.homeTeam.abbreviation : focusGame.awayTeam.abbreviation)
+    : '';
+  const playText = currentEvent ? `[${offAbbr}] ${formatPlay(currentEvent)}` : '';
+
+  // Live box score up to idx
+  const liveGame = { ...focusGame, events: events.slice(0, idx + 1) };
+  const bs = deriveBoxScore(liveGame);
+
+  // Determine which team each player belongs to (by offense team id in events)
+  const playerTeamMap = new Map<string, string>();
+  for (const ev of liveGame.events) {
+    if (ev.ballCarrier) playerTeamMap.set(ev.ballCarrier, ev.offenseTeamId);
+    if (ev.target) playerTeamMap.set(ev.target, ev.offenseTeamId);
+  }
+
+  const displayTeamId = boxSide === 'home' ? homeId : focusGame.awayTeam.id;
+  const displayTeam   = boxSide === 'home' ? focusGame.homeTeam : focusGame.awayTeam;
+  const displayTeamStats = boxSide === 'home' ? bs.home : bs.away;
+  const allPlayers = Object.values(bs.players);
+  const teamPlayers = allPlayers.filter(p => playerTeamMap.get(p.name) === displayTeamId);
+
+  const passers   = teamPlayers.filter(p => p.attempts > 0).sort((a, b) => b.passingYards - a.passingYards);
+  const rushers   = teamPlayers.filter(p => p.carries > 0).sort((a, b) => b.rushingYards - a.rushingYards);
+  const receivers = teamPlayers.filter(p => p.targets > 0).sort((a, b) => b.receivingYards - a.receivingYards);
+
+  // If no team-specific players yet (early in game), show all
+  const hasTeamData = teamPlayers.length > 0;
+  const showPassers   = hasTeamData ? passers   : allPlayers.filter(p => p.attempts > 0);
+  const showRushers   = hasTeamData ? rushers   : [];
+  const showReceivers = hasTeamData ? receivers : [];
+
+  const isMyGame = focusGame.homeTeam.id === myTeamId || focusGame.awayTeam.id === myTeamId;
+
+  return (
+    <div className="game-center">
+
+      {/* Left: Around the League */}
+      <div className="gc-left">
+        <div className="gc-panel-title">Week {watchedWeek} Scores</div>
+        {weekGames.map(g => {
+          const isFocus = g.id === focusGame.id;
+          const isUser  = g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId;
+          return (
+            <div key={g.id} className={`atl-card${isFocus ? ' atl-focus' : ''}${isUser ? ' atl-mine' : ''}`}>
+              <div className="atl-teams">
+                <span className="atl-abbr">{g.awayTeam.abbreviation}</span>
+                <span className="atl-at">@</span>
+                <span className="atl-abbr">{g.homeTeam.abbreviation}</span>
+              </div>
+              {g.status === 'final' ? (
+                <div className="atl-score">{g.awayScore} – {g.homeScore}</div>
+              ) : (
+                <div className="atl-upcoming muted">Upcoming</div>
+              )}
+              <div className={`atl-status ${g.status}`}>{g.status === 'final' ? 'Final' : 'Pre'}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Center: Scoreboard + Viewer */}
+      <div className="gc-main">
+        <div className="gc-scoreboard">
+          <div className="gc-team gc-away">
+            <div className="gc-team-abbr">{focusGame.awayTeam.abbreviation}</div>
+            <div className="gc-team-name">{focusGame.awayTeam.name}</div>
+            <div className="gc-team-score">{awayScore}</div>
+          </div>
+          <div className="gc-mid">
+            <div className="gc-quarter-label">{quarterLabel}</div>
+            {events.length > 0 && (
+              <div className="gc-play-count">{idx + 1}/{events.length}</div>
+            )}
+          </div>
+          <div className="gc-team gc-home">
+            <div className="gc-team-score">{homeScore}</div>
+            <div className="gc-team-name">{focusGame.homeTeam.name}</div>
+            <div className="gc-team-abbr">{focusGame.homeTeam.abbreviation}</div>
+          </div>
+        </div>
+
+        <div className="gc-play-area">
+          {events.length === 0
+            ? <p className="muted gc-no-events">No play data available for this game.</p>
+            : <PbpLine line={playText} game={focusGame} />}
+        </div>
+
+        <div className="gc-controls">
+          <button onClick={() => { setPlaying(false); setIdx(0); }} disabled={idx === 0 && !playing}>Reset</button>
+          <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={playing || idx === 0}>◀ Prev</button>
+          <button
+            onClick={() => setPlaying(v => !v)}
+            disabled={events.length === 0 || (atEnd && !playing)}
+          >
+            {playing ? '⏸ Pause' : '▶ Play'}
+          </button>
+          <button onClick={() => setIdx(i => Math.min(events.length - 1, i + 1))} disabled={playing || atEnd}>Next ▶</button>
+        </div>
+
+        <div className="gc-back-row">
+          <button className="btn-sm" onClick={onBack}>← Dashboard</button>
+          {!isMyGame && <span className="muted gc-spectating">Spectating</span>}
+        </div>
+      </div>
+
+      {/* Right: Live Box Score */}
+      <div className="gc-right">
+        <div className="gc-panel-title">Box Score</div>
+        <div className="gc-bs-tabs">
+          <button
+            className={boxSide === 'away' ? 'active' : ''}
+            onClick={() => setBoxSide('away')}
+          >
+            {focusGame.awayTeam.abbreviation}
+          </button>
+          <button
+            className={boxSide === 'home' ? 'active' : ''}
+            onClick={() => setBoxSide('home')}
+          >
+            {focusGame.homeTeam.abbreviation}
+          </button>
+        </div>
+
+        {/* Team summary row */}
+        <div className="gc-bs-summary">
+          <span className="gc-bs-team-name">{displayTeam.name}</span>
+          <div className="gc-bs-stat-row">
+            <span>Score</span><span>{displayTeamStats.score}</span>
+          </div>
+          <div className="gc-bs-stat-row">
+            <span>Total Yds</span><span>{displayTeamStats.totalYards}</span>
+          </div>
+          <div className="gc-bs-stat-row">
+            <span>Pass Yds</span><span>{displayTeamStats.passingYards}</span>
+          </div>
+          <div className="gc-bs-stat-row">
+            <span>Rush Yds</span><span>{displayTeamStats.rushingYards}</span>
+          </div>
+          <div className="gc-bs-stat-row">
+            <span>1st Downs</span><span>{displayTeamStats.firstDowns}</span>
+          </div>
+          <div className="gc-bs-stat-row">
+            <span>Turnovers</span><span>{displayTeamStats.turnovers}</span>
+          </div>
+        </div>
+
+        {showPassers.length > 0 && (
+          <div className="gc-bs-section">
+            <div className="gc-bs-section-title">Passing</div>
+            {showPassers.map(p => (
+              <div key={p.name} className="gc-bs-player-row">
+                <span className="gc-bs-player-name">{p.name}</span>
+                <span className="gc-bs-player-stat">{p.completions}/{p.attempts} · {p.passingYards}y · {p.passingTDs}TD</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showRushers.length > 0 && (
+          <div className="gc-bs-section">
+            <div className="gc-bs-section-title">Rushing</div>
+            {showRushers.map(p => (
+              <div key={p.name} className="gc-bs-player-row">
+                <span className="gc-bs-player-name">{p.name}</span>
+                <span className="gc-bs-player-stat">{p.carries} car · {p.rushingYards}y · {p.rushingTDs}TD</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showReceivers.length > 0 && (
+          <div className="gc-bs-section">
+            <div className="gc-bs-section-title">Receiving</div>
+            {showReceivers.map(p => (
+              <div key={p.name} className="gc-bs-player-row">
+                <span className="gc-bs-player-name">{p.name}</span>
+                <span className="gc-bs-player-stat">{p.receptions}/{p.targets} · {p.receivingYards}y · {p.receivingTDs}TD</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showPassers.length === 0 && showRushers.length === 0 && showReceivers.length === 0 && (
+          <p className="muted gc-bs-empty">No stats yet.</p>
+        )}
+      </div>
+
     </div>
   );
 }

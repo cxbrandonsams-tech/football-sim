@@ -4395,3 +4395,381 @@ details[open] summary .muted { color: #94a3b8; }
   padding: 0.4rem 0;
   font-size: 0.85rem;
 }
+
+/* ── Dashboard: Watch / Sim buttons ──────────────────────────────────────── */
+
+.dash-team-next {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.2rem;
+}
+
+.dash-next-matchup {
+  font-size: 0.875rem;
+  color: #cbd5e1;
+}
+
+.dash-next-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.btn-watch {
+  background: #1d4ed8;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-watch:hover:not(:disabled) { background: #2563eb; }
+.btn-watch:disabled { opacity: 0.4; cursor: default; }
+
+.btn-sim {
+  background: #1e2330;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-sim:hover:not(:disabled) { background: #2d3748; color: #e2e8f0; }
+.btn-sim:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Game Center ─────────────────────────────────────────────────────────── */
+
+.game-center {
+  display: grid;
+  grid-template-columns: 220px 1fr 280px;
+  gap: 1rem;
+  align-items: start;
+  padding: 1rem 0;
+  min-height: 500px;
+}
+
+/* ── Left: Around the League ─────────────────────────────────────────────── */
+
+.gc-left {
+  background: #0f1623;
+  border: 1px solid #1e2a3a;
+  border-radius: 10px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.gc-panel-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin-bottom: 0.3rem;
+}
+
+.atl-card {
+  background: #131c2b;
+  border: 1px solid #1e2a3a;
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: default;
+}
+
+.atl-card.atl-focus {
+  border-color: #2563eb;
+  background: #0f1e35;
+}
+
+.atl-card.atl-mine {
+  border-color: #1d4ed8;
+}
+
+.atl-teams {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+
+.atl-abbr {
+  font-weight: 600;
+  color: #e2e8f0;
+  width: 32px;
+  text-align: center;
+}
+
+.atl-at {
+  color: #64748b;
+  font-size: 0.7rem;
+}
+
+.atl-score {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  text-align: center;
+}
+
+.atl-upcoming {
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.atl-status {
+  font-size: 0.65rem;
+  text-align: right;
+  color: #475569;
+  margin-top: 0.1rem;
+}
+.atl-status.final { color: #22c55e; }
+
+/* ── Center: Scoreboard + Viewer ─────────────────────────────────────────── */
+
+.gc-main {
+  background: #0f1623;
+  border: 1px solid #1e2a3a;
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.gc-scoreboard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #131c2b;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.gc-team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.gc-away {
+  align-items: flex-start;
+}
+
+.gc-home {
+  align-items: flex-end;
+}
+
+.gc-team-abbr {
+  font-size: 0.75rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.gc-team-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.gc-team-score {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #f1f5f9;
+  line-height: 1;
+}
+
+.gc-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 80px;
+}
+
+.gc-quarter-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #94a3b8;
+  background: #1e2330;
+  padding: 0.2rem 0.7rem;
+  border-radius: 4px;
+}
+
+.gc-play-count {
+  font-size: 0.7rem;
+  color: #475569;
+}
+
+.gc-play-area {
+  min-height: 2.5rem;
+  background: #131c2b;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+}
+
+.gc-no-events {
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.gc-controls {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.gc-controls button {
+  background: #1e2330;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.15s;
+}
+.gc-controls button:disabled { opacity: 0.35; cursor: default; }
+.gc-controls button:not(:disabled):hover { background: #2d3748; }
+
+.gc-back-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid #1e2a3a;
+}
+
+.gc-spectating {
+  font-size: 0.75rem;
+}
+
+/* ── Right: Live Box Score ────────────────────────────────────────────────── */
+
+.gc-right {
+  background: #0f1623;
+  border: 1px solid #1e2a3a;
+  border-radius: 10px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  max-height: 700px;
+}
+
+.gc-bs-tabs {
+  display: flex;
+  gap: 0.25rem;
+  background: #0a1020;
+  border-radius: 6px;
+  padding: 0.2rem;
+}
+
+.gc-bs-tabs button {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  padding: 0.3rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.gc-bs-tabs button.active {
+  background: #1e2330;
+  color: #e2e8f0;
+}
+.gc-bs-tabs button:not(.active):hover {
+  background: #131c2b;
+}
+
+.gc-bs-team-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 0.25rem;
+  display: block;
+}
+
+.gc-bs-summary {
+  background: #131c2b;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+}
+
+.gc-bs-stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  padding: 0.15rem 0;
+  border-bottom: 1px solid #1e2a3a;
+}
+.gc-bs-stat-row:last-child { border-bottom: none; }
+.gc-bs-stat-row span:last-child { color: #e2e8f0; font-weight: 600; }
+
+.gc-bs-section {
+  background: #131c2b;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.gc-bs-section-title {
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #475569;
+  margin-bottom: 0.35rem;
+}
+
+.gc-bs-player-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid #1a2234;
+}
+.gc-bs-player-row:last-child { border-bottom: none; }
+
+.gc-bs-player-name {
+  color: #cbd5e1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.gc-bs-player-stat {
+  color: #94a3b8;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.gc-bs-empty {
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 1rem 0;
+}
+
+@media (max-width: 900px) {
+  .game-center {
+    grid-template-columns: 1fr;
+  }
+}
