@@ -7,14 +7,35 @@ const BASE =
     ? ''
     : 'https://football-sim-n7sl.onrender.com';
 
-// ── Auth token storage ────────────────────────────────────────────────────────
+// ── Auth state storage ────────────────────────────────────────────────────────
+// All three values are persisted in localStorage so they survive a page refresh.
+// authToken  — JWT used in Authorization header for every request
+// authUserId / authUsername — cached from the last successful login/me response
 
-export let authToken: string | null = localStorage.getItem('authToken');
+export let authToken:    string | null = localStorage.getItem('authToken');
+export let authUserId:   string | null = localStorage.getItem('authUserId');
+export let authUsername: string | null = localStorage.getItem('authUsername');
 
 export function setAuthToken(token: string | null): void {
   authToken = token;
   if (token) localStorage.setItem('authToken', token);
-  else localStorage.removeItem('authToken');
+  else        localStorage.removeItem('authToken');
+}
+
+/** Persist the authenticated user's identity alongside the token. */
+export function setAuthUser(userId: string | null, username: string | null): void {
+  authUserId   = userId;
+  authUsername = username;
+  if (userId)   localStorage.setItem('authUserId',   userId);
+  else          localStorage.removeItem('authUserId');
+  if (username) localStorage.setItem('authUsername', username);
+  else          localStorage.removeItem('authUsername');
+}
+
+/** Clear all auth state (token + user) — call on logout or 401. */
+export function clearAuth(): void {
+  setAuthToken(null);
+  setAuthUser(null, null);
 }
 
 // ── Core request helper ───────────────────────────────────────────────────────
@@ -44,6 +65,9 @@ export const signup = (username: string, password: string) =>
 
 export const login = (username: string, password: string) =>
   request<AuthResult>('/auth/login', 'POST', { username, password });
+
+/** Validate the stored token and return user identity from the server. */
+export const getMe = () => request<{ userId: string; username: string }>('/auth/me');
 
 // ── My leagues ────────────────────────────────────────────────────────────────
 

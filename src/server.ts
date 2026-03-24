@@ -248,6 +248,12 @@ app.post('/auth/login', async (req: Request, res: Response) => {
   res.json({ token, userId: user.id, username: user.username });
 });
 
+// GET /auth/me — validate token and return current user identity.
+app.get('/auth/me', requireAuth, (req: Request, res: Response) => {
+  const { userId, username } = (req as AuthRequest).user!;
+  res.json({ userId, username });
+});
+
 // GET /my-leagues — (auth required)
 app.get('/my-leagues', requireAuth, (req: Request, res: Response) => {
   const userId = (req as AuthRequest).user!.userId;

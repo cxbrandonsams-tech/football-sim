@@ -14,9 +14,9 @@ import {
   offerContract as offerContractApi,
   shopPlayer as shopPlayerApi,
   fireCoach as fireCoachApi, hireCoach as hireCoachApi, promoteWithin as promoteWithinApi,
-  signup, login, getMyLeagues,
+  signup, login, getMyLeagues, getMe,
   getLeagueMembers as getLeagueMembersApi, updateLeagueSettings as updateLeagueSettingsApi, kickMember as kickMemberApi,
-  setAuthToken, authToken,
+  setAuthToken, setAuthUser, clearAuth, authToken, authUserId, authUsername,
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
 import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type NewsMention, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type GmSeasonRecord, type GmAchievement, type FrontOfficePersonality } from './types';
@@ -72,21 +72,42 @@ function FoPersonalityBadge({ personality, size = 'sm' }: { personality: FrontOf
 
 // ── Top-level screen ───────────────────────────────────────────────────────────
 
-type Screen = 'auth' | 'my-leagues' | 'create' | 'join' | 'browse' | 'team-select' | 'league';
+type Screen = 'loading' | 'auth' | 'my-leagues' | 'create' | 'join' | 'browse' | 'team-select' | 'league';
 
 export default function App() {
-  // Auth state
-  const [userId, setUserId]     = useState<string | null>(null);
-  const [username, setUsername] = useState<string | null>(null);
+  // Auth state — seeded from localStorage so they survive a page refresh.
+  const [userId, setUserId]     = useState<string | null>(authUserId);
+  const [username, setUsername] = useState<string | null>(authUsername);
 
-  // Screen/league state
-  const [screen, setScreen]     = useState<Screen>(() => authToken ? 'my-leagues' : 'auth');
+  // Screen/league state. Start at 'loading' if a token exists so we can
+  // validate it before showing anything; go straight to 'auth' if there is none.
+  const [screen, setScreen]     = useState<Screen>(() => authToken ? 'loading' : 'auth');
   const [leagueId, setLeagueId] = useState<string | null>(null);
   const [league, setLeague]     = useState<League | null>(null);
   const [myTeamId, setMyTeamId] = useState<string | null>(null);
 
+  // On mount: validate stored token with the server. On success, restore user
+  // identity and continue; on failure, wipe stale auth and send to login.
+  useEffect(() => {
+    if (!authToken) return;
+    getMe()
+      .then(({ userId: uid, username: uname }) => {
+        setUserId(uid);
+        setUsername(uname);
+        setAuthUser(uid, uname);
+        setScreen('my-leagues');
+      })
+      .catch(() => {
+        clearAuth();
+        setUserId(null);
+        setUsername(null);
+        setScreen('auth');
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleAuthSuccess(result: AuthResult) {
     setAuthToken(result.token);
+    setAuthUser(result.userId, result.username);
     setUserId(result.userId);
     setUsername(result.username);
     setScreen('my-leagues');
@@ -115,8 +136,18 @@ export default function App() {
 
   function leaveLeague() {
     setLeague(null); setLeagueId(null); setMyTeamId(null);
-    setScreen(username ? 'my-leagues' : 'auth');
+    // Use the token (not username state) as the authoritative check so that
+    // users are never accidentally redirected to the login screen mid-session.
+    setScreen(authToken ? 'my-leagues' : 'auth');
   }
+
+  if (screen === 'loading') return (
+    <div className="form-screen">
+      <div className="form-card">
+        <p className="muted">Restoring session…</p>
+      </div>
+    </div>
+  );
 
   if (screen === 'auth') return <AuthScreen onSuccess={handleAuthSuccess} />;
 
@@ -213,7 +244,7 @@ function MyLeaguesScreen({ username, onNav, onEnterLeague }: {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getMyLeagues().then(setSummaries).catch(e => setError(String(e)));
+    getMyLeagues().then(setSummaries).catch(e => setError(friendlyError(e)));
   }, []);
 
   async function enter(s: MyLeagueSummary) {
@@ -406,7 +437,7 @@ function BrowseLeagues({ onBack, onEnter }: {
 
   // Load on mount
   useEffect(() => {
-    listLeagues().then(setLeagues).catch(e => setError(String(e)));
+    listLeagues().then(setLeagues).catch(e => setError(friendlyError(e)));
   }, []);
 
   async function join(id: string) {
