@@ -1,241 +1,434 @@
-# Football Simulation Game — Game Design Document (v1)
+# Football Simulation Game Design
 
-## Core Design Philosophy
-
-### Principles
-- No redundant stats
-- Every rating must affect simulation
-- Position-specific ratings only
-- Minimal stat count (clarity > complexity)
-- No generic attributes (strength, agility, awareness, etc.)
-- Systems must create emergent behavior, not hard-coded archetypes
+Version: 1.0  
+Last Updated: 2026-03-24
 
 ---
 
-## Game Simulation Overview
+# Player Ratings System (v3)
 
-### Passing Flow
-1. Play concept (Short / Medium / Deep)
-2. QB read progression (1–3 reads)
-3. Separation (WR vs DB)
-4. Throw (QB accuracy)
-5. Catch (WR vs DB)
-6. YAC
-7. Safety influence on deep plays
+## Core Design Philosophy
 
-### Run Flow
-1. Blocking (OL vs DL)
-2. Vision (RB)
-3. Engagement (front seven)
-4. Contact (Power vs Elusive)
-5. Breakaway (Speed if open field)
+- Each rating has one clear purpose  
+- No redundant or overlapping stats  
+- Ratings map directly to engine phases  
+- Advanced behavior is handled by logic, not excess ratings  
+- Hidden derived stats are used where appropriate to reduce UI clutter  
 
 ---
 
 ## Quarterback (QB)
 
-### Ratings
-- Arm Strength
-- Short Accuracy
-- Medium Accuracy
-- Deep Accuracy
-- Processing
-- Decision Making
-- Mobility
+### Core Ratings
 
-### Hidden
-- Pocket Presence
+**Accuracy**  
+Determines ball placement and catchability  
 
-### Rules
-- Processing = speed of reads
-- Decision Making = correctness of choice
-- Accuracy split by depth
-- Mobility affects sacks/scramble only
+**Arm Strength**  
+Determines velocity, throw viability, and ability to fit passes into tight windows  
+(Applies to short, medium, and deep throws with increasing impact)  
+
+**Processing**  
+Determines how well the QB reads defenses and identifies open targets  
+
+**Decision Making**  
+Determines risk-taking, target selection, and interception likelihood  
 
 ---
 
 ## Running Back (RB)
 
-### Ratings
-- Vision
-- Power
-- Elusiveness
-- Speed
-- Ball Security
+### Core Ratings
 
-### Rules
-- Speed only applies in open field
-- Contact uses Power OR Elusiveness (not blended)
+**Vision**  
+Determines ability to find running lanes and make correct cuts  
 
-### Run Type Effects
-- Inside = lower breakaway
-- Outside = higher breakaway
+**Elusiveness**  
+Ability to make defenders miss in space  
 
----
+**Power**  
+Ability to break tackles and gain yards through contact  
 
-## Wide Receiver (WR)
-
-### Ratings
-- Speed
-- Route Running
-- Hands
-- YAC
-- Size
-
-### Rules
-- Route Running determines getting open
-- Speed affects deep routes and breakaway
-- Hands is primary catch stat
-- Size is a situational advantage (not required)
-- Small WR can win contested catches
+**Speed**  
+Breakaway ability and long-run potential  
 
 ---
 
-## Tight End (TE)
+## Wide Receiver (WR) / Tight End (TE)
 
-### Ratings
-- Speed
-- Route Running
-- Hands
-- YAC
-- Size
-- Blocking
+### Core Ratings
 
-### Role
-- Hybrid receiver and blocker
+**Route Running**  
+Determines ability to create separation vs coverage  
+
+**Speed**  
+Impacts separation at all levels:
+- Minor on short routes  
+- Moderate on medium routes  
+- Major on deep routes  
+
+**Ball Skills**  
+Ability to catch the ball, especially in contested situations  
+
+**YAC (Yards After Catch)**  
+Ability to gain additional yards after securing the catch  
+Includes elusiveness, vision, and tackle-breaking in space  
 
 ---
 
 ## Offensive Line (OL)
 
-### Positions
-- OT
-- OG
-- C
+### Core Ratings
 
-### Ratings
-- Pass Block
-- Run Block
-- Awareness
+**Pass Block**  
+Ability to protect the QB against pass rush  
 
-### Rule
-Awareness = assignment correctness, not strength
+**Run Block**  
+Ability to create lanes in the run game  
+
+**Awareness**  
+Assignment correctness (blitz pickup, stunts, pulling, etc.)  
+Poor Awareness results in missed or delayed assignments  
 
 ---
 
 ## Defensive Line (DL)
 
-### Positions
-- DE
-- DT
+### Core Ratings
 
-### Ratings
-- Pass Rush
-- Run Defense
-- Discipline
+**Pass Rush**  
+Ability to generate pressure on the QB  
 
-### Rule
-Discipline = gap responsibility
+**Run Defense (Tackling)**  
+Ability to stop ball carriers and control gaps  
+
+**Discipline**  
+Consistency and assignment integrity (contain, gap control, penalties)  
 
 ---
 
 ## Linebacker (LB)
 
-### Ratings
-- Run Defense
-- Coverage
-- Pass Rush
-- Speed
-- Pursuit
+### Core Ratings
 
-### Rules
-- Speed = athleticism
-- Pursuit = angles and tracking
+**Run Defense (Tackling)**  
+Ability to stop the run and finish plays  
 
----
+**Pass Rush**  
+Ability to pressure the QB when blitzing  
 
-## Defensive Backs (DB)
+**Coverage**  
+Ability to defend against the pass (applies to both man and zone responsibilities)  
 
-### Cornerback
-- Coverage
-- Ball Skills
-- Speed
-- Size
+**Speed**  
+Impacts pursuit, coverage range, and closing ability  
 
-### Safety
-- Coverage
-- Ball Skills
-- Speed
-- Size
-- Range
+**Awareness**  
+Determines reaction speed, play recognition, and zone effectiveness  
 
-### Rules
-- Coverage prevents separation
-- Ball Skills create turnovers
-- Size is minor and situational
-- Range is safety-only
+**Discipline**  
+Assignment integrity and reaction consistency  
 
 ---
 
-## Passing System
+## Cornerback (CB)
 
-Separation:
-WR Route Running (+ Speed deep) vs DB Coverage + Speed
+### Core Ratings
 
-Catch:
-WR Hands + Size vs DB Ball Skills + Size
+**Man Coverage**  
+Ability to stay with receivers in man-to-man coverage  
 
-Deep:
-Safety Range reduces big plays
+**Zone Coverage**  
+Ability to defend assigned areas and react to route concepts  
 
----
+**Ball Skills**  
+Ability to contest passes, deflect, and create turnovers  
 
-## Run System
+**Speed**  
+Ability to match receivers and recover on deep routes  
 
-Flow:
-OL → DL → RB Vision → Contact → Breakaway
+**Tackling**  
+Ability to limit YAC and contribute in run support  
 
-Breakaway:
-Only triggers if open field
-
----
-
-## Coaching System
-
-- HC, OC, DC
-- Personality: Conservative / Balanced / Aggressive
-- Traits: gameplay, development, team building
+**Awareness**  
+Determines reaction speed, route recognition, and zone discipline  
 
 ---
 
-## Gameplan
+## Safety (S)
 
-Offense:
-- Run/Pass balance
-- Depth tendencies
-- Tempo
+### Core Ratings
 
-Defense:
-- Stop inside/outside run
-- Stop short/deep pass
+**Zone Coverage**  
+Ability to defend deep zones and read developing plays  
+
+**Man Coverage**  
+Ability to cover receivers when matched up  
+
+**Ball Skills**  
+Ability to make plays on the ball (INTs, deflections)  
+
+**Speed**  
+Ability to cover ground and recover in deep coverage  
+
+**Tackling**  
+Ability to stop plays in the open field  
+
+**Awareness**  
+Determines reaction timing, play recognition, and positioning  
 
 ---
 
-## Global Rules
+## Global / Secondary Rating
 
-- No stat overlap
-- No hidden duplicate systems
-- Every stat has one purpose
-- Avoid feature creep
+### Discipline (All Players Except QB)
+
+Represents consistency, composure, and assignment reliability  
+
+Impacts:
+- Penalties  
+- Assignment breakdown frequency  
+- Mistakes under pressure  
 
 ---
 
-## Future Systems
+## Hidden / Derived Ratings (Engine Only)
 
-- 2-minute drill
-- Timeouts
-- Trailing behavior
-- Advanced QB reads
-- Coaching traits expansion
-- Hall of Fame
-- Ring of Honor
+### Range (Safeties Only — Hidden)
+
+Represents a defender’s ability to effectively cover large areas of the field, particularly in deep coverage  
+
+**Formula (tunable):**
+Range = (Speed * 0.6) + (Awareness * 0.4)
+
+**Used For:**
+- Deep zone coverage effectiveness  
+- Over-the-top help defense  
+- Closing on deep passes  
+- Preventing explosive plays  
+
+**Not Used For:**
+- Man coverage  
+- Short zone reactions  
+- Tackling or run defense  
+
+---
+
+## Design Notes
+
+- Ratings are intentionally limited to avoid stat bloat  
+- Each stat maps cleanly to a phase in the engine  
+- Hidden derived stats allow deeper simulation without UI complexity  
+- System is built for tuning via weight adjustments, not structural changes  
+
+---
+
+# Engine Details
+
+## Core Philosophy
+
+The game engine simulates football outcomes through layered interactions rather than isolated dice rolls.
+
+Each play resolves through the following phases:
+
+1. Pre-Snap Context  
+2. Protection vs Pass Rush  
+3. Route Development / Coverage Interaction  
+4. QB Decision & Throw Execution  
+5. Catch Resolution  
+6. After Catch / Run Outcome  
+
+Each phase uses a focused subset of ratings to avoid redundancy while maintaining realism.
+
+---
+
+## 1. Pre-Snap Context
+
+- Offensive play concept (Short / Medium / Deep)  
+- Read progression (1–3 reads)  
+- Defensive call (Man, Zone, or Mixed)  
+- Player assignments (routes, coverage responsibilities)  
+- Leverage and help structure  
+
+---
+
+## 2. Protection vs Pass Rush
+
+### Offensive Factors
+- Pass Block (OL)  
+- Awareness (OL)  
+
+### Defensive Factors
+- Pass Rush (DL / LB)  
+- Awareness / Discipline  
+
+### Outcomes
+- Clean pocket  
+- Gradual pressure  
+- Immediate pressure  
+
+Impacts:
+- QB timing  
+- Throw accuracy  
+- Decision-making  
+
+---
+
+## 3. Route Development & Coverage Interaction
+
+### Speed Scaling (All Depths)
+
+- Short → Minor impact  
+- Medium → Moderate impact  
+- Deep → Major impact  
+
+---
+
+### Man Coverage
+
+Compare:
+
+- WR: Route Running + Speed  
+- DB: Man Coverage + Speed + Awareness  
+
+Outcomes:
+- Tight coverage  
+- Slight separation  
+- Clear separation  
+- Defender in phase  
+
+---
+
+### Zone Coverage
+
+Uses:
+- Zone Coverage  
+- Awareness (PRIMARY)  
+- Speed  
+- Safety Range  
+
+Behavior:
+- Routes stress zones  
+- Defenders react, pass off, or get pulled  
+
+Outcomes:
+- Window opens  
+- Window closes  
+- Late reaction  
+- Blown zone  
+
+---
+
+### Mixed Coverage
+
+Each defender has:
+- Coverage Type (Man / Zone)  
+- Assignment  
+- Help responsibility  
+
+Resolved independently per defender  
+
+---
+
+## 4. QB Decision & Throw Execution
+
+### QB Ratings
+- Processing  
+- Decision Making  
+
+### Throw Ratings
+- Accuracy  
+- Arm Strength  
+
+---
+
+### Arm Strength Scaling
+
+- Short → Minor  
+- Medium → Moderate  
+- Deep → Major  
+
+Impacts:
+- Ball travel time  
+- Window tightness  
+- Defender recovery  
+
+---
+
+## 5. Catch Resolution
+
+### Open Catch
+- WR ability  
+- QB accuracy  
+- Defender proximity  
+
+### Contested Catch
+
+Compare:
+- WR Ball Skills  
+- DB Ball Skills + positioning  
+
+**Rule:**
+- Route Running does NOT significantly impact contested catches  
+
+---
+
+## 6. After Catch (YAC)
+
+### YAC Rating
+
+Represents:
+- Elusiveness  
+- Vision  
+- Tackle breaking  
+
+### Defensive Response
+
+Uses:
+- Pursuit  
+- Tackling  
+
+---
+
+## Coverage Rating Structure
+
+### Defensive Backs
+- Man Coverage  
+- Zone Coverage  
+- Ball Skills  
+- Speed  
+- Tackling  
+- Awareness  
+
+### Safeties
+- Range (derived, hidden)  
+
+---
+
+## Receiver Ratings
+
+- Route Running  
+- Speed  
+- Ball Skills  
+- YAC  
+
+---
+
+## Engine Flow Summary
+
+1. Protection resolves  
+2. Routes vs coverage  
+3. Separation determined  
+4. QB reads progression  
+5. Throw executed  
+6. Catch resolved  
+7. YAC determined  
+
+---
+
+## Design Principles
+
+- No redundant stats  
+- Clear phase separation  
+- Tunable system  
+- Realistic without unnecessary complexity  
