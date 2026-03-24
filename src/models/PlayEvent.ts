@@ -1,7 +1,7 @@
 export type PlayType =
   | 'inside_run' | 'outside_run'
   | 'short_pass' | 'medium_pass' | 'deep_pass'
-  | 'sack' | 'interception' | 'fumble'
+  | 'sack' | 'scramble' | 'interception' | 'fumble'
   | 'field_goal' | 'punt';
 
 export type PlayResult =

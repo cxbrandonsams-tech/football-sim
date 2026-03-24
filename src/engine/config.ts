@@ -30,9 +30,15 @@ export const TUNING = {
     catchingBase:          0.80,
     handsRatingScale:      0.003,   // per point of hands above 70
 
-    // Ball Skills: affects pass breakups only (not coverage/separation)
+    // Ball Skills: affects pass breakups AND interception generation
     ballSkillsBreakupChance: 0.15,  // base chance DB breaks up a catchable ball
     ballSkillsRatingScale:  0.003,  // per point of ballSkills above 70
+    // GDD: Ball Skills create turnovers — contributes to INT chance (not just breakups)
+    ballSkillsIntScale:     0.0008, // per point of ballSkills above 50, adds to INT chance
+
+    // GDD: WR Size vs DB Size — small situational modifier on contested passes
+    // Size is minor and situational (GDD); small WR can still win
+    sizeAdvantageScale:     0.001,  // per point of (wrSize - dbSize)
 
     // YAC phase — WR YAC vs (CB Tackling + Safety Tackling + LB Pursuit) / 3
     // GDD: YAC uses YAC vs Tackling/Pursuit; positive = bonus yards after catch
@@ -43,6 +49,12 @@ export const TUNING = {
     minIntChance:          0.02,
     maxIntChance:          0.12,
     intCoverageScale:      0.001,   // per point (coverage − decisionMaking)
+
+    // GDD: QB Mobility affects sacks/scramble only
+    mobilityReductionScale:    0.0015, // per point of mobility above 50, reduces sack chance
+    scrambleMobilityThreshold: 60,     // mobility floor before scramble is an option
+    scrambleYardsMin:          2,
+    scrambleYardsMax:          10,
 
     // Play action deception bonus to separation
     playActionDeceptionBase:       0.08,
@@ -74,7 +86,13 @@ export const TUNING = {
     breakawaySpeedThreshold: 85,
     breakawayBonusMin:       5,
     breakawayBonusMax:       15,
-    breakawayChance:         0.12,
+    // GDD: Inside = lower breakaway chance, Outside = higher breakaway chance
+    // Replaces the single breakawayChance for run plays (passes still use bigPlay.burstChance)
+    insideBreakawayChance:   0.06,   // lower — inside runs are congested
+    outsideBreakawayChance:  0.18,   // higher — outside runs reach open field
+
+    // GDD: TE acts as hybrid blocker — contributes to run blocking
+    teBlockingWeight:        0.20,   // TE contributes 20% of run blocking composite
 
     // Fumble
     baseFumbleChance:        0.012,

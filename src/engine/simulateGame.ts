@@ -213,18 +213,20 @@ function selectPlayType(off: Team, down: number, distance: number): PlayType {
 function offRating(off: Team, type: PlayType): number {
   switch (type) {
     case 'inside_run':
+      // GDD: TE acts as hybrid blocker — blended into OL run blocking composite
       return avg(
-        ol(off)?.runBlocking  ?? 50,
+        wt(ol(off)?.runBlocking ?? 50, 1 - cfg.run.teBlockingWeight, te(off)?.blocking ?? 50, cfg.run.teBlockingWeight),
         ol(off)?.awareness    ?? 50,
         rb(off)?.power        ?? 50,
         rb(off)?.vision       ?? 50,
       );
     case 'outside_run':
+      // GDD: TE blocking also contributes on outside runs
       return avg(
         rb(off)?.speed        ?? 50,
         rb(off)?.elusiveness  ?? 50,
         rb(off)?.vision       ?? 50,
-        ol(off)?.runBlocking  ?? 50,
+        wt(ol(off)?.runBlocking ?? 50, 1 - cfg.run.teBlockingWeight, te(off)?.blocking ?? 50, cfg.run.teBlockingWeight),
       );
     case 'short_pass':
       // GDD: Arm Strength impacts ALL throws (minor weight at short depth)
@@ -322,7 +324,13 @@ function yardsOnSuccess(type: PlayType, speedRating: number): number {
     default:            base = 5;
   }
   // Big-play burst for fast skill players
-  if (speedRating > cfg.bigPlay.speedThreshold && Math.random() < cfg.bigPlay.burstChance) {
+  // GDD: Inside = lower breakaway chance, Outside = higher breakaway chance (runs only)
+  // Pass plays retain the original burstChance
+  const breakawayChance =
+    type === 'inside_run'  ? cfg.run.insideBreakawayChance  :
+    type === 'outside_run' ? cfg.run.outsideBreakawayChance :
+    cfg.bigPlay.burstChance;
+  if (speedRating > cfg.bigPlay.speedThreshold && Math.random() < breakawayChance) {
     base += randInt(cfg.bigPlay.burstBonusMin, cfg.bigPlay.burstBonusMax);
   }
   return base;
@@ -375,16 +383,23 @@ function simulatePlay(
   const isPass = type === 'short_pass' || type === 'medium_pass' || type === 'deep_pass';
   const isRun  = type === 'inside_run' || type === 'outside_run';
 
-  // Sack check
+  // Sack / scramble check
   if (isPass) {
-    const dePassRush   = dl(def, 'DE')?.passRush    ?? 50;
-    const olBlocking   = ol(off)?.passBlocking ?? 50;
-    const advantage    = dePassRush - olBlocking;
-    const sackChance   = Math.max(
+    const dePassRush    = dl(def, 'DE')?.passRush    ?? 50;
+    const olBlocking    = ol(off)?.passBlocking ?? 50;
+    const advantage     = dePassRush - olBlocking;
+    const rawSackChance = Math.max(
       cfg.pass.minSackChance,
       Math.min(cfg.pass.maxSackChance, cfg.pass.baseSackChance + advantage * cfg.pass.sackRatingScale),
     );
-    if (Math.random() < sackChance) {
+    // GDD: Mobility affects sacks/scramble — mobile QB escapes pressure more often
+    const qbMobility         = qb(off)?.mobility ?? 50;
+    const mobilityBonus      = Math.max(0, (qbMobility - 50) * cfg.pass.mobilityReductionScale);
+    const adjustedSackChance = Math.max(0, rawSackChance - mobilityBonus);
+    const sackRoll           = Math.random();
+
+    if (sackRoll < adjustedSackChance) {
+      // QB was brought down — sack
       const qbId = pid(off, 'QB');
       const deId = pid(def, 'DE');
       return {
@@ -395,6 +410,21 @@ function simulatePlay(
         ballCarrier: lastName(off, 'QB'),
         ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
         ...(deId !== undefined ? { defPlayerId:   deId } : {}),
+      };
+    }
+    // QB escaped pressure via mobility — scramble if mobile enough
+    if (sackRoll < rawSackChance && qbMobility >= cfg.pass.scrambleMobilityThreshold) {
+      const scrambleYards = randInt(cfg.pass.scrambleYardsMin, cfg.pass.scrambleYardsMax);
+      const newYL         = yardLine + scrambleYards;
+      const isTD_s        = newYL >= 100;
+      const qbId          = pid(off, 'QB');
+      return {
+        ...base,
+        type:        'scramble',
+        result:      isTD_s ? 'touchdown' : 'success',
+        yards:       isTD_s ? 100 - yardLine : scrambleYards,
+        ballCarrier: lastName(off, 'QB'),
+        ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
       };
     }
   }
@@ -420,22 +450,30 @@ function simulatePlay(
   }
 
   // Success/fail — base rating ratio, then scheme adjustment
-  const oRating     = offRating(off, type);
-  const dRating     = defRating(def, type);
-  const baseProb    = oRating / (oRating + dRating);
-  const schemeAdj   = computeSchemeAdjustment(off, def, type);
-  const successProb = Math.max(0.05, Math.min(0.95, baseProb + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj));
+  const oRating   = offRating(off, type);
+  const dRating   = defRating(def, type);
+  const baseProb  = oRating / (oRating + dRating);
+  const schemeAdj = computeSchemeAdjustment(off, def, type);
+  // GDD: WR Size vs DB Size — small situational modifier on contested passes
+  // Size is minor and situational; small WR can still win (GDD)
+  const sizeAdj   = isPass
+    ? ((wr(off)?.size ?? 50) - (cb(def)?.size ?? 50)) * cfg.pass.sizeAdvantageScale
+    : 0;
+  const successProb = Math.max(0.05, Math.min(0.95, baseProb + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj + sizeAdj));
   const success     = Math.random() < successProb;
 
   // Interception on failed pass
   if (isPass && !success) {
-    // INT check uses manCoverage — best at reading routes and jumping throws
-    const cbCoverage    = cb(def)?.manCoverage ?? 50;
-    const qbDecision    = qb(off)?.decisionMaking ?? 50;
-    const intAdvantage  = (cbCoverage - qbDecision) * cfg.pass.intCoverageScale;
-    const intChance     = Math.max(
+    // GDD: Ball Skills create turnovers — both manCoverage and ballSkills drive INT chance
+    const cbCoverage      = cb(def)?.manCoverage ?? 50;
+    const qbDecision      = qb(off)?.decisionMaking ?? 50;
+    const cbBallSkills    = cb(def)?.ballSkills ?? 50;
+    const intAdvantage    = (cbCoverage - qbDecision) * cfg.pass.intCoverageScale;
+    // Ball Skills: DB reads the ball in the air and tracks it at the catch point
+    const ballSkillsBonus = Math.max(0, (cbBallSkills - 50) * cfg.pass.ballSkillsIntScale);
+    const intChance       = Math.max(
       cfg.pass.minIntChance,
-      Math.min(cfg.pass.maxIntChance, cfg.pass.baseIntChance + intAdvantage),
+      Math.min(cfg.pass.maxIntChance, cfg.pass.baseIntChance + intAdvantage + ballSkillsBonus),
     );
     if (Math.random() < intChance) {
       const qbId  = pid(off, 'QB');

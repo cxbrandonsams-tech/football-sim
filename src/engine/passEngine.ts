@@ -192,15 +192,21 @@ export interface CatchResult {
  *
  * - Ball Skills (DB): affects pass breakups only, not coverage/separation.
  * - Catching (WR): increases catch probability on contested or difficult balls.
+ * - Size (WR vs DB): GDD — Size is a situational advantage; small WR can still win.
+ *   Larger WR has a slight edge; smaller WR is not hard-blocked.
  */
 export function evaluateCatch(
   hands:          number,
   dbBallSkills:   number,
   throwQuality:   number,
+  wrSize:         number, // GDD: Size is a situational catch modifier
+  dbSize:         number,
 ): CatchResult {
+  // GDD: WR Size vs DB Size — minor situational effect (positive = WR advantage)
+  const sizeMod   = (wrSize - dbSize) * cfg.sizeAdvantageScale;
   // Catch chance
   const catchMod  = (hands - 70) * cfg.handsRatingScale;
-  const catchProb = Math.max(0, Math.min(1, cfg.catchingBase + catchMod + throwQuality * 0.15));
+  const catchProb = Math.max(0, Math.min(1, cfg.catchingBase + catchMod + throwQuality * 0.15 + sizeMod));
 
   // DB breakup chance (only if ball is catchable)
   const breakupMod  = (dbBallSkills - 70) * cfg.ballSkillsRatingScale;
@@ -217,18 +223,21 @@ export function evaluateCatch(
 /**
  * On an incompletion, check whether the DB intercepted the ball.
  * manCoverage vs decisionMaking — man coverage reads routes and jumps throws.
- * GDD: Ball Skills create turnovers; here manCoverage drives INT opportunity.
+ * GDD: Ball Skills create turnovers — ballSkills is now a second INT contributor.
  */
 export function checkInterception(
   dbManCoverage:    number,
   qbDecisionMaking: number,
   pressureLevel:    number,
+  dbBallSkills:     number, // GDD: Ball Skills create turnovers
 ): boolean {
   const advantage = (dbManCoverage - qbDecisionMaking) * cfg.intCoverageScale;
-  const pressureBonus = pressureLevel * 0.04;
+  // GDD: Ball Skills create turnovers — DB with high ball skills reads the ball in the air
+  const ballSkillsBonus = Math.max(0, (dbBallSkills - 50) * cfg.ballSkillsIntScale);
+  const pressureBonus   = pressureLevel * 0.04;
   const chance = Math.max(
     cfg.minIntChance,
-    Math.min(cfg.maxIntChance, cfg.baseIntChance + advantage + pressureBonus),
+    Math.min(cfg.maxIntChance, cfg.baseIntChance + advantage + pressureBonus + ballSkillsBonus),
   );
   return Math.random() < chance;
 }

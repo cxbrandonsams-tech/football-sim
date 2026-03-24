@@ -11,13 +11,17 @@ export interface BlockingResult {
 
 /**
  * Evaluate how well the OL handles the DL on this run.
+ * GDD: TE acts as hybrid receiver and blocker — TE blocking contributes to run blocking.
  * The result modulates available lanes and base yards.
  */
 export function evaluateBlocking(
   olRunBlocking:  number,
   dlRunDefense:   number,
+  teBlocking:     number = 50, // GDD: TE contributes to run blocking as hybrid role
 ): BlockingResult {
-  const olScore = olRunBlocking;
+  // Blend OL (primary) and TE (secondary) into effective blocking composite
+  const effectiveBlocking = olRunBlocking * (1 - cfg.teBlockingWeight) + teBlocking * cfg.teBlockingWeight;
+  const olScore = effectiveBlocking;
   const dlScore = dlRunDefense * cfg.defRunDefenseResistance;
 
   const rawScore = (olScore - dlScore) / 100 + cfg.blockingBase;
@@ -83,7 +87,9 @@ export interface ContactResult {
 /**
  * Determine whether the RB breaks the initial tackle attempt.
  * LB pursuit and speed increase tackle success.
- * RB elusiveness and power increase break-tackle chance (Power OR Elusiveness per play type).
+ * GDD: Contact uses Power OR Elusiveness (not blended) — selected by run type.
+ *   Inside runs favor Power (driving through contact at the point of attack).
+ *   Outside runs favor Elusiveness (making defenders miss in space).
  */
 export function evaluateContact(
   rbElusiveness: number,
@@ -91,11 +97,17 @@ export function evaluateContact(
   lbPursuit:     number,
   lbSpeed:       number,
   powerAdvantage: number,
+  runType:        'inside_run' | 'outside_run', // GDD: determines Power OR Elusiveness
 ): ContactResult {
+  // GDD: Use the stat that matches the run type — NOT a blend of both
+  const rbContactStat = runType === 'inside_run' ? rbPower : rbElusiveness;
+  const contactScale  = runType === 'inside_run'
+    ? cfg.breakTacklePowerScale
+    : cfg.breakTackleElusivenessScale;
+
   const breakChance =
     cfg.breakTackleBase +
-    (rbElusiveness - 50) * cfg.breakTackleElusivenessScale +
-    (rbPower       - 50) * cfg.breakTacklePowerScale       +
+    (rbContactStat - 50) * contactScale +
     powerAdvantage * 0.15;
 
   const tackleBonus  =
@@ -121,10 +133,12 @@ export interface BreakawayResult {
 /**
  * If the RB breaks into the second level after breaking the first tackle,
  * speed determines whether they pull away for extra yards (open field only).
+ * GDD: Inside = lower breakaway chance, Outside = higher breakaway chance.
  */
 export function evaluateBreakaway(
   rbSpeed:          number,
   brokeFirstTackle: boolean,
+  runType:          'inside_run' | 'outside_run', // GDD: run type modulates breakaway chance
 ): BreakawayResult {
   if (!brokeFirstTackle) {
     return { bonusYards: 0, gotFreeRun: false };
@@ -134,7 +148,13 @@ export function evaluateBreakaway(
     return { bonusYards: 0, gotFreeRun: false };
   }
 
-  const gotFreeRun = Math.random() < cfg.breakawayChance;
+  // GDD: Inside runs are congested — lower chance of full breakaway
+  //       Outside runs reach open field — higher chance
+  const breakawayChance = runType === 'inside_run'
+    ? cfg.insideBreakawayChance
+    : cfg.outsideBreakawayChance;
+
+  const gotFreeRun = Math.random() < breakawayChance;
   const bonusYards = gotFreeRun
     ? randInt(cfg.breakawayBonusMin, cfg.breakawayBonusMax)
     : 0;

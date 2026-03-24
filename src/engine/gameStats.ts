@@ -154,6 +154,8 @@ export function buildBoxScore(home: Team, away: Team, events: PlayEvent[]): Game
     const q   = qi(ev.quarter);
 
     const isRun         = ev.type === 'inside_run' || ev.type === 'outside_run';
+    // GDD: QB scramble — mobility-enabled escape from pressure; counts as QB rushing
+    const isScramble    = ev.type === 'scramble';
     const isPassType    = ev.type === 'short_pass' || ev.type === 'medium_pass' || ev.type === 'deep_pass';
     const isPassAttempt = isPassType || ev.type === 'interception';
     const caught        = ev.result === 'success' || ev.result === 'touchdown';
@@ -172,6 +174,22 @@ export function buildBoxScore(home: Team, away: Team, events: PlayEvent[]): Game
       const rbId = resolveBallCarrier(ev);
       if (rbId) {
         const p = pStats(rbId);
+        p.carries++;
+        p.rushingYards += ev.yards;
+        if (isTD) p.rushingTDs++;
+      }
+    }
+
+    // ── Scramble (QB rushing) ─────────────────────────────────────────────
+    // GDD: QB Mobility enables scramble — counted as QB rushing yards
+    if (isScramble) {
+      off.rushingYards += ev.yards;
+      off.totalYards   += ev.yards;
+      if (ev.firstDown) off.firstDowns++;
+
+      const qbId = resolveBallCarrier(ev);
+      if (qbId) {
+        const p = pStats(qbId);
         p.carries++;
         p.rushingYards += ev.yards;
         if (isTD) p.rushingTDs++;

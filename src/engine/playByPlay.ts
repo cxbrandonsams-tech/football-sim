@@ -48,6 +48,10 @@ function formatPlay(ev: PlayEvent): string {
     case 'sack':
       action = `${qb} sacked ${ydStr}`;
       break;
+    case 'scramble':
+      action = ev.result === 'touchdown' ? `${qb} scrambles in — TOUCHDOWN`
+        : `${qb} scrambles ${ydStr}`;
+      break;
     case 'interception':
       action = `${qb} → ${wr} — INTERCEPTED`;
       break;
