@@ -205,7 +205,7 @@ export function runOffseasonProgression(league: League): League {
  *   1. AI teams extend their players with pending contract demands
  *   2. AI teams sign free agents to fill roster holes
  *   3. Roster limits are enforced league-wide (cut excess, fill shortfalls)
- *   4. A new 17-game schedule is generated (using prior-season division finish)
+ *   4. A new 18-week schedule is generated (17 games + 1 bye per team)
  *   5. Per-season state is reset
  *
  * The user should make their own contract/FA decisions (via endpoints) before

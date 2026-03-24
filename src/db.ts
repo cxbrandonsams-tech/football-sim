@@ -305,7 +305,7 @@ export function createUser(id: string, username: string, passwordHash: string): 
 }
 
 export function getUserByUsername(username: string): { id: string; username: string; passwordHash: string; createdAt: number } | null {
-  const row = db.prepare('SELECT id, username, passwordHash, createdAt FROM users WHERE username = ?').get(username) as UserRow | undefined;
+  const row = db.prepare('SELECT id, username, passwordHash, createdAt FROM users WHERE username = ? COLLATE NOCASE').get(username) as UserRow | undefined;
   return row ?? null;
 }
 

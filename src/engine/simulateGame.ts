@@ -240,20 +240,20 @@ function offRating(off: Team, type: PlayType): number {
     case 'medium_pass':
       // GDD: Arm Strength impacts ALL throws (moderate weight at medium depth)
       // GDD: Speed impacts separation at ALL depths (moderate weight at medium)
+      // NOTE: wr.yac removed — YAC only applies post-catch in the YAC phase
       return avg(
         wt(qb(off)?.mediumAccuracy ?? 50, 0.60, qb(off)?.armStrength ?? 50, 0.40),
         qb(off)?.processing ?? 50,
         wt(wr(off)?.routeRunning ?? 50, 0.55, wr(off)?.speed ?? 50, 0.45),
-        wr(off)?.yac ?? 50,
       );
     case 'deep_pass':
       // GDD: Arm Strength impacts ALL throws (high weight at deep)
       // GDD: Speed affects deep routes and breakaway — dominant factor at deep
+      // NOTE: wr.yac removed — YAC only applies post-catch in the YAC phase
       return avg(
         wt(qb(off)?.deepAccuracy ?? 50, 0.40, qb(off)?.armStrength ?? 50, 0.60),
         qb(off)?.decisionMaking ?? 50,
         wr(off)?.speed ?? 50,
-        wr(off)?.yac ?? 50,
       );
     default:
       return 60;
@@ -309,6 +309,167 @@ function defRating(def: Team, type: PlayType): number {
     default:
       return 60;
   }
+}
+
+// ── Pass phase helpers ────────────────────────────────────────────────────────
+
+/**
+ * Phase: Separation.
+ * Resolves how open the receiver gets based on depth (man vs zone behavior).
+ *   Short  → Man coverage: WR routeRunning+speed vs CB manCoverage+speed+awareness
+ *   Medium → Zone blend: WR routeRunning+speed vs CB zoneCoverage+awareness + LB coverage help
+ *   Deep   → Zone/Safety: WR speed-dominant vs CB speed+zone + Safety range (hidden derived stat)
+ *
+ * Returns a separation score 0 (completely covered) → 1 (wide open).
+ * pressureLevel reduces separation (QB can't hold long enough for routes to develop).
+ * playActionBonus is passed in from gameplan; moves defenders slightly on play fakes.
+ */
+function resolveSeparation(
+  depth: 'short' | 'medium' | 'deep',
+  off: Team,
+  def: Team,
+  pressureLevel: number,
+  playActionBonus: number,
+): number {
+  const wrR  = wr(off);
+  const cbR  = cb(def);
+  const lbR  = lb(def);
+  const sfR  = safety(def);
+
+  const wrRoute = wrR?.routeRunning ?? 50;
+  const wrSpeed = wrR?.speed        ?? 50;
+
+  let wrScore: number;
+  let defScore: number;
+
+  if (depth === 'short') {
+    // Man coverage — CB mirrors WR at the line; routeRunning precision is the separator
+    wrScore  = wrRoute * 0.65 + wrSpeed * 0.35;
+    const cbMan  = cbR?.manCoverage ?? 50;
+    const cbSpd  = cbR?.speed       ?? 50;
+    const cbAwar = cbR?.awareness   ?? 50;
+    defScore = cbMan * 0.55 + cbSpd * 0.30 + cbAwar * 0.15;
+  } else if (depth === 'medium') {
+    // Zone coverage — role-based, not blended man.
+    // CB is the PRIMARY zone holder: drops into their zone, reads routes, contests windows.
+    //   zoneCoverage + awareness dominate; speed is a closing/reaction factor (not mirroring).
+    // LB is CLOSING HELP: doesn't own the coverage zone but can jump a window late.
+    //   Awareness-dominant — fast but unaware LB won't be in the right spot.
+    wrScore = wrRoute * 0.55 + wrSpeed * 0.45;
+    const cbZone = cbR?.zoneCoverage ?? 50;
+    const cbAwar = cbR?.awareness    ?? 50;
+    const cbSpd  = cbR?.speed        ?? 50;
+    const lbAwar = lbR?.awareness    ?? 50;
+    const lbSpd  = lbR?.speed        ?? 50;
+    // Primary zone holder: awareness + zone are the skill, speed is late-close only
+    const primaryCoverage = cbZone * 0.55 + cbAwar * 0.35 + cbSpd * 0.10;
+    // Closing help: awareness first (getting to the right spot), speed second (arriving in time)
+    const closingHelp = lbAwar * 0.65 + lbSpd * 0.35;
+    // CB owns the zone (70%), LB provides closing help (30%)
+    defScore = primaryCoverage * 0.70 + closingHelp * 0.30;
+  } else {
+    // Deep — Safety range (hidden: speed*0.6 + awareness*0.4) is primary; CB tracking speed matters
+    wrScore = wrSpeed * 0.70 + wrRoute * 0.30;
+    const cbSpd    = cbR?.speed        ?? 50;
+    const cbZone   = cbR?.zoneCoverage ?? 50;
+    const sfRange  = sfR ? calcRange(sfR) : 50;  // hidden derived stat
+    const sfZone   = sfR?.zoneCoverage  ?? 50;
+    const cbDef    = cbSpd  * 0.60 + cbZone  * 0.40;
+    const sfDef    = sfRange * 0.70 + sfZone * 0.30;
+    defScore = avg(cbDef, sfDef);
+  }
+
+  // Base separation (offense-favored numerator vs coverage-scaled denominator)
+  const base = wrScore / (wrScore + defScore * cfg.pass.coverageResistance + 1);
+
+  // Pressure: QB can't let routes fully develop under heavy pressure
+  const pressurePenalty = pressureLevel * 0.08;
+
+  return Math.max(0, Math.min(1, base + playActionBonus - pressurePenalty));
+}
+
+/**
+ * Phase: Throw quality.
+ * Combines QB accuracy for the given depth, arm strength (scaled by depth),
+ * pocket pressure, and the separation score the receiver achieved.
+ * Returns a throw quality score 0 (terrible) → 1 (perfect).
+ */
+function resolveThrowQuality(
+  depth: 'short' | 'medium' | 'deep',
+  off: Team,
+  pressureLevel: number,
+  separationScore: number,
+): number {
+  const qbR = qb(off);
+
+  // Base accuracy rating for this depth
+  const accuracy =
+    depth === 'short'  ? (qbR?.shortAccuracy  ?? 50) :
+    depth === 'medium' ? (qbR?.mediumAccuracy  ?? 50) :
+                         (qbR?.deepAccuracy    ?? 50);
+
+  // Arm strength contribution scales with depth (irrelevant short, critical deep)
+  const armStr    = qbR?.armStrength ?? 50;
+  const armWeight = depth === 'short' ? 0.10 : depth === 'medium' ? 0.25 : 0.45;
+  const effectiveAccuracy = accuracy * (1 - armWeight) + armStr * armWeight;
+
+  const accuracyBase =
+    depth === 'short'  ? cfg.pass.shortAccuracyBase  :
+    depth === 'medium' ? cfg.pass.mediumAccuracyBase :
+                         cfg.pass.deepAccuracyBase;
+
+  const accuracyMod     = (effectiveAccuracy - 70) * cfg.pass.accuracyRatingScale;
+  const pressurePenalty = pressureLevel * 0.18;
+  // Separation bonus: open receiver gives QB a bigger target window.
+  // Weight is tunable via cfg.pass.separationThrowScale.
+  // At separationThrowScale=0.45 and avg separation=0.535, this contributes ~0.241
+  // to throw quality — which is why accuracyBase values were lowered correspondingly.
+  const separationBonus = separationScore * cfg.pass.separationThrowScale;
+
+  return Math.max(0, Math.min(1, accuracyBase + accuracyMod - pressurePenalty + separationBonus));
+}
+
+// ── Window states ─────────────────────────────────────────────────────────────
+
+/**
+ * Discrete football pass-window states derived from the separation score.
+ * Layers categorical behavior (throwaway, ball-skills contest, accuracy reliance)
+ * on top of the continuous separation → throwQuality pipeline.
+ */
+type WindowState = 'open' | 'soft_open' | 'tight' | 'contested' | 'covered';
+
+/**
+ * Maps the 0-1 separation score to a discrete window state.
+ * Thresholds are calibrated so that average-rated matchups (separation ≈ 0.40)
+ * fall in 'tight', preserving baseline completion rates.
+ */
+function resolveWindowState(separation: number): WindowState {
+  const w = cfg.pass.window;
+  if (separation >= w.openThreshold)       return 'open';
+  if (separation >= w.softOpenThreshold)   return 'soft_open';
+  if (separation >= w.tightThreshold)      return 'tight';
+  if (separation >= w.contestedThreshold)  return 'contested';
+  return 'covered';
+}
+
+/**
+ * QB decision on whether to throw into the resolved window.
+ * Good QBs (high decisionMaking) throw away covered windows rather than force it.
+ * Returns true if the QB elects to throw the ball away (incomplete, no INT risk).
+ */
+function resolveThrowaway(
+  windowState: WindowState,
+  qbDM: number,
+  pressureLevel: number,
+): boolean {
+  if (windowState !== 'covered') return false;
+  const w = cfg.pass.window;
+  const throwawayChance = Math.max(0,
+    w.throwawayBaseChance
+    + Math.max(0, qbDM - w.throwawayDMThreshold) * w.throwawayDMScale
+    - pressureLevel * w.throwawayPressurePenalty,
+  );
+  return Math.random() < throwawayChance;
 }
 
 // ── Yards ─────────────────────────────────────────────────────────────────────
@@ -384,6 +545,8 @@ function simulatePlay(
   const isRun  = type === 'inside_run' || type === 'outside_run';
 
   // Sack / scramble check
+  // pressureLevel is derived here and reused in separation + INT phases below
+  let pressureLevel = 0;
   if (isPass) {
     const dePassRush    = dl(def, 'DE')?.passRush    ?? 50;
     const olBlocking    = ol(off)?.passBlocking ?? 50;
@@ -397,6 +560,9 @@ function simulatePlay(
     const mobilityBonus      = Math.max(0, (qbMobility - 50) * cfg.pass.mobilityReductionScale);
     const adjustedSackChance = Math.max(0, rawSackChance - mobilityBonus);
     const sackRoll           = Math.random();
+
+    // pressureLevel: how much pocket pressure affects QB throws (0=clean, 1=heavy)
+    pressureLevel = Math.max(0, Math.min(1, (advantage / 50) * 0.8));
 
     if (sackRoll < adjustedSackChance) {
       // QB was brought down — sack
@@ -412,8 +578,14 @@ function simulatePlay(
         ...(deId !== undefined ? { defPlayerId:   deId } : {}),
       };
     }
-    // QB escaped pressure via mobility — scramble if mobile enough
-    if (sackRoll < rawSackChance && qbMobility >= cfg.pass.scrambleMobilityThreshold) {
+    // Scramble — independent of the sack window.
+    // A QB may tuck and run based on pocket pressure AND their own mobility.
+    // Average QBs scramble rarely (~2%); mobile QBs scramble more under pressure (~6-8%).
+    // Formula: (scrambleBaseOpportunity + pressureLevel * scramblePressureScale) * (mobility / 100)
+    const scrambleChance =
+      (cfg.pass.scrambleBaseOpportunity + pressureLevel * cfg.pass.scramblePressureScale)
+      * (qbMobility / 100);
+    if (Math.random() < scrambleChance) {
       const scrambleYards = randInt(cfg.pass.scrambleYardsMin, cfg.pass.scrambleYardsMax);
       const newYL         = yardLine + scrambleYards;
       const isTD_s        = newYL >= 100;
@@ -449,83 +621,178 @@ function simulatePlay(
     }
   }
 
-  // Success/fail — base rating ratio, then scheme adjustment
-  const oRating   = offRating(off, type);
-  const dRating   = defRating(def, type);
-  const baseProb  = oRating / (oRating + dRating);
+  // Success/fail
   const schemeAdj = computeSchemeAdjustment(off, def, type);
-  // GDD: WR Size vs DB Size — small situational modifier on contested passes
-  // Size is minor and situational; small WR can still win (GDD)
-  const sizeAdj   = isPass
-    ? ((wr(off)?.size ?? 50) - (cb(def)?.size ?? 50)) * cfg.pass.sizeAdvantageScale
-    : 0;
-  const successProb = Math.max(0.05, Math.min(0.95, baseProb + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj + sizeAdj));
-  const success     = Math.random() < successProb;
+  let successProb: number;
 
-  // Interception on failed pass
-  if (isPass && !success) {
-    // GDD: Ball Skills create turnovers — both manCoverage and ballSkills drive INT chance
-    const cbCoverage      = cb(def)?.manCoverage ?? 50;
-    const qbDecision      = qb(off)?.decisionMaking ?? 50;
-    const cbBallSkills    = cb(def)?.ballSkills ?? 50;
-    const intAdvantage    = (cbCoverage - qbDecision) * cfg.pass.intCoverageScale;
-    // Ball Skills: DB reads the ball in the air and tracks it at the catch point
-    const ballSkillsBonus = Math.max(0, (cbBallSkills - 50) * cfg.pass.ballSkillsIntScale);
-    const intChance       = Math.max(
-      cfg.pass.minIntChance,
-      Math.min(cfg.pass.maxIntChance, cfg.pass.baseIntChance + intAdvantage + ballSkillsBonus),
-    );
-    if (Math.random() < intChance) {
+  if (isPass) {
+    // ── Pass: explicit phase chain ────────────────────────────────────────────
+    // Phase 1: Protection (pressureLevel already resolved above in sack check)
+    //
+    // Phase 2: Separation — man coverage (short) or zone (medium/deep)
+    const depth: 'short' | 'medium' | 'deep' =
+      type === 'short_pass'  ? 'short'  :
+      type === 'medium_pass' ? 'medium' : 'deep';
+    // Play-action bonus from offensive gameplan
+    const paLevel    = (off.gameplan?.playAction ?? 'low') as keyof typeof cfg.gameplan.playAction;
+    const paBonus    = cfg.gameplan.playAction[paLevel] ?? 0;
+    const separation = resolveSeparation(depth, off, def, pressureLevel, paBonus);
+
+    // Phase 2b: Window state — discrete football-state derived from separation score.
+    // Adds categorical behavior (throwaway, ball-skills contest, accuracy reliance)
+    // on top of the continuous separation → throwQuality pipeline.
+    const windowState = resolveWindowState(separation);
+    const qbDM        = qb(off)?.decisionMaking ?? 50;
+    const w           = cfg.pass.window;
+
+    // QB Decision: may throw away a covered window instead of forcing it
+    if (resolveThrowaway(windowState, qbDM, pressureLevel)) {
       const qbId  = pid(off, 'QB');
       const wrId  = pid(off, 'WR');
-      const cbId  = pid(def, 'CB');
       return {
         ...base,
-        type:        'interception',
-        result:      'turnover',
+        result:      'fail',
         yards:       0,
         ballCarrier: lastName(off, 'QB'),
         target:      lastName(off, 'WR'),
         ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
         ...(wrId !== undefined ? { targetId:      wrId } : {}),
-        ...(cbId !== undefined ? { defPlayerId:   cbId } : {}),
       };
     }
+
+    // Phase 3: Throw quality — QB accuracy + arm strength (depth-weighted) + pressure
+    const throwQuality = resolveThrowQuality(depth, off, pressureLevel, separation);
+
+    // Window state success modifier (centered on tight = 0; preserves baseline calibration)
+    const windowSuccessMods: Record<WindowState, number> = {
+      open:       w.openSuccessMod,
+      soft_open:  w.softOpenSuccessMod,
+      tight:      w.tightSuccessMod,
+      contested:  w.contestedSuccessMod,
+      covered:    w.coveredSuccessMod,
+    };
+    let windowSuccessMod = windowSuccessMods[windowState];
+
+    // Contested: WR hands vs CB ball skills — winner takes the catch
+    if (windowState === 'contested') {
+      const wrHands      = wr(off)?.hands      ?? 50;
+      const cbBallSkills = cb(def)?.ballSkills  ?? 50;
+      windowSuccessMod += (wrHands - cbBallSkills) * w.contestedBallSkillsScale;
+    }
+
+    // Phase 4: Success probability — throw quality is the primary driver
+    // GDD: WR Size vs DB Size — small situational modifier on contested passes
+    const sizeAdj = ((wr(off)?.size ?? 50) - (cb(def)?.size ?? 50)) * cfg.pass.sizeAdvantageScale;
+    successProb = Math.max(0.05, Math.min(0.95,
+      throwQuality + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj + sizeAdj
+      + windowSuccessMod));
+
+    const success = Math.random() < successProb;
+
+    // Phase 5: Interception on failed pass
+    if (!success) {
+      const cbCoverage   = cb(def)?.manCoverage   ?? 50;
+      const cbBallSkills = cb(def)?.ballSkills     ?? 50;
+      const intAdvantage    = (cbCoverage - qbDM) * cfg.pass.intCoverageScale;
+      const ballSkillsBonus = Math.max(0, (cbBallSkills - 50) * cfg.pass.ballSkillsIntScale);
+      // Low throw quality → more INT risk (errant throws easier for defenders to read)
+      const throwQualityBonus = Math.max(0, (0.5 - throwQuality) * cfg.pass.intThrowQualityScale);
+      // Pressure forces rushed decisions → more INT risk
+      const pressureBonus = pressureLevel * cfg.pass.intPressureScale;
+      // Window state INT modifier: tight/contested/covered windows increase pick risk
+      const windowIntMods: Record<WindowState, number> = {
+        open:       w.openIntMod,
+        soft_open:  w.softOpenIntMod,
+        tight:      w.tightIntMod,
+        contested:  w.contestedIntMod,
+        covered:    w.coveredIntMod,
+      };
+      const windowIntMod = windowIntMods[windowState];
+      // Bad QB amplifier: low decisionMaking increases INT risk on dangerous windows
+      const badDMIntMod = (windowState === 'tight' || windowState === 'contested' || windowState === 'covered')
+        ? Math.max(0, (50 - qbDM) * w.badDMIntScale)
+        : 0;
+      const intChance = Math.max(
+        cfg.pass.minIntChance,
+        Math.min(cfg.pass.maxIntChance,
+          cfg.pass.baseIntChance + intAdvantage + ballSkillsBonus
+          + throwQualityBonus + pressureBonus + windowIntMod + badDMIntMod),
+      );
+      if (Math.random() < intChance) {
+        const qbId  = pid(off, 'QB');
+        const wrId  = pid(off, 'WR');
+        const cbId  = pid(def, 'CB');
+        return {
+          ...base,
+          type:        'interception',
+          result:      'turnover',
+          yards:       0,
+          ballCarrier: lastName(off, 'QB'),
+          target:      lastName(off, 'WR'),
+          ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
+          ...(wrId !== undefined ? { targetId:      wrId } : {}),
+          ...(cbId !== undefined ? { defPlayerId:   cbId } : {}),
+        };
+      }
+    }
+
+    // Phase 6: YAC on successful catch
+    // Soft-open windows give a YAC bonus — receiver has open field after the catch
+    const speedRating = wr(off)?.speed ?? 50;
+    let yards = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
+    if (success) {
+      const wrYAC    = wr(off)?.yac         ?? 50;
+      const cbTackle = cb(def)?.tackling    ?? 50;
+      const sfTackle = safety(def)?.tackling ?? 50;
+      const lbPursue = lb(def)?.pursuit     ?? 50;
+      const defYAC   = avg(cbTackle, sfTackle, lbPursue);
+      const yacWindowBonus = windowState === 'soft_open' ? w.softOpenYACBonus : 0;
+      // baseYACYards = baseline every catch earns; differential shifts it up or down
+      yards = Math.max(0, Math.round(
+        yards + cfg.pass.baseYACYards + (wrYAC - defYAC) * cfg.pass.yacNetScale + yacWindowBonus,
+      ));
+    }
+    const newYardLine = yardLine + yards;
+    const isTD       = newYardLine >= 100;
+    const result: PlayResult = isTD ? 'touchdown' : success ? 'success' : 'fail';
+    const firstDown = !isTD && success && yards >= distance;
+    const qbId  = pid(off, 'QB');
+    const recvId = pid(off, 'WR');
+    return {
+      ...base,
+      result,
+      yards:       isTD ? 100 - yardLine : yards,
+      ...(firstDown ? { firstDown: true as const } : {}),
+      ballCarrier: lastName(off, 'QB'),
+      target:      lastName(off, 'WR'),
+      ...(qbId   !== undefined ? { ballCarrierId: qbId   } : {}),
+      ...(recvId !== undefined ? { targetId:      recvId } : {}),
+    };
   }
 
-  // Speed rating for big-play burst
-  const speedRating = isRun ? (rb(off)?.speed ?? 50) : (wr(off)?.speed ?? 50);
-  let yards  = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
+  // ── Run: rating-ratio approach (unchanged) ────────────────────────────────
+  const oRating = offRating(off, type);
+  const dRating = defRating(def, type);
+  const baseProb = oRating / (oRating + dRating);
+  successProb = Math.max(0.05, Math.min(0.95,
+    baseProb + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj));
+  const success = Math.random() < successProb;
 
-  // GDD: YAC phase — uses WR YAC vs DB Tackling/Pursuit
-  // Applies to successful passes only; adds or subtracts post-catch yards
-  if (isPass && success) {
-    const wrYAC    = wr(off)?.yac         ?? 50;
-    const cbTackle = cb(def)?.tackling    ?? 50;
-    const sfTackle = safety(def)?.tackling ?? 50;
-    const lbPursue = lb(def)?.pursuit     ?? 50;
-    const defYAC   = avg(cbTackle, sfTackle, lbPursue);
-    // Net advantage drives bonus yards after catch
-    const yacNet   = (wrYAC - defYAC) * cfg.pass.yacNetScale;
-    yards = Math.max(0, Math.round(yards + yacNet));
-  }
+  // ── Run: yards + result ───────────────────────────────────────────────────
+  const speedRating = rb(off)?.speed ?? 50;
+  const yards       = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
   const newYardLine = yardLine + yards;
-  const isTD   = newYardLine >= 100;
-
+  const isTD        = newYardLine >= 100;
   const result: PlayResult = isTD ? 'touchdown' : success ? 'success' : 'fail';
-  const firstDown = !isTD && success && yards >= distance;
-
-  const carrierId = isRun ? pid(off, 'RB') : pid(off, 'QB');
-  const recvId    = isPass ? pid(off, 'WR') : undefined;
+  const firstDown   = !isTD && success && yards >= distance;
+  const rbId        = pid(off, 'RB');
   return {
     ...base,
     result,
     yards:       isTD ? 100 - yardLine : yards,
-    ...(firstDown    ? { firstDown: true as const }    : {}),
-    ballCarrier: isRun ? lastName(off, 'RB') : lastName(off, 'QB'),
-    ...(isPass       ? { target: lastName(off, 'WR') } : {}),
-    ...(carrierId !== undefined ? { ballCarrierId: carrierId } : {}),
-    ...(recvId    !== undefined ? { targetId:      recvId    } : {}),
+    ...(firstDown ? { firstDown: true as const } : {}),
+    ballCarrier: lastName(off, 'RB'),
+    ...(rbId !== undefined ? { ballCarrierId: rbId } : {}),
   };
 }
 

@@ -14,17 +14,32 @@ export const TUNING = {
     // Separation phase (coverage suppresses separation; does NOT gate completion)
     separationRouteWeight: 0.60,    // routeRunning contribution
     separationSpeedWeight: 0.40,
-    coverageResistance:    0.40,    // how much coverage suppresses separation
+    // coverageResistance: multiplier on defScore in the ratio denominator.
+    // At 1.00, denominator was 50+50+1=101 at avg → baseline separation 0.495 (too high).
+    // At 1.50, denominator is 50+75+1=126 → baseline separation 0.397 (defense slight edge).
+    // Higher value → defense has a structural positional advantage; WR must earn separation.
+    // The PA bonus then provides a slight offense lift over this coverage-biased floor.
+    coverageResistance:    1.50,    // how much coverage suppresses separation
 
     // Decision phase
     processingReadlineScalar: 0.01, // per point above 50
     decisionPenaltyScale:  0.005,   // per point of pressure on poor decision-makers
 
-    // Throw phase — accuracy by depth
-    shortAccuracyBase:     0.75,
-    mediumAccuracyBase:    0.62,
-    deepAccuracyBase:      0.45,
-    accuracyRatingScale:   0.004,   // per point above/below 70
+    // Throw phase — accuracy by depth.
+    // Recalibrated for coverageResistance=1.50 and playAction.medium=0.02.
+    // At avg ratings (50), separation=0.417 → throwQ separation contribution=0.188.
+    // Bases raised vs previous to keep baseline success rates identical.
+    //   (higher base compensates for the lower separation contribution at the new resistance)
+    shortAccuracyBase:     0.59,    // short  target: ~76% success at avg
+    mediumAccuracyBase:    0.46,    // medium target: ~63% success at avg
+    deepAccuracyBase:      0.29,    // deep   target: ~46% success at avg
+    // Reduced from 0.004 → 0.003 so QB accuracy is still the dominant driver but
+    // not so large (~6.75pp 50→80) that WR/CB matchups feel irrelevant.
+    accuracyRatingScale:   0.003,   // per point above/below 70
+    // Weight of separation score inside resolveThrowQuality.
+    // Raised from 0.07 → 0.45 so a 30-pt rating swing (~0.07 separation delta)
+    // produces ~3pp pass-success impact instead of 0.4pp.
+    separationThrowScale:  0.45,    // per unit of separationScore (0-1)
 
     // Catch phase
     catchingBase:          0.80,
@@ -42,17 +57,34 @@ export const TUNING = {
 
     // YAC phase — WR YAC vs (CB Tackling + Safety Tackling + LB Pursuit) / 3
     // GDD: YAC uses YAC vs Tackling/Pursuit; positive = bonus yards after catch
-    yacNetScale:           0.05,    // per point of net WR YAC advantage
+    // baseYACYards: every completion earns this many yards after catch at neutral ratings.
+    // At 50 vs 50, yacNet = 0, so without a baseline every completion produces exactly
+    // route distance with no after-catch gain. 2 yards reflects realistic average YAC.
+    // Rating differences then modify this baseline: elite YAC + poor tackling → more;
+    // average YAC + elite tackling → less (floors at 0 via Math.max).
+    baseYACYards:          2,       // yards after catch at neutral (50 vs 50) ratings
+    yacNetScale:           0.05,    // per point of net WR YAC advantage above/below neutral
 
     // Interception (on incompletions only)
     baseIntChance:         0.05,
     minIntChance:          0.02,
     maxIntChance:          0.12,
     intCoverageScale:      0.001,   // per point (coverage − decisionMaking)
+    // Low throw quality increases INT chance — wild/inaccurate balls are easier to pick
+    intThrowQualityScale:  0.08,    // per unit (0.5 - throwQuality) above 0
+    // Pressure increases INT chance — QB rushing his reads throws riskier balls
+    intPressureScale:      0.04,    // per unit of pressureLevel (0-1)
 
     // GDD: QB Mobility affects sacks/scramble only
     mobilityReductionScale:    0.0015, // per point of mobility above 50, reduces sack chance
-    scrambleMobilityThreshold: 60,     // mobility floor before scramble is an option
+    // Scramble — independent of the sack window.
+    // QBs scramble based on two factors: inherent opportunism (even from a clean pocket,
+    // a mobile QB will take off if nothing is open) and pressure (defense closing in).
+    // scrambleChance = (baseOpportunity + pressureLevel * pressureScale) * (mobility / 100)
+    // At avg (mobility=50, pressure=0): (0.04 + 0) * 0.5 = 2.0% per dropback — rare but possible.
+    // At mobile (mobility=85, pressure=0.5): (0.04 + 0.03) * 0.85 = 5.95% per dropback.
+    scrambleBaseOpportunity:   0.04,   // base scramble rate per dropback (before mobility/pressure)
+    scramblePressureScale:     0.06,   // additional scramble probability per unit of pressureLevel
     scrambleYardsMin:          2,
     scrambleYardsMax:          10,
 
@@ -60,6 +92,51 @@ export const TUNING = {
     playActionDeceptionBase:       0.08,
     playActionRunThreatBonus:      0.04,  // extra if team has credible run game
     playActionRunThreatThreshold:  70,    // RB power+vision avg needed for bonus
+
+    // ── Window states ────────────────────────────────────────────────────────
+    // After resolveSeparation(), the 0-1 score maps into a discrete football
+    // window state. Thresholds are calibrated so that average-rated matchups
+    // (separation ≈ 0.40) land in 'tight', preserving existing baseline rates.
+    window: {
+      // Separation → window state thresholds (upper bound, exclusive)
+      // open ≥ 0.60 | soft_open ≥ 0.48 | tight ≥ 0.35 | contested ≥ 0.22 | covered < 0.22
+      openThreshold:       0.60,
+      softOpenThreshold:   0.48,
+      tightThreshold:      0.35,
+      contestedThreshold:  0.22,
+
+      // Success probability modifiers per window state.
+      // Centered on 'tight' = 0 so average-rating games remain calibrated.
+      openSuccessMod:       0.04,
+      softOpenSuccessMod:   0.02,
+      tightSuccessMod:      0.00,
+      contestedSuccessMod: -0.06,
+      coveredSuccessMod:   -0.14,
+
+      // INT chance modifiers per window state (applied inside the INT formula)
+      openIntMod:          -0.015,
+      softOpenIntMod:      -0.005,
+      tightIntMod:          0.000,
+      contestedIntMod:      0.025,
+      coveredIntMod:        0.055,
+
+      // Contested window: WR hands vs CB ballSkills decides the catch
+      contestedBallSkillsScale: 0.004, // per point net advantage (WR hands − CB ballSkills)
+
+      // Soft-open window: receiver has space after the catch
+      softOpenYACBonus:     1,       // flat extra YAC yards when window is soft_open
+
+      // QB throwaway on covered windows: smart QBs avoid forcing it.
+      // No base chance — only QBs above the DM threshold can throw away.
+      // DM=50 (avg): 0% throwaway. DM=65: 5% chance. DM=80: 20% chance.
+      throwawayDMThreshold:     50,   // DM above this unlocks throwaway ability
+      throwawayBaseChance:      0.00, // no base — threshold-gated entirely by DM scale
+      throwawayDMScale:         0.013,// per DM point above threshold (80→0.39, 65→0.20, 50→0)
+      throwawayPressurePenalty: 0.15, // pressure makes throwing away harder (sack or throw)
+
+      // Bad QB INT amplifier on risky windows (tight/contested/covered)
+      badDMIntScale: 0.0015,          // per point decisionMaking below 50
+    },
   },
 
   // ── Run engine ────────────────────────────────────────────────────────────
@@ -143,10 +220,13 @@ export const TUNING = {
     },
     // ── Offensive play-action bonus ─────────────────────────────────────────
     // Added to separation on pass plays when play-action usage is medium/high.
+    // Applied on every pass play as a scheme-level modifier (teams that use PA frequently
+    // keep defenses more honest). Reduced from 0.04/0.08 — values were too large given
+    // they apply to all pass plays, not just designated PA snaps.
     playAction: {
       low:    0,
-      medium: 0.04,   // half the full play-action deception base
-      high:   0.08,   // = pass.playActionDeceptionBase
+      medium: 0.02,   // slight scheme-level PA threat bonus
+      high:   0.04,   // meaningful PA-heavy scheme advantage
     },
     // ── Tempo: delta to playsPerQuarter from the offensive team's setting ───
     tempo: {
@@ -344,10 +424,11 @@ export const TUNING = {
      * Global offense success-probability bonus.
      * Reflects the offense's inherent play-calling advantage (they know the
      * snap count and route assignments; the defense must react).
-     * Shifts equal-strength matchups from 50% to ~62% success.
+     * Kept small — the separation + throw quality phases already model the
+     * structural advantage; this is just a small residual edge.
      * Set to 0 to restore perfect parity; raise to give offense more edge.
      */
-    offenseAdvantage: 0.12,
+    offenseAdvantage: 0.04,
   },
 
   // ── Player progression ────────────────────────────────────────────────────

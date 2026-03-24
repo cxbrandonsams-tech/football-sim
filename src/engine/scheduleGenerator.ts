@@ -32,7 +32,7 @@ const CONF_PAIRING: [number, number, number, number][] = [
 
 const BYE_WEEK_START  = 6;
 const BYE_WEEK_SPREAD = 9;  // bye weeks land in 6-14, 3-4 teams per week
-const TOTAL_WEEKS     = 20; // 20-week window (capacity 302) comfortably fits 272 games
+const TOTAL_WEEKS     = 18; // 18-week window: 17 games + 1 bye per team, capacity = 18×16−16 = 272 (exact fit)
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

@@ -5,9 +5,8 @@ import { DashboardSchedule } from './DashboardSchedule';
 import {
   listLeagues, createLeague, joinLeague, fetchLeague, advanceWeek,
   claimTeam as claimTeamApi, proposeTrade as proposeTradeApi, respondTrade as respondTradeApi,
-  markNotificationsRead as markReadApi,
   extendPlayer as extendPlayerApi, releasePlayer as releasePlayerApi,
-  setDepthChart as setDepthChartApi, setGameplan as setGameplanApi,
+  setDepthChart as setDepthChartApi,
   draftPick as draftPickApi, simDraft as simDraftApi,
   scoutProspect as scoutProspectApi, updateDraftBoard as updateDraftBoardApi,
   advanceDraftPick as advanceDraftPickApi, advanceToUserPick as advanceToUserPickApi,
@@ -19,7 +18,7 @@ import {
   setAuthToken, setAuthUser, clearAuth, authToken, authUserId, authUsername,
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
-import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type FrontOfficePersonality } from './types';
+import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type FrontOfficePersonality } from './types';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -589,10 +588,6 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
     finally { setBusy(false); }
   }
 
-  async function handleMarkRead() {
-    setLeague(await markReadApi(leagueId));
-  }
-
   async function handleExtendPlayer(playerId: string) {
     setBusy(true); setError(null);
     try { setLeague(await extendPlayerApi(leagueId, playerId)); }
@@ -665,10 +660,6 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
     catch (e) { setError(friendlyError(e)); }
   }
 
-  const myNotifications = league.notifications.filter(n => n.teamId === myTeamId);
-  const unreadCount = myNotifications.filter(n => !n.read).length;
-  const [showNotifs, setShowNotifs] = useState(false);
-
   const standings = computeStandings(league);
   const maxWeek   = Math.max(...league.currentSeason.games.map(g => g.week));
   const rosterTeam = league.teams.find(t => t.id === rosterTeamId) ?? league.teams[0]!;
@@ -712,97 +703,96 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
     return `Week ${league.currentWeek}`;
   }
 
+  const inRosterSection = tab === 'roster' || tab === 'depth' || tab === 'injuries' || tab === 'free-agents';
+  const inGmSection     = tab === 'team' || tab === 'contracts' || tab === 'trades' || tab === 'coaching' || tab === 'legacy' || tab === 'gm';
+
   return (
-    <div className="app">
-      <header>
-        <div className="header-left">
-          <button className="back-btn inline" onClick={onLeave}>←</button>
-          <h1>{league.displayName}</h1>
-          <span className={`vis-badge ${league.visibility}`}>{league.visibility}</span>
-        </div>
-        <span className="season">Season {league.currentSeason.year} — {phaseLabel()}</span>
-        <div className="header-actions">
-          <span className="muted" style={{ fontSize: '0.85rem' }}>{username}</span>
-          <button onClick={onMyLeagues}>My Leagues</button>
-          <span className="league-id">{leagueId.slice(0, 8)}</span>
-          <button className="notif-btn" onClick={() => setShowNotifs(v => !v)}>
-            Notif{unreadCount > 0 && <span className="badge">{unreadCount}</span>}
-          </button>
+    <div className="app-shell">
+      {/* ── Top nav bar ─────────────────────────────────────────── */}
+      <header className="top-nav">
+        <div className="top-nav-inner">
+          <div className="top-nav-brand">
+            <button className="top-nav-back" onClick={onLeave} title="My Leagues">←</button>
+            <span className="top-nav-title">{league.displayName}</span>
+            <span className="top-nav-season">{league.currentSeason.year} · {phaseLabel()}</span>
+          </div>
+
+          <nav className="top-nav-tabs">
+            <button className={inGmSection     ? 'active' : ''} onClick={() => setTab('team')}>GM</button>
+            <button className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>Dashboard</button>
+            <button className={inRosterSection  ? 'active' : ''} onClick={() => setTab('roster')}>Roster</button>
+            <button className={tab === 'standings' ? 'active' : ''} onClick={() => setTab('standings')}>Standings</button>
+            <button className={tab === 'leaders'   ? 'active' : ''} onClick={() => setTab('leaders')}>Leaders</button>
+            <button className={tab === 'awards'    ? 'active' : ''} onClick={() => setTab('awards')}>Awards</button>
+            <button className={tab === 'history'   ? 'active' : ''} onClick={() => setTab('history')}>History</button>
+            <button className={tab === 'hof'       ? 'active' : ''} onClick={() => setTab('hof')}>Hall of Fame</button>
+            {hasPlayoffs && (
+              <button className={tab === 'playoffs' ? 'active' : ''} onClick={() => setTab('playoffs')}>
+                {league.phase === 'postseason' ? 'Playoffs' : 'Offseason'}
+              </button>
+            )}
+            <button className={tab === 'news' ? 'active' : ''} onClick={() => setTab('news')}>News</button>
+            {(league.phase === 'draft' || league.draft) && (
+              <button className={tab === 'draft' ? 'active' : ''} onClick={() => setTab('draft')}>
+                Draft{league.draft && !league.draft.complete && <span className="badge">!</span>}
+              </button>
+            )}
+            {league.draftClass && (
+              <button className={tab === 'scouting' ? 'active' : ''} onClick={() => setTab('scouting')}>Scouting</button>
+            )}
+            {league.draftClass && (
+              <button className={tab === 'draft-board' ? 'active' : ''} onClick={() => setTab('draft-board')}>Draft Board</button>
+            )}
+            {isCommissioner && (
+              <button className={tab === 'commissioner' ? 'active' : ''} onClick={() => setTab('commissioner')}>Commissioner</button>
+            )}
+          </nav>
+
+          <div className="top-nav-actions">
+            <span className="top-nav-user">{username}</span>
+            <button
+              className="advance-btn"
+              disabled={busy || advanceBtnLabel() === 'Season Complete' || advanceBtnLabel() === 'Draft In Progress'}
+              onClick={() => action(advanceWeek)}
+            >
+              {busy ? 'Simulating…' : advanceBtnLabel()}
+            </button>
+            <button className="btn-sm" onClick={onMyLeagues}>My Leagues</button>
+          </div>
         </div>
       </header>
 
-      {showNotifs && (
-        <NotificationsPanel
-          notifications={myNotifications}
-          onMarkRead={handleMarkRead}
-          onClose={() => setShowNotifs(false)}
-        />
+      {/* ── Contextual sub-nav ──────────────────────────────────── */}
+      {inRosterSection && (
+        <div className="sub-nav">
+          <div className="sub-nav-inner">
+            <button className={tab === 'roster'      ? 'active' : ''} onClick={() => setTab('roster')}>Roster</button>
+            <button className={tab === 'depth'       ? 'active' : ''} onClick={() => setTab('depth')}>Depth Chart</button>
+            <button className={tab === 'injuries'    ? 'active' : ''} onClick={() => setTab('injuries')}>Injuries</button>
+            <button className={tab === 'free-agents' ? 'active' : ''} onClick={() => setTab('free-agents')}>Free Agents</button>
+          </div>
+        </div>
+      )}
+      {inGmSection && (
+        <div className="sub-nav">
+          <div className="sub-nav-inner">
+            <button className={tab === 'team'      ? 'active' : ''} onClick={() => setTab('team')}>Overview</button>
+            <button className={tab === 'contracts' ? 'active' : ''} onClick={() => setTab('contracts')}>Contracts</button>
+            <button className={tab === 'trades'    ? 'active' : ''} onClick={() => setTab('trades')}>
+              Trades{pendingTrades > 0 && <span className="badge">{pendingTrades}</span>}
+            </button>
+            <button className={tab === 'coaching'  ? 'active' : ''} onClick={() => setTab('coaching')}>Coaching</button>
+            <button className={tab === 'legacy'    ? 'active' : ''} onClick={() => setTab('legacy')}>Ring of Honor</button>
+            {league.gmCareer && (
+              <button className={tab === 'gm' ? 'active' : ''} onClick={() => setTab('gm')}>GM Career</button>
+            )}
+          </div>
+        </div>
       )}
 
-      {error && <div className="error">{error}</div>}
+      {error && <div className="app-content"><div className="error">{error}</div></div>}
 
-      <SeasonTimeline
-        league={league}
-        busy={busy}
-        advanceBtnLabel={advanceBtnLabel()}
-        onAdvance={() => action(advanceWeek)}
-      />
-
-      <nav className="app-nav">
-        <div className="nav-group">
-          <span className="nav-group-label">League</span>
-          <button className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>Dashboard</button>
-          <button className={tab === 'standings' ? 'active' : ''} onClick={() => setTab('standings')}>Standings</button>
-          {hasPlayoffs && (
-            <button className={tab === 'playoffs' ? 'active' : ''} onClick={() => setTab('playoffs')}>
-              {league.phase === 'postseason' ? 'Playoffs' : 'Offseason'}
-            </button>
-          )}
-          <button className={tab === 'news'    ? 'active' : ''} onClick={() => setTab('news')}>News</button>
-          <button className={tab === 'leaders' ? 'active' : ''} onClick={() => setTab('leaders')}>Leaders</button>
-          <button className={tab === 'awards'  ? 'active' : ''} onClick={() => setTab('awards')}>Awards</button>
-          <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>History</button>
-          <button className={tab === 'hof'     ? 'active' : ''} onClick={() => setTab('hof')}>Hall of Fame</button>
-          <button className={tab === 'legacy'  ? 'active' : ''} onClick={() => setTab('legacy')}>Ring of Honor</button>
-          {league.gmCareer && (
-            <button className={tab === 'gm' ? 'active' : ''} onClick={() => setTab('gm')}>GM Career</button>
-          )}
-          {(league.phase === 'draft' || league.draft) && (
-            <button className={tab === 'draft' ? 'active' : ''} onClick={() => setTab('draft')}>
-              Draft{league.draft && !league.draft.complete && <span className="badge">!</span>}
-            </button>
-          )}
-          {league.draftClass && (
-            <button className={tab === 'scouting' ? 'active' : ''} onClick={() => setTab('scouting')}>Scouting</button>
-          )}
-          {league.draftClass && (
-            <button className={tab === 'draft-board' ? 'active' : ''} onClick={() => setTab('draft-board')}>Draft Board</button>
-          )}
-        </div>
-        <div className="nav-group">
-          <span className="nav-group-label">Roster</span>
-          <button className={tab === 'roster'      ? 'active' : ''} onClick={() => setTab('roster')}>Roster</button>
-          <button className={tab === 'depth'       ? 'active' : ''} onClick={() => setTab('depth')}>Depth Chart</button>
-          <button className={tab === 'injuries'    ? 'active' : ''} onClick={() => setTab('injuries')}>Injuries</button>
-          <button className={tab === 'free-agents' ? 'active' : ''} onClick={() => setTab('free-agents')}>Free Agents</button>
-        </div>
-        <div className="nav-group">
-          <span className="nav-group-label">Team</span>
-          <button className={tab === 'team'      ? 'active' : ''} onClick={() => setTab('team')}>Overview</button>
-          <button className={tab === 'contracts' ? 'active' : ''} onClick={() => setTab('contracts')}>Contracts</button>
-          <button className={tab === 'trades'    ? 'active' : ''} onClick={() => setTab('trades')}>
-            Trades{pendingTrades > 0 && <span className="badge">{pendingTrades}</span>}
-          </button>
-          <button className={tab === 'gameplan'  ? 'active' : ''} onClick={() => setTab('gameplan')}>Gameplan</button>
-          <button className={tab === 'playbooks' ? 'active' : ''} onClick={() => setTab('playbooks')}>Playbooks</button>
-          <button className={tab === 'coaching'  ? 'active' : ''} onClick={() => setTab('coaching')}>Coaching</button>
-          {isCommissioner && (
-            <button className={tab === 'commissioner' ? 'active' : ''} onClick={() => setTab('commissioner')}>
-              Commissioner
-            </button>
-          )}
-        </div>
-      </nav>
+      <div className="app-content">
 
       {tab === 'dashboard' && (
         <DashboardView
@@ -953,8 +943,6 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           onLeagueUpdated={setLeague}
         />
       )}
-      {tab === 'gameplan'  && <GameplanView  team={league.teams.find(t => t.id === myTeamId)!} leagueId={leagueId} onLeagueUpdated={setLeague} />}
-      {tab === 'playbooks' && <PlaybooksView team={league.teams.find(t => t.id === myTeamId)!} leagueId={leagueId} onLeagueUpdated={setLeague} />}
       {tab === 'coaching'  && <CoachingView  team={league.teams.find(t => t.id === myTeamId)!} league={league} leagueId={leagueId} onLeagueUpdated={setLeague} />}
 
       {detailPlayerId && (() => {
@@ -978,310 +966,8 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           />
         );
       })()}
-    </div>
-  );
-}
-
-// ── Season Timeline ────────────────────────────────────────────────────────────
-
-function SeasonTimeline({ league, busy, advanceBtnLabel, onAdvance }: {
-  league: League;
-  busy: boolean;
-  advanceBtnLabel: string;
-  onAdvance: () => void;
-}) {
-  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-
-  const games       = league.currentSeason.games;
-  const maxWeek     = games.length > 0 ? Math.max(...games.map(g => g.week)) : 0;
-  const canAdvance  = advanceBtnLabel !== 'Season Complete' && advanceBtnLabel !== 'Draft In Progress';
-
-  const expandedGames = selectedWeek !== null
-    ? games.filter(g => g.week === selectedWeek)
-    : [];
-  const selectedGame = selectedGameId ? games.find(g => g.id === selectedGameId) ?? null : null;
-
-  function phaseTag() {
-    if (league.phase === 'postseason') return 'Playoffs';
-    if (league.phase === 'offseason')  return 'Offseason';
-    if (league.phase === 'draft')      return 'Draft';
-    return null;
-  }
-
-  const tag = phaseTag();
-
-  return (
-    <div className="season-timeline">
-      <div className="stl-header">
-        <div className="stl-meta">
-          <span className="stl-season">Season {league.currentSeason.year}</span>
-          {tag && <span className="stl-phase-tag">{tag}</span>}
-        </div>
-        <button
-          className="advance-btn"
-          disabled={busy || !canAdvance}
-          onClick={onAdvance}
-        >
-          {busy ? 'Simulating…' : advanceBtnLabel}
-        </button>
-      </div>
-
-      {maxWeek > 0 && (
-        <div className="stl-track">
-          {Array.from({ length: maxWeek }, (_, i) => i + 1).map(w => {
-            const weekGames = games.filter(g => g.week === w);
-            const allDone   = weekGames.length > 0 && weekGames.every(g => g.status === 'final');
-            const isCurrent = w === league.currentWeek && league.phase === 'regular_season';
-            const isSelected = selectedWeek === w;
-            const cls = ['stl-tile', allDone ? 'stl-done' : isCurrent ? 'stl-current' : 'stl-future', isSelected ? 'stl-selected' : ''].filter(Boolean).join(' ');
-            return (
-              <button
-                key={w}
-                className={cls}
-                onClick={() => {
-                  setSelectedWeek(prev => prev === w ? null : w);
-                  setSelectedGameId(null);
-                }}
-              >
-                <span className="stl-wk">WK {w}</span>
-                {allDone && <span className="stl-check">✓</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {selectedWeek !== null && expandedGames.length > 0 && (
-        <div className="stl-games-panel">
-          <div className="stl-games-list">
-            {expandedGames.map(g => (
-              <button
-                key={g.id}
-                className={`stl-game-row${selectedGameId === g.id ? ' stl-game-selected' : ''}`}
-                onClick={() => setSelectedGameId(prev => prev === g.id ? null : g.id)}
-              >
-                <span className="stl-game-teams">{g.awayTeam.abbreviation} @ {g.homeTeam.abbreviation}</span>
-                {g.status === 'final'
-                  ? <span className="stl-game-score">{g.awayScore}–{g.homeScore}</span>
-                  : <span className="stl-game-status muted">scheduled</span>}
-              </button>
-            ))}
-          </div>
-          {selectedGame && (
-            <div className="stl-game-detail">
-              <GameDetail key={selectedGame.id} game={selectedGame} />
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Gameplan View ──────────────────────────────────────────────────────────────
-
-function GameplanView({ team, leagueId, onLeagueUpdated }: {
-  team: League['teams'][0];
-  leagueId: string;
-  onLeagueUpdated: (l: League) => void;
-}) {
-  const gp: GameplanSettings = team.gameplan ?? DEFAULT_GAMEPLAN;
-  const [draft, setDraft] = useState<GameplanSettings>(gp);
-  const [saving, setSaving] = useState(false);
-  const [saveErr, setSaveErr] = useState('');
-  const [saved, setSaved]   = useState(false);
-
-  const pc = team.playcalling;
-  const deepPct = Math.max(0, 100 - pc.shortPassPct - pc.mediumPassPct);
-
-  function set<K extends keyof GameplanSettings>(k: K, v: GameplanSettings[K]) {
-    setDraft(d => ({ ...d, [k]: v }));
-    setSaved(false);
-  }
-
-  async function handleSave() {
-    setSaving(true); setSaveErr(''); setSaved(false);
-    try {
-      const updated = await setGameplanApi(leagueId, draft);
-      onLeagueUpdated(updated);
-      setSaved(true);
-    } catch (e) { setSaveErr(friendlyError(e)); }
-    finally { setSaving(false); }
-  }
-
-  const btnRow = (
-    label: string,
-    options: { value: string; label: string }[],
-    current: string,
-    onChange: (v: string) => void,
-  ) => (
-    <div className="gp-row">
-      <span className="gp-label">{label}</span>
-      <div className="gp-btns">
-        {options.map(o => (
-          <button
-            key={o.value}
-            className={`gp-opt${current === o.value ? ' gp-opt-active' : ''}`}
-            onClick={() => onChange(o.value)}
-          >{o.label}</button>
-        ))}
       </div>
     </div>
-  );
-
-  return (
-    <section className="gp-view">
-      <h2>Gameplan — {team.name}</h2>
-
-      <div className="gp-section">
-        <h3>Offense</h3>
-        {btnRow('Pass Emphasis', [
-          { value: 'conservative', label: 'Conservative' },
-          { value: 'balanced',     label: 'Balanced' },
-          { value: 'aggressive',   label: 'Aggressive' },
-        ], draft.passEmphasis, v => set('passEmphasis', v as PassEmphasis))}
-
-        {btnRow('Run Style', [
-          { value: 'light',    label: 'Outside' },
-          { value: 'balanced', label: 'Balanced' },
-          { value: 'heavy',    label: 'Inside' },
-        ], draft.runEmphasis, v => set('runEmphasis', v as RunEmphasis))}
-
-        {btnRow('Tempo', [
-          { value: 'slow',   label: 'Slow' },
-          { value: 'normal', label: 'Normal' },
-          { value: 'fast',   label: 'Hurry-Up' },
-        ], draft.tempo, v => set('tempo', v as Tempo))}
-
-        {btnRow('Play Action', [
-          { value: 'low',    label: 'Rarely' },
-          { value: 'medium', label: 'Moderate' },
-          { value: 'high',   label: 'Often' },
-        ], draft.playAction, v => set('playAction', v as PlayActionUsage))}
-      </div>
-
-      <div className="gp-section">
-        <h3>Defense</h3>
-        {btnRow('Defensive Focus', [
-          { value: 'balanced',          label: 'Balanced' },
-          { value: 'stop_inside_run',   label: 'Stop Inside Run' },
-          { value: 'stop_outside_run',  label: 'Stop Outside Run' },
-          { value: 'stop_short_pass',   label: 'Stop Short Pass' },
-          { value: 'stop_deep_pass',    label: 'Stop Deep Pass' },
-        ], draft.defensiveFocus, v => set('defensiveFocus', v as DefensiveFocus))}
-      </div>
-
-      <div className="gp-derived">
-        <span className="gp-derived-label">Derived playcalling:</span>
-        <span>Run {pc.runPct}%</span>
-        <span>Inside {pc.insideRunPct}%</span>
-        <span>Short {pc.shortPassPct}%</span>
-        <span>Med {pc.mediumPassPct}%</span>
-        <span>Deep {deepPct}%</span>
-      </div>
-
-      <div className="gp-save-row">
-        <button className="btn-primary" onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving…' : 'Save Gameplan'}
-        </button>
-        {saved   && <span className="gp-saved">Saved!</span>}
-        {saveErr && <span className="gp-err">{saveErr}</span>}
-      </div>
-    </section>
-  );
-}
-
-// ── Playbooks View ─────────────────────────────────────────────────────────────
-
-const OFF_PLAYBOOK_INFO: Record<string, { label: string; desc: string }> = {
-  balanced:   { label: 'Balanced',   desc: 'Even mix of runs and passes. No single weakness.' },
-  spread:     { label: 'Spread',     desc: 'Multiple WR sets. Emphasizes short-to-medium passing.' },
-  power_run:  { label: 'Power Run',  desc: 'Physical run-first attack with strong OL play.' },
-  vertical:   { label: 'Vertical',   desc: 'Stretches the field deep. High risk, high reward.' },
-  west_coast: { label: 'West Coast', desc: 'Short, precise passing game. Rhythm and timing.' },
-};
-
-const DEF_PLAYBOOK_INFO: Record<string, { label: string; desc: string }> = {
-  balanced:      { label: 'Balanced',      desc: 'Sound fundamentals against all play types.' },
-  four_three:    { label: '4-3',           desc: 'Four down linemen. Strong vs. the run.' },
-  three_four:    { label: '3-4',           desc: 'Three linemen, four LBs. Versatile blitz packages.' },
-  nickel_heavy:  { label: 'Nickel Heavy',  desc: 'Extra DBs on the field. Great vs. passing teams.' },
-  zone_heavy:    { label: 'Zone Heavy',    desc: 'Disciplined zone coverage. Limits big plays.' },
-};
-
-function PlaybooksView({ team, leagueId, onLeagueUpdated }: {
-  team: League['teams'][0];
-  leagueId: string;
-  onLeagueUpdated: (l: League) => void;
-}) {
-  const gp: GameplanSettings = team.gameplan ?? DEFAULT_GAMEPLAN;
-  const [offBook, setOffBook] = useState<OffensivePlaybook>(gp.offensivePlaybook);
-  const [defBook, setDefBook] = useState<DefensivePlaybook>(gp.defensivePlaybook);
-  const [saving, setSaving] = useState(false);
-  const [saveErr, setSaveErr] = useState('');
-  const [saved, setSaved]   = useState(false);
-
-  async function handleSave() {
-    setSaving(true); setSaveErr(''); setSaved(false);
-    try {
-      const updated = await setGameplanApi(leagueId, { offensivePlaybook: offBook, defensivePlaybook: defBook });
-      onLeagueUpdated(updated);
-      setSaved(true);
-    } catch (e) { setSaveErr(friendlyError(e)); }
-    finally { setSaving(false); }
-  }
-
-  return (
-    <section className="gp-view">
-      <h2>Playbooks — {team.name}</h2>
-
-      <div className="gp-section">
-        <h3>Offensive Playbook</h3>
-        <div className="pb-grid">
-          {(Object.keys(OFF_PLAYBOOK_INFO) as OffensivePlaybook[]).map(key => {
-            const info = OFF_PLAYBOOK_INFO[key]!;
-            return (
-              <button
-                key={key}
-                className={`pb-card${offBook === key ? ' pb-card-active' : ''}`}
-                onClick={() => { setOffBook(key); setSaved(false); }}
-              >
-                <span className="pb-card-name">{info.label}</span>
-                <span className="pb-card-desc">{info.desc}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="gp-section">
-        <h3>Defensive Playbook</h3>
-        <div className="pb-grid">
-          {(Object.keys(DEF_PLAYBOOK_INFO) as DefensivePlaybook[]).map(key => {
-            const info = DEF_PLAYBOOK_INFO[key]!;
-            return (
-              <button
-                key={key}
-                className={`pb-card${defBook === key ? ' pb-card-active' : ''}`}
-                onClick={() => { setDefBook(key); setSaved(false); }}
-              >
-                <span className="pb-card-name">{info.label}</span>
-                <span className="pb-card-desc">{info.desc}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="gp-save-row">
-        <button className="btn-primary" onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving…' : 'Save Playbooks'}
-        </button>
-        {saved   && <span className="gp-saved">Saved!</span>}
-        {saveErr && <span className="gp-err">{saveErr}</span>}
-      </div>
-    </section>
   );
 }
 
@@ -2799,6 +2485,38 @@ function HistoryView({ history, teams, myTeamId }: {
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
 
+// ── Feed source metadata ───────────────────────────────────────────────────────
+const FEED_SOURCE: Record<string, { name: string; handle: string; avatar: string }> = {
+  game_result:     { name: 'NFL Scores',     handle: 'nflscores',   avatar: '🏈' },
+  playoff_result:  { name: 'Playoff Central',handle: 'playoffs',    avatar: '🏆' },
+  championship:    { name: 'NFL',            handle: 'nfl',         avatar: '🏆' },
+  award:           { name: 'NFL Awards',     handle: 'awards',      avatar: '🥇' },
+  signing:         { name: 'Free Agency',    handle: 'freeagency',  avatar: '✍️' },
+  trade:           { name: 'Trade Tracker',  handle: 'trades',      avatar: '🔄' },
+  retirement:      { name: 'NFL Network',    handle: 'nflnetwork',  avatar: '📺' },
+  draft_pick:      { name: 'NFL Draft',      handle: 'draft',       avatar: '📋' },
+  big_performance: { name: 'NFL Stats',      handle: 'stats',       avatar: '📊' },
+  upset:           { name: 'Sports Alert',   handle: 'alert',       avatar: '⚡' },
+  weekly_recap:    { name: 'Weekly Wrap',    handle: 'recap',       avatar: '📰' },
+  milestone:       { name: 'NFL Records',    handle: 'records',     avatar: '🎯' },
+  stat_race:       { name: 'Stat Watch',     handle: 'statwatch',   avatar: '📈' },
+  streak:          { name: 'Hot Streaks',    handle: 'streaks',     avatar: '🔥' },
+  hall_of_fame:    { name: 'Hall of Fame',   handle: 'hof',         avatar: '⭐' },
+  coach_change:    { name: 'Coaching News',  handle: 'coaching',    avatar: '📣' },
+  ring_of_honor:   { name: 'Team History',   handle: 'history',     avatar: '💍' },
+  retired_jersey:  { name: 'Team History',   handle: 'history',     avatar: '💍' },
+  gm_milestone:    { name: 'GM Career',      handle: 'gmcareer',    avatar: '🏢' },
+};
+
+function fmtNewsAge(createdAt: number): string {
+  const diffMs = Date.now() - createdAt;
+  const diffH  = Math.floor(diffMs / 3_600_000);
+  if (diffH < 1)  return 'Just now';
+  if (diffH < 24) return `${diffH}h`;
+  const diffD = Math.floor(diffH / 24);
+  return `${diffD}d`;
+}
+
 function DashboardView({ league, myTeamId, standings, onNavTo }: {
   league: League;
   myTeamId: string;
@@ -2808,9 +2526,10 @@ function DashboardView({ league, myTeamId, standings, onNavTo }: {
   const team    = league.teams.find(t => t.id === myTeamId)!;
   const games   = league.currentSeason.games;
   const payroll = team.roster.reduce((s, p) => s + p.salary, 0);
+  const capSpace = CAP_LIMIT - payroll;
   const injured = team.roster.filter(p => p.injuryWeeksRemaining > 0).length;
 
-  // Record
+  // Record + points
   let w = 0, l = 0, ties = 0, pf = 0, pa = 0;
   for (const g of games) {
     if (g.status !== 'final') continue;
@@ -2825,237 +2544,292 @@ function DashboardView({ league, myTeamId, standings, onNavTo }: {
     else ties++;
   }
 
+  // Win/loss streak
+  const orderedResults = games
+    .filter(g => g.status === 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId))
+    .sort((a, b) => a.week - b.week)
+    .map(g => {
+      const isHome = g.homeTeam.id === myTeamId;
+      const my = isHome ? g.homeScore : g.awayScore;
+      const op = isHome ? g.awayScore : g.homeScore;
+      return my > op ? 'W' : my < op ? 'L' : 'T';
+    });
+  let streakType = '';
+  let streakCount = 0;
+  for (let i = orderedResults.length - 1; i >= 0; i--) {
+    const r = orderedResults[i]!;
+    if (streakCount === 0) { streakType = r; streakCount = 1; }
+    else if (r === streakType) streakCount++;
+    else break;
+  }
+  const streak = streakCount > 0 ? `${streakType}${streakCount}` : '';
+
   // Standings rank
   const overallRank = standings.findIndex(s => s.team.id === myTeamId) + 1;
 
-  // My division
+  // Division
   const myDivision = (league.divisions ?? []).find(d => d.teamIds.includes(myTeamId));
   const divStandings = myDivision
     ? standings.filter(s => myDivision.teamIds.includes(s.team.id))
         .sort((a, b) => b.w - a.w || (b.pf - b.pa) - (a.pf - a.pa))
-    : standings.slice(0, 6);
+    : standings.slice(0, 4);
+  const divRank = divStandings.findIndex(s => s.team.id === myTeamId) + 1;
 
   // Next game
   const nextGame = games.find(g => g.status !== 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId));
 
-  // Recent results
+  // Recent results (last 5)
   const recentGames = games
     .filter(g => g.status === 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId))
-    .slice(-4).reverse();
+    .slice(-5).reverse();
 
-  // Latest news — prioritize my-team items, then show recent mix (up to 6)
-  const allNews = league.news ?? [];
-  const myTeamNews  = allNews.filter(n => n.teamIds.includes(myTeamId)).slice(0, 2);
-  const otherNews   = allNews.filter(n => !n.teamIds.includes(myTeamId)).slice(0, 4);
-  const latestNews  = [...myTeamNews, ...otherNews].slice(0, 6);
+  // News feed — my team first, then others, up to 20 items
+  const allNews  = (league.news ?? []).slice().sort((a, b) => b.createdAt - a.createdAt);
+  const feedNews = [
+    ...allNews.filter(n =>  n.teamIds.includes(myTeamId)).slice(0, 6),
+    ...allNews.filter(n => !n.teamIds.includes(myTeamId)).slice(0, 14),
+  ].slice(0, 20);
 
   return (
     <div className="dashboard">
-      {/* Top: Record + Next Game + Recent */}
-      <div className="dash-top">
-        <div className="dash-card">
-          <div className="dash-card-title">Season Record</div>
-          <div className="dash-record-big">{w}–{l}{ties > 0 ? `–${ties}` : ''}</div>
-          <div className="dash-record-sub">
-            PF {pf} · PA {pa} ·
-            <span className={pf - pa >= 0 ? ' pos' : ' neg'}> {pf - pa >= 0 ? '+' : ''}{pf - pa}</span>
+
+      {/* ── Team header ─────────────────────────────────────────── */}
+      <div className="dash-team-header">
+        <div className="dash-team-logo">{team.abbreviation}</div>
+        <div className="dash-team-info">
+          <div className="dash-team-name">{team.name}</div>
+          <div className="dash-team-meta">
+            <span className="dash-team-record">{w}–{l}{ties > 0 ? `–${ties}` : ''}</span>
+            {myDivision && (
+              <span className="dash-team-div">
+                {myDivision.conference} · {myDivision.division}
+              </span>
+            )}
+            {divRank > 0 && (
+              <span className="dash-team-rank">#{divRank} Div</span>
+            )}
+            {overallRank > 0 && (
+              <span className="dash-team-rank">#{overallRank} Overall</span>
+            )}
+            {streak && (
+              <span className={`dash-team-streak ${streak.startsWith('W') ? 'pos' : streak.startsWith('L') ? 'neg' : ''}`}>
+                {streak}
+              </span>
+            )}
           </div>
-          {overallRank > 0 && (
-            <div className="dash-rank">#{overallRank} overall{myDivision ? ` · ${myDivision.division}` : ''}</div>
+          {nextGame && (
+            <div className="dash-team-next">
+              <span className="muted">Week {nextGame.week} · </span>
+              {nextGame.homeTeam.id === myTeamId
+                ? <>vs <strong>{nextGame.awayTeam.name}</strong></>
+                : <>@ <strong>{nextGame.homeTeam.name}</strong></>}
+            </div>
           )}
         </div>
-
-        <div className="dash-card">
-          <div className="dash-card-title">Next Game</div>
-          {nextGame ? (
-            <>
-              <div className="dash-next-week">Week {nextGame.week}</div>
-              <div className="dash-next-opp">
-                {nextGame.homeTeam.id === myTeamId
-                  ? <>vs <strong>{nextGame.awayTeam.name}</strong></>
-                  : <>@ <strong>{nextGame.homeTeam.name}</strong></>}
-              </div>
-              <div className="dash-next-ha muted">{nextGame.homeTeam.id === myTeamId ? 'Home' : 'Away'}</div>
-            </>
-          ) : (
-            <div className="muted">{league.phase === 'offseason' ? 'Offseason' : league.phase === 'draft' ? 'Draft' : 'Season complete'}</div>
-          )}
+        <div className="dash-team-pts">
+          <div className="dash-pts-row">
+            <span className="dash-pts-label">PF</span>
+            <span className="dash-pts-val">{pf}</span>
+          </div>
+          <div className="dash-pts-row">
+            <span className="dash-pts-label">PA</span>
+            <span className="dash-pts-val">{pa}</span>
+          </div>
+          <div className="dash-pts-row">
+            <span className="dash-pts-label">DIFF</span>
+            <span className={`dash-pts-val ${pf - pa >= 0 ? 'pos' : 'neg'}`}>
+              {pf - pa >= 0 ? '+' : ''}{pf - pa}
+            </span>
+          </div>
         </div>
+      </div>
 
+      {/* ── Summary cards ───────────────────────────────────────── */}
+      <div className="dash-summary-cards">
         <div className="dash-card">
-          <div className="dash-card-title">Roster Status</div>
-          <div className="dash-roster-stat">{team.roster.length} <span className="dash-roster-label">players</span></div>
-          <div className="muted">Cap: ${payroll}M used</div>
-          {injured > 0 && <div className="dash-injured-note">{injured} injured</div>}
+          <div className="dash-card-label">Cap Space</div>
+          <div className="dash-card-value">${capSpace.toFixed(1)}M</div>
+          <div className="dash-card-sub muted">${payroll.toFixed(1)}M used</div>
         </div>
-
+        <div className="dash-card">
+          <div className="dash-card-label">Roster</div>
+          <div className="dash-card-value">{team.roster.length}</div>
+          {injured > 0
+            ? <div className="dash-card-sub neg">{injured} injured</div>
+            : <div className="dash-card-sub muted">healthy</div>}
+        </div>
+        <div className="dash-card">
+          <div className="dash-card-label">Week</div>
+          <div className="dash-card-value">{league.currentWeek}</div>
+          <div className="dash-card-sub muted">of 18</div>
+        </div>
+        <div className="dash-card">
+          <div className="dash-card-label">Division Rank</div>
+          <div className="dash-card-value">#{divRank > 0 ? divRank : '—'}</div>
+          <div className="dash-card-sub muted">#{overallRank > 0 ? overallRank : '—'} overall</div>
+        </div>
         {recentGames.length > 0 && (
-          <div className="dash-card">
-            <div className="dash-card-title">Recent Results</div>
-            {recentGames.map(g => {
-              const isHome = g.homeTeam.id === myTeamId;
-              const myScore  = isHome ? g.homeScore : g.awayScore;
-              const oppScore = isHome ? g.awayScore : g.homeScore;
-              const result   = myScore > oppScore ? 'W' : myScore < oppScore ? 'L' : 'T';
-              const opp      = isHome ? g.awayTeam.abbreviation : g.homeTeam.abbreviation;
-              return (
-                <div key={g.id} className="dash-result-row">
-                  <span className={`dash-result-badge ${result === 'W' ? 'pos' : result === 'L' ? 'neg' : ''}`}>{result}</span>
-                  <span className="dash-result-opp">{isHome ? 'vs' : '@'} {opp}</span>
-                  <span className="dash-result-score">{myScore}–{oppScore}</span>
-                </div>
-              );
-            })}
+          <div className="dash-card dash-card-results">
+            <div className="dash-card-label">Last {recentGames.length}</div>
+            <div className="dash-result-pills">
+              {recentGames.map(g => {
+                const isHome = g.homeTeam.id === myTeamId;
+                const my = isHome ? g.homeScore : g.awayScore;
+                const op = isHome ? g.awayScore : g.homeScore;
+                const r  = my > op ? 'W' : my < op ? 'L' : 'T';
+                return (
+                  <span key={g.id} className={`result-pill ${r === 'W' ? 'pos' : r === 'L' ? 'neg' : ''}`}>{r}</span>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Schedule timeline */}
+      {/* ── Schedule strip ──────────────────────────────────────── */}
       <DashboardSchedule games={games} myTeamId={myTeamId} currentWeek={league.currentWeek} />
 
-      {/* Bottom: Standings snapshot + News + Quick Links */}
-      <div className="dash-bottom">
-        <div className="dash-panel">
-          <div className="dash-panel-header">
-            <span className="dash-panel-title">{myDivision ? `${myDivision.division} Standings` : 'Standings'}</span>
-            <button className="dash-panel-link" onClick={() => onNavTo('standings')}>All →</button>
+      {/* ── Body: news feed (left) + sidebar (right) ────────────── */}
+      <div className="dash-body">
+
+        {/* News feed */}
+        <div className="dash-feed">
+          <div className="dash-feed-header">
+            <span className="dash-panel-title">League Feed</span>
+            <button className="dash-panel-link" onClick={() => onNavTo('news')}>All news →</button>
           </div>
-          {divStandings.slice(0, 5).map((s, i) => (
-            <div key={s.team.id} className={`dash-stand-row${s.team.id === myTeamId ? ' dash-my-team' : ''}`}>
-              <span className="dash-stand-rank">{i + 1}</span>
-              <span className="dash-stand-abbr">{s.team.abbreviation}</span>
-              <span className="dash-stand-rec">{s.w}–{s.l}</span>
-              <span className={`dash-stand-diff ${s.pf - s.pa >= 0 ? 'pos' : 'neg'}`}>
-                {s.pf - s.pa >= 0 ? '+' : ''}{s.pf - s.pa}
-              </span>
-            </div>
-          ))}
+          {feedNews.length === 0 && (
+            <div className="dash-feed-empty muted">No news yet this season. Advance a week to generate stories.</div>
+          )}
+          {feedNews.map(n => {
+            const src = FEED_SOURCE[n.type] ?? { name: 'NFL', handle: 'nfl', avatar: '🏈' };
+            const isMine = n.teamIds.includes(myTeamId);
+            return (
+              <div key={n.id} className={`feed-item${isMine ? ' feed-mine' : ''}`}>
+                <div className="feed-header">
+                  <span className="feed-avatar">{src.avatar}</span>
+                  <span className="feed-name">{src.name}</span>
+                  <span className="feed-handle muted">@{src.handle}</span>
+                  <span className="feed-dot muted">·</span>
+                  <span className="feed-time muted">{fmtNewsAge(n.createdAt)}</span>
+                  {isMine && <span className="feed-mine-tag">Your Team</span>}
+                </div>
+                <div className="feed-headline">{n.headline}</div>
+                {n.body && <div className="feed-body muted">{n.body}</div>}
+                <div className="feed-footer">
+                  <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>{NEWS_TYPE_LABEL[n.type] ?? n.type}</span>
+                  <span className="feed-week-tag muted">Wk {n.week}</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
-        {latestNews.length > 0 && (
-          <div className="dash-panel dash-panel-news">
+        {/* Sidebar */}
+        <div className="dash-sidebar">
+
+          {/* Division standings */}
+          <div className="dash-panel">
             <div className="dash-panel-header">
-              <span className="dash-panel-title">League Feed</span>
-              <button className="dash-panel-link" onClick={() => onNavTo('news')}>All →</button>
+              <span className="dash-panel-title">{myDivision ? myDivision.division : 'Standings'}</span>
+              <button className="dash-panel-link" onClick={() => onNavTo('standings')}>All →</button>
             </div>
-            {latestNews.map(n => (
-              <div key={n.id} className={`dash-news-row${n.teamIds.includes(myTeamId) ? ' dash-news-mine' : ''}`}>
-                <div className="dash-news-top">
-                  <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>{NEWS_TYPE_LABEL[n.type] ?? n.type}</span>
-                  <span className="dash-news-headline">{n.headline}</span>
-                </div>
-                <div className="dash-news-body">{n.body}</div>
+            {divStandings.slice(0, 4).map((s, i) => (
+              <div key={s.team.id} className={`dash-stand-row${s.team.id === myTeamId ? ' dash-my-team' : ''}`}>
+                <span className="dash-stand-rank">{i + 1}</span>
+                <span className="dash-stand-abbr">{s.team.abbreviation}</span>
+                <span className="dash-stand-rec">{s.w}–{s.l}</span>
+                <span className={`dash-stand-diff ${s.pf - s.pa >= 0 ? 'pos' : 'neg'}`}>
+                  {s.pf - s.pa >= 0 ? '+' : ''}{s.pf - s.pa}
+                </span>
               </div>
             ))}
           </div>
-        )}
 
-        {(() => {
-          const lastAwards = league.history.seasonAwards.length > 0
-            ? league.history.seasonAwards[league.history.seasonAwards.length - 1]
-            : null;
-          const majorTypes = ['MVP', 'OPOY', 'DPOY', 'Coach_of_Year'];
-          const majorAwards = lastAwards?.awards.filter(a => majorTypes.includes(a.type)) ?? [];
-          if (!lastAwards || majorAwards.length === 0) return null;
-          return (
-            <div className="dash-panel">
-              <div className="dash-panel-header">
-                <span className="dash-panel-title">{lastAwards.year} Season Awards</span>
-                <button className="dash-panel-link" onClick={() => onNavTo('awards')}>All →</button>
-              </div>
-              {majorAwards.map(a => (
-                <div key={a.type} className="dash-award-row">
-                  <span className="dash-award-label">{AWARD_LABELS[a.type] ?? a.type}</span>
-                  <span className="dash-award-winner">{a.playerName ?? a.coachName ?? '—'}</span>
-                  {a.teamName && <span className="dash-award-team muted">{a.teamName}</span>}
+          {/* Awards */}
+          {(() => {
+            const lastAwards = league.history.seasonAwards.length > 0
+              ? league.history.seasonAwards[league.history.seasonAwards.length - 1]
+              : null;
+            const majorTypes   = ['MVP', 'OPOY', 'DPOY', 'Coach_of_Year'];
+            const majorAwards  = lastAwards?.awards.filter(a => majorTypes.includes(a.type)) ?? [];
+            if (!lastAwards || majorAwards.length === 0) return null;
+            return (
+              <div className="dash-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">{lastAwards.year} Awards</span>
+                  <button className="dash-panel-link" onClick={() => onNavTo('awards')}>All →</button>
                 </div>
-              ))}
-            </div>
-          );
-        })()}
-
-        {(() => {
-          const hof = league.history.hallOfFame ?? [];
-          if (hof.length === 0) return null;
-          const recent = hof.slice().sort((a, b) => b.inductionYear - a.inductionYear).slice(0, 4);
-          return (
-            <div className="dash-panel">
-              <div className="dash-panel-header">
-                <span className="dash-panel-title">Hall of Fame</span>
-                <button className="dash-panel-link" onClick={() => onNavTo('hof')}>View All →</button>
+                {majorAwards.map(a => (
+                  <div key={a.type} className="dash-award-row">
+                    <span className="dash-award-label">{AWARD_LABELS[a.type] ?? a.type}</span>
+                    <span className="dash-award-winner">{a.playerName ?? a.coachName ?? '—'}</span>
+                    {a.teamName && <span className="dash-award-team muted">{a.teamName}</span>}
+                  </div>
+                ))}
               </div>
-              {recent.map(e => (
-                <div key={e.playerId} className="dash-hof-row">
-                  <span className="dash-hof-name">★ {e.name}</span>
-                  <span className="dash-hof-pos muted">{e.position}</span>
-                  <span className="dash-hof-year muted">{e.inductionYear}</span>
+            );
+          })()}
+
+          {/* Hall of Fame */}
+          {(() => {
+            const hof = league.history.hallOfFame ?? [];
+            if (hof.length === 0) return null;
+            const recent = hof.slice().sort((a, b) => b.inductionYear - a.inductionYear).slice(0, 4);
+            return (
+              <div className="dash-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">Hall of Fame</span>
+                  <button className="dash-panel-link" onClick={() => onNavTo('hof')}>All →</button>
                 </div>
-              ))}
-            </div>
-          );
-        })()}
-
-        {(() => {
-          const rohAll = Object.values(league.history.ringOfHonor ?? {}).flat();
-          if (rohAll.length === 0) return null;
-          const recent = rohAll.slice().sort((a, b) => b.inductedYear - a.inductedYear).slice(0, 4);
-          return (
-            <div className="dash-panel">
-              <div className="dash-panel-header">
-                <span className="dash-panel-title">Ring of Honor</span>
-                <button className="dash-panel-link" onClick={() => onNavTo('legacy')}>View All →</button>
+                {recent.map(e => (
+                  <div key={e.playerId} className="dash-hof-row">
+                    <span className="dash-hof-name">★ {e.name}</span>
+                    <span className="dash-hof-pos muted">{e.position}</span>
+                    <span className="dash-hof-year muted">{e.inductionYear}</span>
+                  </div>
+                ))}
               </div>
-              {recent.map(e => (
-                <div key={`${e.playerId}-roh`} className="dash-hof-row">
-                  <span className="dash-hof-name">{e.jerseyRetired ? '◈ ' : '◇ '}{e.name}</span>
-                  <span className="dash-hof-pos muted">{e.position}</span>
-                  <span className="dash-hof-year muted">{e.inductedYear}</span>
+            );
+          })()}
+
+          {/* GM Career summary */}
+          {league.gmCareer && league.gmCareer.seasons.length > 0 && (() => {
+            const gm      = league.gmCareer;
+            const champs  = gm.seasons.filter(s => s.wonChampionship).length;
+            const playoffCount = gm.seasons.filter(s => s.madePlayoffs).length;
+            const tier    = gmLegacyTier(gm.legacyScore);
+            return (
+              <div className="dash-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">GM Career</span>
+                  <button className="dash-panel-link" onClick={() => onNavTo('gm')}>View →</button>
                 </div>
-              ))}
-            </div>
-          );
-        })()}
+                <div className="dash-gm-row">
+                  <span className={`gm-tier-badge gm-tier-${tier.toLowerCase()}`}>{tier}</span>
+                  <span className="dash-gm-score">{gm.legacyScore} pts</span>
+                </div>
+                <div className="dash-gm-stats">
+                  <span>{gm.seasons.length} season{gm.seasons.length !== 1 ? 's' : ''}</span>
+                  <span>{playoffCount}x playoffs</span>
+                  {champs > 0 && <span>🏆 {champs}x champ</span>}
+                </div>
+              </div>
+            );
+          })()}
 
-        {league.gmCareer && league.gmCareer.seasons.length > 0 && (() => {
-          const gm = league.gmCareer;
-          const champs = gm.seasons.filter(s => s.wonChampionship).length;
-          const playoffs = gm.seasons.filter(s => s.madePlayoffs).length;
-          const tier = gmLegacyTier(gm.legacyScore);
-          return (
-            <div className="dash-panel">
-              <div className="dash-panel-header">
-                <span className="dash-panel-title">GM Career</span>
-                <button className="dash-panel-link" onClick={() => onNavTo('gm')}>View →</button>
-              </div>
-              <div className="dash-gm-row">
-                <span className={`gm-tier-badge gm-tier-${tier.toLowerCase()}`}>{tier}</span>
-                <span className="dash-gm-score">{gm.legacyScore} pts</span>
-              </div>
-              <div className="dash-gm-stats">
-                <span>{gm.seasons.length} season{gm.seasons.length !== 1 ? 's' : ''}</span>
-                <span>{playoffs}x playoffs</span>
-                {champs > 0 && <span>🏆 {champs}x champ</span>}
-              </div>
-              {gm.achievements.length > 0 && (
-                <div className="dash-gm-ach muted">{gm.achievements.length} achievement{gm.achievements.length !== 1 ? 's' : ''} earned</div>
-              )}
-            </div>
-          );
-        })()}
-
-        <div className="dash-panel dash-panel-links">
-          <div className="dash-panel-header"><span className="dash-panel-title">Quick Access</span></div>
-          <button className="dash-link-btn" onClick={() => onNavTo('roster')}>View Roster</button>
-          <button className="dash-link-btn" onClick={() => onNavTo('contracts')}>Contracts</button>
-          <button className="dash-link-btn" onClick={() => onNavTo('free-agents')}>Free Agents</button>
-          <button className="dash-link-btn" onClick={() => onNavTo('trades')}>
-            Trades{league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length > 0
-              ? ` (${league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length})`
-              : ''}
-          </button>
-          {league.history.seasonAwards.length > 0 && (
-            <button className="dash-link-btn" onClick={() => onNavTo('history')}>League History</button>
-          )}
+          {/* Quick links */}
+          <div className="dash-panel dash-panel-links">
+            <div className="dash-panel-header"><span className="dash-panel-title">Quick Access</span></div>
+            <button className="dash-link-btn" onClick={() => onNavTo('roster')}>Roster</button>
+            <button className="dash-link-btn" onClick={() => onNavTo('contracts')}>Contracts</button>
+            <button className="dash-link-btn" onClick={() => onNavTo('free-agents')}>Free Agents</button>
+            <button className="dash-link-btn" onClick={() => onNavTo('trades')}>
+              Trades{league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length > 0
+                ? ` (${league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length})`
+                : ''}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -4495,34 +4269,6 @@ function NewsCard({ item: n, isMyTeam, onViewPlayer }: {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Notifications ──────────────────────────────────────────────────────────────
-
-function NotificationsPanel({ notifications, onMarkRead, onClose }: {
-  notifications: LeagueNotification[];
-  onMarkRead: () => void;
-  onClose: () => void;
-}) {
-  const sorted = [...notifications].reverse();
-  return (
-    <div className="notif-panel">
-      <div className="notif-panel-header">
-        <h3>Notifications</h3>
-        <button className="btn-sm" onClick={onMarkRead}>Mark all read</button>
-        <button className="btn-sm" onClick={onClose}>Close</button>
-      </div>
-      {sorted.length === 0
-        ? <p className="muted">No notifications.</p>
-        : sorted.map((n: LeagueNotification) => (
-          <div key={n.id} className={`notif-item${n.read ? '' : ' unread'}`}>
-            <span className="notif-msg">{n.message}</span>
-            <span className="notif-time">{fmtTime(n.createdAt)}</span>
-          </div>
-        ))
-      }
     </div>
   );
 }
