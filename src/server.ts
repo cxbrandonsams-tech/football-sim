@@ -9,6 +9,7 @@ import { rollupSeasonHistory, startNextSeason, runOffseasonProgression } from '.
 import { extendPlayer }   from './engine/contracts';
 import { signPlayer, releasePlayer } from './engine/rosterManagement';
 import { fireCoach, hireCoachFromPool, promoteWithin } from './engine/coachCarousel';
+import { incrementGmStat, initGmCareer } from './engine/gmCareer';
 import { offerContract, cpuInitialFASignings, calcAskingPrice } from './engine/freeAgency';
 import { startDraft, makeDraftPick, simRemainingDraft, advanceOneCpuPick, advanceToUserPick } from './engine/draft';
 import { generateDraftClass, generateScoutingReport, budgetToPoints } from './engine/scoutingEngine';
@@ -292,13 +293,14 @@ app.post('/league/create', requireAuth, async (req: Request, res: Response) => {
     passwordHash = await bcrypt.hash(inviteCode, 10);
   }
 
-  const league = createInitialLeague(id, {
+  const rawLeague = createInitialLeague(id, {
     displayName: displayName?.trim() || 'My League',
     visibility:  visibility ?? 'public',
     commissionerId: userId,
     ...(inviteCode    && { inviteCode }),
     ...(advanceSchedule && { advanceSchedule }),
   });
+  const league = initGmCareer(rawLeague);
 
   createLeagueRow(league, passwordHash);
   addMembership(id, userId, '', '');
@@ -443,6 +445,7 @@ app.post('/league/:id/propose-trade', requireAuth, (req: Request, res: Response)
     };
 
     let final: League = accepted ? applyTrade(withStatus, proposal) : withStatus;
+    if (accepted) final = incrementGmStat(final, 'trade');
     final = addActivity(final, accepted
       ? `${toTeam.name} accepted your trade: you send ${fromDesc}, receive ${toDesc}`
       : `${toTeam.name} rejected your trade offer`
@@ -674,11 +677,11 @@ app.post('/league/:id/sign-free-agent', requireAuth, (req: Request, res: Respons
   const player = league.freeAgents.find(p => p.id === playerId);
   const { league: updated, error } = signPlayer(league, playerId);
   if (error) { res.status(400).json({ error }); return; }
-  let final = updated;
+  let final = incrementGmStat(updated, 'faSigning');
   if (player) {
-    const userTeam = league.teams.find(t => t.id === updated.userTeamId);
+    const userTeam = league.teams.find(t => t.id === final.userTeamId);
     if (userTeam) {
-      final = addNewsItems(updated, [newsForSigning(
+      final = addNewsItems(final, [newsForSigning(
         player.name, player.id, player.position,
         userTeam.name, userTeam.id,
         league.currentSeason.year, league.currentWeek,
@@ -726,7 +729,8 @@ app.post('/league/:id/draft-pick', requireAuth, (req: Request, res: Response) =>
   const { league: updated, error } = makeDraftPick(league, playerId);
   if (error) { res.status(400).json({ error }); return; }
   const slot = updated.draft?.slots.find(s => s.playerId === playerId);
-  let withActivity = addActivity(updated, `You selected ${slot?.playerName ?? playerId}`);
+  const withGm = incrementGmStat(updated, 'draftPick');
+  let withActivity = addActivity(withGm, `You selected ${slot?.playerName ?? playerId}`);
   // Generate news for early-round picks (rounds 1-3)
   if (slot?.playerId && slot.playerName && slot.round <= 3) {
     withActivity = addNewsItems(withActivity, [newsForDraftPick(

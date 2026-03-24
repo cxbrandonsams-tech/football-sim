@@ -28,6 +28,7 @@ import { inductRingOfHonor }                      from './ringOfHonor';
 import { aiExtendPlayers }                        from './contracts';
 import { aiSignFreeAgents, enforceRosterLimits }  from './rosterManagement';
 import { runAICoachCarousel, autoFillUserVacancies } from './coachCarousel';
+import { updateGmSeasonRecord, resetGmSeasonCounters } from './gmCareer';
 import { TUNING }                                  from './config';
 
 // ── Playoff depth helper ───────────────────────────────────────────────────────
@@ -165,7 +166,11 @@ export function rollupSeasonHistory(league: League): League {
     .map(a => newsForAward(a, year))
     .filter((n): n is NonNullable<typeof n> => n !== null);
 
-  return addNewsItems(baseLeague, awardNews);
+  const withAwards = addNewsItems(baseLeague, awardNews);
+
+  // Archive GM season record (only if a GM career is active)
+  const { league: withGm, newsItems: gmNews } = updateGmSeasonRecord(withAwards);
+  return addNewsItems(withGm, gmNews);
 }
 
 // ── Offseason flow ────────────────────────────────────────────────────────────
@@ -240,11 +245,12 @@ export function startNextSeason(league: League): League {
   const nextSeason    = createSeason(nextYear, afterEnforcement.teams, afterEnforcement.divisions, prevDivFinish);
 
   const { playoff: _dropped, ...rest } = afterEnforcement;
-  return {
+  const nextLeague = {
     ...rest,
-    phase:              'regular_season',
+    phase:              'regular_season' as const,
     currentSeason:      nextSeason,
     currentWeek:        1,
     currentSeasonStats: {},
   };
+  return resetGmSeasonCounters(nextLeague);
 }

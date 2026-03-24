@@ -19,7 +19,7 @@ import {
   setAuthToken, authToken,
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
-import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type NewsMention, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry } from './types';
+import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type NewsMention, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type GmSeasonRecord, type GmAchievement } from './types';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -497,7 +497,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'dashboard' | 'standings' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner' | 'gameplan' | 'playbooks' | 'coaching' | 'scouting' | 'draft-board' | 'awards' | 'history' | 'hof' | 'legacy'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'standings' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner' | 'gameplan' | 'playbooks' | 'coaching' | 'scouting' | 'draft-board' | 'awards' | 'history' | 'hof' | 'legacy' | 'gm'>('dashboard');
   const [rosterTeamId, setRosterTeamId] = useState(myTeamId);
   const [detailPlayerId, setDetailPlayerId] = useState<string | null>(null);
 
@@ -711,6 +711,9 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>History</button>
           <button className={tab === 'hof'     ? 'active' : ''} onClick={() => setTab('hof')}>Hall of Fame</button>
           <button className={tab === 'legacy'  ? 'active' : ''} onClick={() => setTab('legacy')}>Ring of Honor</button>
+          {league.gmCareer && (
+            <button className={tab === 'gm' ? 'active' : ''} onClick={() => setTab('gm')}>GM Career</button>
+          )}
           {(league.phase === 'draft' || league.draft) && (
             <button className={tab === 'draft' ? 'active' : ''} onClick={() => setTab('draft')}>
               Draft{league.draft && !league.draft.complete && <span className="badge">!</span>}
@@ -825,6 +828,9 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
       )}
       {tab === 'legacy' && (
         <RingOfHonorView history={league.history} teams={league.teams} myTeamId={myTeamId} onViewPlayer={handleViewPlayer} />
+      )}
+      {tab === 'gm' && league.gmCareer && (
+        <GmCareerView career={league.gmCareer} />
       )}
       {tab === 'depth' && (
         <DepthChartView
@@ -2959,6 +2965,33 @@ function DashboardView({ league, myTeamId, standings, onNavTo }: {
           );
         })()}
 
+        {league.gmCareer && league.gmCareer.seasons.length > 0 && (() => {
+          const gm = league.gmCareer;
+          const champs = gm.seasons.filter(s => s.wonChampionship).length;
+          const playoffs = gm.seasons.filter(s => s.madePlayoffs).length;
+          const tier = gmLegacyTier(gm.legacyScore);
+          return (
+            <div className="dash-panel">
+              <div className="dash-panel-header">
+                <span className="dash-panel-title">GM Career</span>
+                <button className="dash-panel-link" onClick={() => onNavTo('gm')}>View →</button>
+              </div>
+              <div className="dash-gm-row">
+                <span className={`gm-tier-badge gm-tier-${tier.toLowerCase()}`}>{tier}</span>
+                <span className="dash-gm-score">{gm.legacyScore} pts</span>
+              </div>
+              <div className="dash-gm-stats">
+                <span>{gm.seasons.length} season{gm.seasons.length !== 1 ? 's' : ''}</span>
+                <span>{playoffs}x playoffs</span>
+                {champs > 0 && <span>🏆 {champs}x champ</span>}
+              </div>
+              {gm.achievements.length > 0 && (
+                <div className="dash-gm-ach muted">{gm.achievements.length} achievement{gm.achievements.length !== 1 ? 's' : ''} earned</div>
+              )}
+            </div>
+          );
+        })()}
+
         <div className="dash-panel dash-panel-links">
           <div className="dash-panel-header"><span className="dash-panel-title">Quick Access</span></div>
           <button className="dash-link-btn" onClick={() => onNavTo('roster')}>View Roster</button>
@@ -4127,6 +4160,116 @@ function RingOfHonorView({ history, teams, myTeamId, onViewPlayer }: {
   );
 }
 
+// ── GM Career View ─────────────────────────────────────────────────────────────
+
+function gmLegacyTier(score: number): string {
+  if (score >= 200) return 'Legendary';
+  if (score >= 150) return 'Elite';
+  if (score >= 100) return 'Respected';
+  if (score >= 60)  return 'Established';
+  if (score >= 30)  return 'Building';
+  return 'Newcomer';
+}
+
+function GmCareerView({ career }: { career: GmCareer }) {
+  const totalWins   = career.seasons.reduce((s, r) => s + r.wins,   0);
+  const totalLosses = career.seasons.reduce((s, r) => s + r.losses, 0);
+  const playoffApps = career.seasons.filter(r => r.madePlayoffs).length;
+  const championships = career.seasons.filter(r => r.wonChampionship).length;
+  const totalDraftPicks = career.seasons.reduce((s, r) => s + r.draftPicksMade, 0);
+  const totalTrades     = career.seasons.reduce((s, r) => s + r.tradesMade, 0);
+  const totalFASignings = career.seasons.reduce((s, r) => s + r.faSigningsMade, 0);
+  const tier = gmLegacyTier(career.legacyScore);
+
+  return (
+    <section className="gm-career-view">
+      <h2>GM Career</h2>
+      <div className="gm-career-header">
+        <div className="gm-legacy-score">
+          <span className="gm-score-num">{career.legacyScore}</span>
+          <span className="gm-score-label">Legacy Score</span>
+          <span className={`gm-tier-badge gm-tier-${tier.toLowerCase()}`}>{tier}</span>
+        </div>
+        <div className="gm-career-meta">
+          <div><span className="muted">Team</span> {career.teamName}</div>
+          <div><span className="muted">Started</span> {career.startYear}</div>
+          <div><span className="muted">Seasons</span> {career.seasons.length}</div>
+          <div><span className="muted">Record</span> {totalWins}–{totalLosses}</div>
+          <div><span className="muted">Playoffs</span> {playoffApps}x</div>
+          <div><span className="muted">Championships</span> {championships}x</div>
+        </div>
+      </div>
+
+      {/* Transactions summary */}
+      <div className="gm-transactions">
+        <h3>Career Transactions</h3>
+        <div className="gm-tx-row">
+          <div className="gm-tx-item"><span className="gm-tx-num">{totalDraftPicks}</span><span className="gm-tx-label">Draft Picks</span></div>
+          <div className="gm-tx-item"><span className="gm-tx-num">{totalTrades}</span><span className="gm-tx-label">Trades</span></div>
+          <div className="gm-tx-item"><span className="gm-tx-num">{totalFASignings}</span><span className="gm-tx-label">FA Signings</span></div>
+        </div>
+      </div>
+
+      {/* Achievements */}
+      {career.achievements.length > 0 && (
+        <div className="gm-achievements">
+          <h3>Achievements</h3>
+          <div className="gm-ach-grid">
+            {career.achievements.map(ach => (
+              <div key={ach.id} className="gm-ach-card">
+                <div className="gm-ach-label">{ach.label}</div>
+                <div className="gm-ach-desc muted">{ach.description}</div>
+                <div className="gm-ach-year muted">Unlocked {ach.unlockedYear}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Season-by-season log */}
+      {career.seasons.length > 0 && (
+        <div className="gm-season-log">
+          <h3>Season Log</h3>
+          <table className="hof-table">
+            <thead>
+              <tr>
+                <th>Year</th>
+                <th>Team</th>
+                <th>W</th>
+                <th>L</th>
+                <th>Playoffs</th>
+                <th>Champ</th>
+                <th>Picks</th>
+                <th>Trades</th>
+                <th>FA Signs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...career.seasons].reverse().map(s => (
+                <tr key={s.year} className={s.wonChampionship ? 'gm-champ-row' : ''}>
+                  <td>{s.year}</td>
+                  <td>{s.teamName}</td>
+                  <td>{s.wins}</td>
+                  <td>{s.losses}</td>
+                  <td>{s.madePlayoffs ? '✓' : '—'}</td>
+                  <td>{s.wonChampionship ? '🏆' : '—'}</td>
+                  <td>{s.draftPicksMade}</td>
+                  <td>{s.tradesMade}</td>
+                  <td>{s.faSigningsMade}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {career.seasons.length === 0 && (
+        <p className="muted">Complete your first season to see your GM career history.</p>
+      )}
+    </section>
+  );
+}
+
 // ── News ───────────────────────────────────────────────────────────────────────
 
 const NEWS_TYPE_LABEL: Record<string, string> = {
@@ -4148,6 +4291,7 @@ const NEWS_TYPE_LABEL: Record<string, string> = {
   coach_change:    'Coaching',
   ring_of_honor:   'Ring of Honor',
   retired_jersey:  'Retired Jersey',
+  gm_milestone:    'GM Career',
 };
 
 const NEWS_TYPE_CLASS: Record<string, string> = {
@@ -4169,6 +4313,7 @@ const NEWS_TYPE_CLASS: Record<string, string> = {
   coach_change:    'news-coaching',
   ring_of_honor:   'news-roh',
   retired_jersey:  'news-roh',
+  gm_milestone:    'news-gm',
 };
 
 // Map news types to filter categories
@@ -4191,6 +4336,7 @@ const NEWS_FILTER_CATEGORY: Record<string, string> = {
   coach_change:    'transactions',
   ring_of_honor:   'awards',
   retired_jersey:  'awards',
+  gm_milestone:    'awards',
 };
 
 type NewsFilter = 'all' | 'games' | 'transactions' | 'awards' | 'milestones';

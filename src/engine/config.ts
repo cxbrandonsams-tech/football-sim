@@ -574,6 +574,39 @@ export const TUNING = {
     // only applied to team-filtered seasons instead of full career.
   },
 
+  // ── GM Career / Personal Legacy (Phase 35) ──────────────────────────────
+  gmLegacy: {
+    /** Points per championship won as GM. */
+    championshipBonus:     30,
+    /** Points per playoff appearance. */
+    playoffBonus:          10,
+    /** Points per winning-record season (wins > losses). */
+    winningSeasonBonus:     5,
+    /** Points per win across all GM seasons (small contribution). */
+    winScale:               0.5,
+    /** Points per complete season managed. */
+    longevityPerYear:        2,
+    /** Achievement point values by achievement id. */
+    achievementPoints: {
+      first_championship:      20,
+      dynasty:                 40,
+      perennial_contender:     15,
+      rebuild_artist:          15,
+      ironman:                 10,
+      active_gm:                5,
+      deal_maker:              10,
+      draft_expert:            10,
+    } as Record<string, number>,
+    /** Thresholds for legacy tier labels (for display). */
+    tierThresholds: {
+      building:    30,
+      established: 60,
+      respected:   100,
+      elite:       150,
+      legendary:   200,
+    },
+  },
+
   // ── News / storyline generation (Phase 29) ────────────────────────────────
   news: {
     // Milestone thresholds — must be crossed for a news item to be generated.

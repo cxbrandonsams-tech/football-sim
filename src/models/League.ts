@@ -3,7 +3,7 @@ import { type Coach } from './Coach';
 import { type Team } from './Team';
 import { type Game } from './Game';
 import { type Season, createSeason } from './Season';
-import { type LeagueHistory, type PlayerSeasonStats, emptyLeagueHistory } from './History';
+import { type LeagueHistory, type PlayerSeasonStats, type GmCareer, emptyLeagueHistory } from './History';
 import { type NewsItem } from './News';
 import { buildDepthChart } from './DepthChart';
 import { type DraftClass } from './Prospect';
@@ -175,6 +175,8 @@ export interface League {
   draftClass?:          DraftClass;
   /** Pool of unemployed coaches available for hire. */
   unemployedCoaches:    Coach[];
+  /** GM career tracking — present whenever a user manages a team in this league. */
+  gmCareer?:            GmCareer;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

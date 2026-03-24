@@ -649,6 +649,28 @@ export function newsForRingOfHonorInduction(
   return item('ring_of_honor', headline, body, year, 0, [teamId], [playerId], mentions);
 }
 
+// ── GM milestone ──────────────────────────────────────────────────────────────
+
+export function newsForGmMilestone(
+  label:       string,
+  description: string,
+  year:        number,
+): NewsItem {
+  const [headline, body] = rnd([
+    [
+      `GM Achievement Unlocked: ${label}`,
+      `You've earned the "${label}" achievement. ${description}`,
+    ],
+    [
+      `Milestone reached: ${label}`,
+      `Your GM career hits a new milestone — ${label}. ${description}`,
+    ],
+  ] as const);
+  return item('gm_milestone', headline, body, year, 0);
+}
+
+// ── Retired jersey ────────────────────────────────────────────────────────────
+
 export function newsForJerseyRetirement(
   playerName: string, playerId: string,
   position:   string,

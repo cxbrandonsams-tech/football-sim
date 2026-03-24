@@ -2069,6 +2069,8 @@ tr:hover td { background: #232c3d; }
 .news-coaching    .news-badge { background: #1e3a5f; color: #93c5fd; }
 .news-roh         { border-left-color: #f59e0b; }
 .news-roh         .news-badge { background: #431407; color: #fcd34d; }
+.news-gm          { border-left-color: #a78bfa; }
+.news-gm          .news-badge { background: #2d1b69; color: #c4b5fd; }
 
 /* My-team highlight */
 .news-item-mine { background: #0d1929; }
@@ -3181,6 +3183,164 @@ tr:hover td { background: #232c3d; }
   color: #fbbf24;
   border: 1px solid #d97706;
 }
+
+/* ── GM Career View ────────────────────────────────────────────────────────── */
+
+.gm-career-view { max-width: 52rem; }
+
+.gm-career-header {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.gm-legacy-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 100px;
+}
+
+.gm-score-num {
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: #a78bfa;
+  line-height: 1;
+}
+
+.gm-score-label {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gm-career-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem 1.5rem;
+  font-size: 0.88rem;
+}
+
+.gm-career-meta .muted { color: #64748b; margin-right: 0.3rem; }
+
+.gm-tier-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.gm-tier-newcomer    { background: #1e293b; color: #94a3b8; }
+.gm-tier-building    { background: #1c3a2e; color: #4ade80; }
+.gm-tier-established { background: #1e3a5f; color: #60a5fa; }
+.gm-tier-respected   { background: #2d1b69; color: #c4b5fd; }
+.gm-tier-elite       { background: #451a03; color: #fcd34d; }
+.gm-tier-legendary   { background: #4a1942; color: #f0abfc; }
+
+.gm-transactions {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.gm-transactions h3 { margin: 0 0 0.75rem; font-size: 0.9rem; color: #94a3b8; }
+
+.gm-tx-row { display: flex; gap: 1.5rem; }
+
+.gm-tx-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 70px;
+}
+
+.gm-tx-num {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.gm-tx-label {
+  font-size: 0.72rem;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.gm-achievements {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.gm-achievements h3 { margin: 0 0 0.75rem; font-size: 0.9rem; color: #94a3b8; }
+
+.gm-ach-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.gm-ach-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.7rem 0.85rem;
+}
+
+.gm-ach-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #c4b5fd;
+  margin-bottom: 0.25rem;
+}
+
+.gm-ach-desc { font-size: 0.78rem; margin-bottom: 0.2rem; }
+.gm-ach-year { font-size: 0.72rem; }
+
+.gm-season-log {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.gm-season-log h3 { margin: 0 0 0.75rem; font-size: 0.9rem; color: #94a3b8; }
+
+.gm-champ-row td { background: #1a1200 !important; }
+
+/* Dashboard GM panel */
+.dash-gm-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.dash-gm-score { font-size: 0.85rem; color: #94a3b8; }
+
+.dash-gm-stats {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  margin-bottom: 0.2rem;
+}
+
+.dash-gm-ach { font-size: 0.75rem; }
 
 /* ── Scouting View ─────────────────────────────────────────────────────────── */
 

@@ -644,6 +644,41 @@ export interface LeagueHistory {
   ringOfHonor:     Record<string, RingOfHonorEntry[]>;
 }
 
+// ── GM Career ─────────────────────────────────────────────────────────────────
+
+export interface GmSeasonRecord {
+  year:              number;
+  teamId:            string;
+  teamName:          string;
+  wins:              number;
+  losses:            number;
+  ties:              number;
+  madePlayoffs:      boolean;
+  wonChampionship:   boolean;
+  draftPicksMade:    number;
+  tradesMade:        number;
+  faSigningsMade:    number;
+}
+
+export interface GmAchievement {
+  id:           string;
+  label:        string;
+  description:  string;
+  unlockedYear: number;
+}
+
+export interface GmCareer {
+  teamId:                    string;
+  teamName:                  string;
+  startYear:                 number;
+  seasons:                   GmSeasonRecord[];
+  achievements:              GmAchievement[];
+  legacyScore:               number;
+  currentSeasonDraftPicks:   number;
+  currentSeasonTrades:       number;
+  currentSeasonFaSignings:   number;
+}
+
 // ── League ────────────────────────────────────────────────────────────────────
 
 export type LeaguePhase = 'regular_season' | 'postseason' | 'offseason' | 'draft';
@@ -754,7 +789,8 @@ export type NewsType =
   | 'hall_of_fame'
   | 'coach_change'
   | 'ring_of_honor'
-  | 'retired_jersey';
+  | 'retired_jersey'
+  | 'gm_milestone';
 
 export interface NewsMention {
   id:         string;
@@ -809,6 +845,7 @@ export interface League {
   ownerBudget:          number;
   news:                 NewsItem[];
   milestonesHit:        Record<string, string[]>;
+  gmCareer?:            GmCareer;
 }
 
 // ── Standings ─────────────────────────────────────────────────────────────────

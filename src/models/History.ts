@@ -85,14 +85,43 @@ export interface CoachSeasonRecord {
   wonChampionship:  boolean;
 }
 
-export interface GMRecord {
-  year:             number;
-  teamId:           string;
-  teamName:         string;
-  wins:             number;
-  losses:           number;
-  madePlayoffs:     boolean;
-  wonChampionship:  boolean;
+// ── GM Career ─────────────────────────────────────────────────────────────────
+
+/** Per-season record for the user-controlled GM. */
+export interface GmSeasonRecord {
+  year:              number;
+  teamId:            string;
+  teamName:          string;
+  wins:              number;
+  losses:            number;
+  ties:              number;
+  madePlayoffs:      boolean;
+  wonChampionship:   boolean;
+  draftPicksMade:    number;
+  tradesMade:        number;
+  faSigningsMade:    number;
+}
+
+/** A single unlocked GM achievement/milestone. */
+export interface GmAchievement {
+  id:           string;   // e.g. 'first_championship'
+  label:        string;   // short display name
+  description:  string;
+  unlockedYear: number;
+}
+
+/** Persistent GM career object — stored on the league. */
+export interface GmCareer {
+  teamId:                    string;
+  teamName:                  string;
+  startYear:                 number;
+  seasons:                   GmSeasonRecord[];
+  achievements:              GmAchievement[];
+  legacyScore:               number;
+  /** In-season counters — reset to 0 at start of each new season. */
+  currentSeasonDraftPicks:   number;
+  currentSeasonTrades:       number;
+  currentSeasonFaSignings:   number;
 }
 
 export interface TeamSeasonHistory {

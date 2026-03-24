@@ -16,7 +16,8 @@ export type NewsType =
   | 'hall_of_fame'
   | 'coach_change'
   | 'ring_of_honor'
-  | 'retired_jersey';
+  | 'retired_jersey'
+  | 'gm_milestone';
 
 export interface NewsMention {
   id:         string;
