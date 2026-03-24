@@ -34,6 +34,10 @@ export const TUNING = {
     ballSkillsBreakupChance: 0.15,  // base chance DB breaks up a catchable ball
     ballSkillsRatingScale:  0.003,  // per point of ballSkills above 70
 
+    // YAC phase — WR YAC vs (CB Tackling + Safety Tackling + LB Pursuit) / 3
+    // GDD: YAC uses YAC vs Tackling/Pursuit; positive = bonus yards after catch
+    yacNetScale:           0.05,    // per point of net WR YAC advantage
+
     // Interception (on incompletions only)
     baseIntChance:         0.05,
     minIntChance:          0.02,

@@ -90,28 +90,39 @@ export interface LBRatings {
   passRush:    number;
   runDefense:  number;
   coverage:    number;
-  speed:       number;
-  pursuit:     number;
+  speed:       number;   // GDD: athleticism / lateral range
+  pursuit:     number;   // GDD: angles and tracking
+  awareness:   number;   // assignment correctness and pre-snap reads
   personality: PersonalityRatings;
 }
 
 export interface CBRatings {
   position: 'CB';
-  coverage:    number;
-  ballSkills:  number;
-  speed:       number;
-  size:        number;
-  personality: PersonalityRatings;
+  // GDD: coverage split into man and zone — each has distinct engine role
+  manCoverage:  number;  // 1-on-1 vs receiver routes (RouteRunning+Speed matchup)
+  zoneCoverage: number;  // zone assignment reads and discipline
+  ballSkills:   number;  // INT and PBU creation
+  speed:        number;  // separation prevention, closes on routes
+  size:         number;  // situational; contested-catch influence
+  awareness:    number;  // pre-snap reads, assignment correctness
+  tackling:     number;  // open-field tackle (used in YAC resolution)
+  personality:  PersonalityRatings;
 }
 
 export interface SafetyRatings {
   position: 'FS' | 'SS';
-  coverage:    number;
-  ballSkills:  number;
-  speed:       number;
-  size:        number;
-  range:       number;  // only used for deep pass defense
-  personality: PersonalityRatings;
+  // GDD: coverage split into man and zone
+  manCoverage:  number;  // TE/slot man coverage
+  zoneCoverage: number;  // centerfield/zone reads (primary for most safeties)
+  ballSkills:   number;
+  speed:        number;
+  size:         number;
+  awareness:    number;  // read recognition; also feeds hidden Range derivation
+  tackling:     number;  // open-field tackle (used in YAC resolution)
+  // range is a HIDDEN DERIVED stat — NOT stored here.
+  // Formula: Range = (speed * 0.6) + (awareness * 0.4)
+  // Do NOT expose in UI. See calcRange() below.
+  personality:  PersonalityRatings;
 }
 
 export interface SpecialTeamsRatings {
@@ -192,27 +203,36 @@ export function calcOverall(ratings: AnyRatings): number {
     case 'OLB':
     case 'MLB':
       return Math.round(
-        ratings.runDefense  * 0.28 +
-        ratings.speed       * 0.22 +
-        ratings.pursuit     * 0.20 +
-        ratings.coverage    * 0.20 +
-        ratings.passRush    * 0.10
+        ratings.runDefense  * 0.26 +
+        ratings.speed       * 0.20 +
+        ratings.pursuit     * 0.18 +
+        ratings.coverage    * 0.18 +
+        ratings.awareness   * 0.12 +
+        ratings.passRush    * 0.06
       );
     case 'CB':
+      // Range is derived (speed*0.6 + awareness*0.4) — not stored, not in overall
       return Math.round(
-        ratings.coverage   * 0.40 +
-        ratings.speed      * 0.30 +
-        ratings.ballSkills * 0.20 +
-        ratings.size       * 0.10
+        ratings.manCoverage  * 0.25 +
+        ratings.speed        * 0.25 +
+        ratings.zoneCoverage * 0.20 +
+        ratings.ballSkills   * 0.15 +
+        ratings.awareness    * 0.10 +
+        ratings.tackling     * 0.03 +
+        ratings.size         * 0.02
       );
     case 'FS':
     case 'SS':
+      // Range is derived (speed*0.6 + awareness*0.4) — not stored, not directly in overall
+      // but speed and awareness ARE in overall, so range quality is captured indirectly
       return Math.round(
-        ratings.coverage   * 0.30 +
-        ratings.speed      * 0.22 +
-        ratings.range      * 0.22 +
-        ratings.ballSkills * 0.18 +
-        ratings.size       * 0.08
+        ratings.zoneCoverage * 0.25 +
+        ratings.speed        * 0.22 +
+        ratings.manCoverage  * 0.15 +
+        ratings.awareness    * 0.15 +
+        ratings.ballSkills   * 0.13 +
+        ratings.tackling     * 0.07 +
+        ratings.size         * 0.03
       );
     case 'K':
     case 'P':
@@ -321,27 +341,34 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
         coverage:    clamp(trueRatings.coverage    + n()),
         speed:       clamp(trueRatings.speed       + n()),
         pursuit:     clamp(trueRatings.pursuit     + n()),
+        awareness:   clamp(trueRatings.awareness   + n()),
         personality: trueRatings.personality,
       };
     case 'CB':
       return {
-        position:    'CB',
-        coverage:    clamp(trueRatings.coverage    + n()),
-        ballSkills:  clamp(trueRatings.ballSkills  + n()),
-        speed:       clamp(trueRatings.speed       + n()),
-        size:        clamp(trueRatings.size        + n()),
-        personality: trueRatings.personality,
+        position:     'CB',
+        manCoverage:  clamp(trueRatings.manCoverage  + n()),
+        zoneCoverage: clamp(trueRatings.zoneCoverage + n()),
+        ballSkills:   clamp(trueRatings.ballSkills   + n()),
+        speed:        clamp(trueRatings.speed        + n()),
+        size:         clamp(trueRatings.size         + n()),
+        awareness:    clamp(trueRatings.awareness    + n()),
+        tackling:     clamp(trueRatings.tackling     + n()),
+        personality:  trueRatings.personality,
       };
     case 'FS':
     case 'SS':
+      // Range is hidden and derived — NOT copied into scoutedRatings
       return {
-        position:    trueRatings.position,
-        coverage:    clamp(trueRatings.coverage    + n()),
-        ballSkills:  clamp(trueRatings.ballSkills  + n()),
-        speed:       clamp(trueRatings.speed       + n()),
-        size:        clamp(trueRatings.size        + n()),
-        range:       clamp(trueRatings.range       + n()),
-        personality: trueRatings.personality,
+        position:     trueRatings.position,
+        manCoverage:  clamp(trueRatings.manCoverage  + n()),
+        zoneCoverage: clamp(trueRatings.zoneCoverage + n()),
+        ballSkills:   clamp(trueRatings.ballSkills   + n()),
+        speed:        clamp(trueRatings.speed        + n()),
+        size:         clamp(trueRatings.size         + n()),
+        awareness:    clamp(trueRatings.awareness    + n()),
+        tackling:     clamp(trueRatings.tackling     + n()),
+        personality:  trueRatings.personality,
       };
     case 'K':
     case 'P':
@@ -377,6 +404,18 @@ export function randomDevTrait(): DevTrait {
 
 export function calcSalary(overall: number): number {
   return Math.max(1, Math.round(overall / 10));
+}
+
+// ── Hidden derived stat: Safety Range ─────────────────────────────────────────
+
+/**
+ * Range is a HIDDEN DERIVED stat for safeties only.
+ * Formula: Range = (speed * 0.6) + (awareness * 0.4)
+ * Used by the engine for deep-pass coverage reduction.
+ * Per GDD: Do NOT expose in UI.
+ */
+export function calcRange(safety: SafetyRatings): number {
+  return clamp(Math.round(safety.speed * 0.6 + safety.awareness * 0.4));
 }
 
 // ── Player interface ──────────────────────────────────────────────────────────

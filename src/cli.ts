@@ -38,8 +38,8 @@ function keyRatings(r: AnyRatings): [number, number, number] {
     case 'OT': case 'OG': case 'C': return [r.passBlocking, r.runBlocking, r.awareness];
     case 'DE': case 'DT': return [r.passRush, r.runDefense, r.discipline];
     case 'OLB': case 'MLB': return [r.runDefense, r.coverage, r.speed];
-    case 'CB':    return [r.coverage, r.speed, r.ballSkills];
-    case 'FS': case 'SS': return [r.coverage, r.range, r.speed];
+    case 'CB':    return [r.manCoverage, r.speed, r.ballSkills];
+    case 'FS': case 'SS': return [r.zoneCoverage, r.speed, r.awareness];
     case 'K': case 'P':   return [r.kickPower, r.kickAccuracy, r.composure];
   }
 }

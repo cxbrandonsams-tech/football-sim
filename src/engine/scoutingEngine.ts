@@ -137,11 +137,12 @@ function makeRatings(position: Position, tier: DraftTier): AnyRatings {
     case 'C':   return { position: 'C',  passBlocking: r(), runBlocking: r(), awareness: r(), personality: personality(tier) };
     case 'DE':  return { position: 'DE', passRush: r(), runDefense: r(), discipline: r(), personality: personality(tier) };
     case 'DT':  return { position: 'DT', passRush: r(), runDefense: r(), discipline: r(), personality: personality(tier) };
-    case 'OLB': return { position: 'OLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), personality: personality(tier) };
-    case 'MLB': return { position: 'MLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), personality: personality(tier) };
-    case 'CB':  return { position: 'CB', coverage: r(), ballSkills: r(), speed: r(), size: r(), personality: personality(tier) };
-    case 'FS':  return { position: 'FS', coverage: r(), ballSkills: r(), speed: r(), size: r(), range: r(), personality: personality(tier) };
-    case 'SS':  return { position: 'SS', coverage: r(), ballSkills: r(), speed: r(), size: r(), range: r(), personality: personality(tier) };
+    case 'OLB': return { position: 'OLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), awareness: r(), personality: personality(tier) };
+    case 'MLB': return { position: 'MLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), awareness: r(), personality: personality(tier) };
+    // Range is derived (speed*0.6 + awareness*0.4) — NOT a stored stat
+    case 'CB':  return { position: 'CB', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), speed: r(), size: r(), awareness: r(), tackling: r(), personality: personality(tier) };
+    case 'FS':  return { position: 'FS', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), speed: r(), size: r(), awareness: r(), tackling: r(), personality: personality(tier) };
+    case 'SS':  return { position: 'SS', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), speed: r(), size: r(), awareness: r(), tackling: r(), personality: personality(tier) };
     case 'K':   return { position: 'K',  kickPower: r(), kickAccuracy: r(), composure: r(), personality: personality(tier) };
     case 'P':   return { position: 'P',  kickPower: r(), kickAccuracy: r(), composure: r(), personality: personality(tier) };
   }
@@ -212,18 +213,25 @@ function getRatingEntries(ratings: AnyRatings): RatingEntry[] {
       { key:'coverage',    value: ratings.coverage,    hiText:'Natural coverage instincts, mirrors well in open space',       loText:'Coverage is a significant liability vs. spread teams' },
       { key:'speed',       value: ratings.speed,       hiText:'Athletic range to cover sideline-to-sideline',                loText:'Limited athleticism affects his range and recovery' },
       { key:'pursuit',     value: ratings.pursuit,     hiText:'Elite pursuit angles, rarely overruns or loses contain',      loText:'Takes poor pursuit angles and gets cut back on' },
+      { key:'awareness',   value: ratings.awareness,   hiText:'Smart and pre-snap awareness helps him anticipate plays',     loText:'Gets fooled by misdirection and play-action' },
     ];
     case 'CB': return [
-      { key:'coverage',    value: ratings.coverage,    hiText:'Can lock receivers down in man or zone coverage',             loText:'Struggles to stay with quicker receivers' },
-      { key:'speed',       value: ratings.speed,       hiText:'Closing speed to run with any receiver on the field',        loText:'Average speed is a liability against speed receivers' },
-      { key:'ballSkills',  value: ratings.ballSkills,  hiText:'Ball hawk who goes up and takes the football away',          loText:'Ball skills and playmaking need improvement' },
-      { key:'size',        value: ratings.size,        hiText:'Size advantage in contested catch situations',               loText:'Smaller frame is a disadvantage on contested catches' },
+      // Range is hidden/derived — not listed; speed and awareness implicitly drive it
+      { key:'manCoverage',  value: ratings.manCoverage,  hiText:'Can lock receivers down in tight man-to-man coverage',      loText:'Struggles to stay with quicker receivers in man' },
+      { key:'zoneCoverage', value: ratings.zoneCoverage, hiText:'Reads zone assignments and ball-tracks with elite instincts', loText:'Gets lost in zone and bites on route combinations' },
+      { key:'speed',        value: ratings.speed,        hiText:'Closing speed to run with any receiver on the field',       loText:'Average speed is a liability against speed receivers' },
+      { key:'ballSkills',   value: ratings.ballSkills,   hiText:'Ball hawk who goes up and takes the football away',         loText:'Ball skills and playmaking need improvement' },
+      { key:'awareness',    value: ratings.awareness,    hiText:'Pre-snap recognition and assignment discipline are elite',  loText:'Gets confused by route combinations and motion' },
+      { key:'tackling',     value: ratings.tackling,     hiText:'Reliable open-field tackler, rarely misses in space',       loText:'Open-field tackling is an area of concern' },
     ];
     case 'FS': case 'SS': return [
-      { key:'coverage',    value: ratings.coverage,    hiText:'Natural center fielder who covers ground effortlessly',      loText:'Zone coverage reads are slow and inconsistent' },
-      { key:'range',       value: ratings.range,       hiText:'Elite range that erases the deep half of the field',        loText:'Limited range restricts the coverage he can play' },
-      { key:'speed',       value: ratings.speed,       hiText:'Fluid and athletic, takes great angles to the football',    loText:'Average athleticism limits positional versatility' },
-      { key:'ballSkills',  value: ratings.ballSkills,  hiText:'Ball hawk with instincts to read and jump routes',          loText:'Ball skills need improvement at the next level' },
+      // Range is a HIDDEN derived stat (speed*0.6 + awareness*0.4) — not listed here
+      { key:'zoneCoverage', value: ratings.zoneCoverage, hiText:'Natural center fielder who covers ground effortlessly',     loText:'Zone coverage reads are slow and inconsistent' },
+      { key:'manCoverage',  value: ratings.manCoverage,  hiText:'Can match up in press on TEs and slot receivers',          loText:'Man coverage is a consistent liability on film' },
+      { key:'speed',        value: ratings.speed,        hiText:'Elite closing speed, takes great angles to the football',  loText:'Below-average speed limits positional versatility' },
+      { key:'ballSkills',   value: ratings.ballSkills,   hiText:'Ball hawk with instincts to read and jump routes',         loText:'Ball skills need improvement at the next level' },
+      { key:'awareness',    value: ratings.awareness,    hiText:'Elite range coverage driven by outstanding read and react', loText:'Slow to process plays, limited range as a result' },
+      { key:'tackling',     value: ratings.tackling,     hiText:'Physical hitter who sets the tone in run support',         loText:'Lacks the physicality needed at the next level' },
     ];
     case 'K': case 'P': return [
       { key:'kickPower',    value: ratings.kickPower,    hiText:'Powerful leg with range from 55+ yards',                    loText:'Limited leg strength restricts the playable range' },

@@ -131,6 +131,7 @@ function makeLB(rand: () => number, tier: number, pos: 'OLB' | 'MLB'): AnyRating
     coverage:    rng(rand, pos === 'MLB' ? c + 3 : c),
     speed:       rng(rand, c + 2),
     pursuit:     rng(rand, c + 1),
+    awareness:   rng(rand, c + 1),
     personality: p(rng(rand, 76, 15), rng(rand, 68, 20), rng(rand, 40, 20), rng(rand, 74, 15)),
   };
 }
@@ -138,25 +139,32 @@ function makeLB(rand: () => number, tier: number, pos: 'OLB' | 'MLB'): AnyRating
 function makeCB(rand: () => number, tier: number): AnyRatings {
   const c = 50 + tier * 5;
   return {
-    position:    'CB',
-    coverage:    rng(rand, c + 3),
-    ballSkills:  rng(rand, c),
-    speed:       rng(rand, c + 6),
-    size:        rng(rand, c - 2),
-    personality: p(rng(rand, 70, 15), rng(rand, 62, 20), rng(rand, 48, 20), rng(rand, 68, 15)),
+    position:     'CB',
+    manCoverage:  rng(rand, c + 3),
+    zoneCoverage: rng(rand, c + 1),
+    ballSkills:   rng(rand, c),
+    speed:        rng(rand, c + 6),
+    size:         rng(rand, c - 2),
+    awareness:    rng(rand, c + 1),
+    tackling:     rng(rand, c - 2),
+    personality:  p(rng(rand, 70, 15), rng(rand, 62, 20), rng(rand, 48, 20), rng(rand, 68, 15)),
   };
 }
 
 function makeSafety(rand: () => number, tier: number, pos: 'FS' | 'SS'): AnyRatings {
   const c = 50 + tier * 5;
+  // Range is derived (speed*0.6 + awareness*0.4) — NOT stored
+  // FS: higher zoneCoverage + awareness + range; SS: higher tackling + size
   return {
-    position:    pos,
-    coverage:    rng(rand, pos === 'FS' ? c + 3 : c),
-    ballSkills:  rng(rand, c + 1),
-    speed:       rng(rand, c + 2),
-    size:        rng(rand, pos === 'SS' ? c + 2 : c - 1),
-    range:       rng(rand, pos === 'FS' ? c + 4 : c),
-    personality: p(rng(rand, 72, 15), rng(rand, 66, 20), rng(rand, 42, 20), rng(rand, 72, 15)),
+    position:     pos,
+    manCoverage:  rng(rand, pos === 'SS' ? c + 2 : c),
+    zoneCoverage: rng(rand, pos === 'FS' ? c + 3 : c),
+    ballSkills:   rng(rand, c + 1),
+    speed:        rng(rand, c + 2),
+    size:         rng(rand, pos === 'SS' ? c + 2 : c - 1),
+    awareness:    rng(rand, pos === 'FS' ? c + 3 : c),
+    tackling:     rng(rand, pos === 'SS' ? c + 3 : c),
+    personality:  p(rng(rand, 72, 15), rng(rand, 66, 20), rng(rand, 42, 20), rng(rand, 72, 15)),
   };
 }
 

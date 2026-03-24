@@ -39,11 +39,13 @@ function getProgressableFields(ratings: AnyRatings): string[] {
     case 'DE': case 'DT':
       return ['passRush', 'runDefense', 'discipline'];
     case 'OLB': case 'MLB':
-      return ['passRush', 'runDefense', 'coverage', 'speed', 'pursuit'];
+      return ['passRush', 'runDefense', 'coverage', 'speed', 'pursuit', 'awareness'];
     case 'CB':
-      return ['coverage', 'ballSkills', 'speed', 'size'];
+      // Range is derived (speed*0.6 + awareness*0.4) — progressing speed/awareness develops range
+      return ['manCoverage', 'zoneCoverage', 'ballSkills', 'speed', 'size', 'awareness', 'tackling'];
     case 'FS': case 'SS':
-      return ['coverage', 'ballSkills', 'speed', 'size', 'range'];
+      // Range is derived — NOT progressable directly
+      return ['manCoverage', 'zoneCoverage', 'ballSkills', 'speed', 'size', 'awareness', 'tackling'];
     case 'K': case 'P':
       return ['kickPower', 'kickAccuracy', 'composure'];
   }

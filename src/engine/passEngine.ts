@@ -216,14 +216,15 @@ export function evaluateCatch(
 
 /**
  * On an incompletion, check whether the DB intercepted the ball.
- * coverage vs decisionMaking — poor decisions under pressure are punished.
+ * manCoverage vs decisionMaking — man coverage reads routes and jumps throws.
+ * GDD: Ball Skills create turnovers; here manCoverage drives INT opportunity.
  */
 export function checkInterception(
-  dbCoverage:       number,
+  dbManCoverage:    number,
   qbDecisionMaking: number,
   pressureLevel:    number,
 ): boolean {
-  const advantage = (dbCoverage - qbDecisionMaking) * cfg.intCoverageScale;
+  const advantage = (dbManCoverage - qbDecisionMaking) * cfg.intCoverageScale;
   const pressureBonus = pressureLevel * 0.04;
   const chance = Math.max(
     cfg.minIntChance,

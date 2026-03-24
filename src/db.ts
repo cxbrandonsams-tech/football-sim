@@ -111,25 +111,37 @@ function migrateRatings(r: any): any {
       out.coverage    = r.coverage    ?? 50;
       out.speed       = r.speed       ?? r.athleticism ?? 50;
       out.pursuit     = r.pursuit     ?? 50;
+      out.awareness   = r.awareness   ?? 50;  // new field — default 50
       if (r.personality) out.personality = r.personality;
       return out;
     }
     case 'CB': {
+      // coverage → split into manCoverage + zoneCoverage
+      // old "coverage" field maps to manCoverage; zone defaults slightly lower
+      const oldCov = r.coverage ?? r.manCoverage ?? 50;
       const out: Record<string, unknown> = { position: 'CB' };
-      out.coverage    = r.coverage    ?? r.manCoverage ?? 50;
-      out.ballSkills  = r.ballSkills  ?? 50;
-      out.speed       = r.speed       ?? 50;
-      out.size        = r.size        ?? 50;
+      out.manCoverage  = r.manCoverage  ?? oldCov;
+      out.zoneCoverage = r.zoneCoverage ?? Math.max(1, Math.min(99, oldCov - 5));
+      out.ballSkills   = r.ballSkills   ?? 50;
+      out.speed        = r.speed        ?? 50;
+      out.size         = r.size         ?? 50;
+      out.awareness    = r.awareness    ?? 50;   // new field — default 50
+      out.tackling     = r.tackling     ?? 50;   // new field — default 50
       if (r.personality) out.personality = r.personality;
       return out;
     }
     case 'FS': case 'SS': {
+      // range was stored — now it's derived (speed*0.6 + awareness*0.4), drop the stored field
+      // coverage → split; old zoneCoverage or coverage maps to zoneCoverage
+      const oldCov = r.zoneCoverage ?? r.coverage ?? 50;
       const out: Record<string, unknown> = { position: pos };
-      out.coverage    = r.coverage    ?? r.zoneCoverage ?? 50;
-      out.ballSkills  = r.ballSkills  ?? 50;
-      out.speed       = r.speed       ?? r.athleticism ?? 50;
-      out.size        = r.size        ?? 50;
-      out.range       = r.range       ?? 50;
+      out.manCoverage  = r.manCoverage  ?? Math.max(1, Math.min(99, oldCov - 8));
+      out.zoneCoverage = r.zoneCoverage ?? oldCov;
+      out.ballSkills   = r.ballSkills   ?? 50;
+      out.speed        = r.speed        ?? r.athleticism ?? 50;
+      out.size         = r.size         ?? 50;
+      out.awareness    = r.awareness    ?? 50;   // new field — default 50
+      out.tackling     = r.tackling     ?? r.hitPower ?? 50;  // hitPower → tackling
       if (r.personality) out.personality = r.personality;
       return out;
     }

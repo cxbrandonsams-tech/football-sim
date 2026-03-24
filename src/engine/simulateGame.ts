@@ -3,6 +3,7 @@ import {
   type QBRatings, type RBRatings, type WRRatings, type TERatings,
   type OLRatings, type DLRatings, type LBRatings, type CBRatings,
   type SafetyRatings, type SpecialTeamsRatings,
+  calcRange,
 } from '../models/Player';
 import { type Team } from '../models/Team';
 import { type Game } from '../models/Game';
@@ -113,6 +114,16 @@ function avg(...vals: number[]): number {
   return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
+/**
+ * Weighted blend of two values.
+ * GDD: Speed impacts separation at ALL depths (with depth scaling).
+ * GDD: Arm Strength impacts ALL throws (with depth scaling).
+ * Used to mix primary and secondary contributors per play depth.
+ */
+function wt(a: number, aW: number, b: number, bW: number): number {
+  return a * aW + b * bW;
+}
+
 function randInt(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
@@ -216,25 +227,31 @@ function offRating(off: Team, type: PlayType): number {
         ol(off)?.runBlocking  ?? 50,
       );
     case 'short_pass':
+      // GDD: Arm Strength impacts ALL throws (minor weight at short depth)
+      // GDD: Speed impacts separation at ALL depths (minor weight at short)
       return avg(
-        qb(off)?.shortAccuracy  ?? 50,
+        wt(qb(off)?.shortAccuracy ?? 50, 0.80, qb(off)?.armStrength ?? 50, 0.20),
         qb(off)?.decisionMaking ?? 50,
-        wr(off)?.routeRunning   ?? 50,
-        wr(off)?.hands          ?? 50,
+        wt(wr(off)?.routeRunning ?? 50, 0.80, wr(off)?.speed ?? 50, 0.20),
+        wr(off)?.hands ?? 50,
       );
     case 'medium_pass':
+      // GDD: Arm Strength impacts ALL throws (moderate weight at medium depth)
+      // GDD: Speed impacts separation at ALL depths (moderate weight at medium)
       return avg(
-        qb(off)?.mediumAccuracy ?? 50,
-        qb(off)?.processing     ?? 50,
-        wr(off)?.routeRunning   ?? 50,
-        wr(off)?.yac            ?? 50,
+        wt(qb(off)?.mediumAccuracy ?? 50, 0.60, qb(off)?.armStrength ?? 50, 0.40),
+        qb(off)?.processing ?? 50,
+        wt(wr(off)?.routeRunning ?? 50, 0.55, wr(off)?.speed ?? 50, 0.45),
+        wr(off)?.yac ?? 50,
       );
     case 'deep_pass':
+      // GDD: Arm Strength impacts ALL throws (high weight at deep)
+      // GDD: Speed affects deep routes and breakaway — dominant factor at deep
       return avg(
-        qb(off)?.deepAccuracy ?? 50,
-        qb(off)?.armStrength  ?? 50,
-        wr(off)?.speed        ?? 50,
-        wr(off)?.yac          ?? 50,
+        wt(qb(off)?.deepAccuracy ?? 50, 0.40, qb(off)?.armStrength ?? 50, 0.60),
+        qb(off)?.decisionMaking ?? 50,
+        wr(off)?.speed ?? 50,
+        wr(off)?.yac ?? 50,
       );
     default:
       return 60;
@@ -258,23 +275,35 @@ function defRating(def: Team, type: PlayType): number {
         cb(def)?.speed             ?? 50,
       );
     case 'short_pass':
+      // GDD: Man coverage — RouteRunning+Speed vs ManCoverage+Speed+Awareness
+      // Short routes are primarily man coverage situations
       return avg(
-        cb(def)?.coverage          ?? 50,
-        lb(def)?.coverage          ?? 50,
-        safety(def)?.coverage      ?? 50,
+        wt(cb(def)?.manCoverage ?? 50, 0.60, cb(def)?.zoneCoverage ?? 50, 0.40),
+        wt(cb(def)?.speed       ?? 50, 0.60, cb(def)?.awareness    ?? 50, 0.40),
+        lb(def)?.coverage    ?? 50,
+        lb(def)?.awareness   ?? 50,
       );
     case 'medium_pass':
+      // GDD: Zone coverage — ZoneCoverage+Awareness (primary) + Speed
+      // Medium routes blend man and zone; safeties help over the top
       return avg(
-        cb(def)?.coverage          ?? 50,
-        safety(def)?.coverage      ?? 50,
+        cb(def)?.manCoverage  ?? 50,
+        wt(cb(def)?.zoneCoverage ?? 50, 0.70, cb(def)?.awareness ?? 50, 0.30),
+        wt(safety(def)?.zoneCoverage ?? 50, 0.65, safety(def)?.awareness ?? 50, 0.35),
+        safety(def)?.speed ?? 50,
       );
-    case 'deep_pass':
+    case 'deep_pass': {
+      // GDD: Safety Range reduces big plays. Range is hidden derived: Speed*0.6 + Awareness*0.4
+      const sf = safety(def);
+      const derivedRange = sf ? calcRange(sf) : 50;
       return avg(
-        cb(def)?.speed             ?? 50,
-        cb(def)?.coverage          ?? 50,
-        safety(def)?.range         ?? 50,
-        safety(def)?.speed         ?? 50,
+        cb(def)?.speed        ?? 50,
+        cb(def)?.zoneCoverage ?? 50,
+        // derived Range is the primary safety contribution on deep passes
+        derivedRange,
+        wt(sf?.zoneCoverage ?? 50, 0.50, sf?.awareness ?? 50, 0.50),
       );
+    }
     default:
       return 60;
   }
@@ -400,7 +429,8 @@ function simulatePlay(
 
   // Interception on failed pass
   if (isPass && !success) {
-    const cbCoverage    = cb(def)?.coverage ?? 50;
+    // INT check uses manCoverage — best at reading routes and jumping throws
+    const cbCoverage    = cb(def)?.manCoverage ?? 50;
     const qbDecision    = qb(off)?.decisionMaking ?? 50;
     const intAdvantage  = (cbCoverage - qbDecision) * cfg.pass.intCoverageScale;
     const intChance     = Math.max(
@@ -427,7 +457,20 @@ function simulatePlay(
 
   // Speed rating for big-play burst
   const speedRating = isRun ? (rb(off)?.speed ?? 50) : (wr(off)?.speed ?? 50);
-  const yards  = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
+  let yards  = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
+
+  // GDD: YAC phase — uses WR YAC vs DB Tackling/Pursuit
+  // Applies to successful passes only; adds or subtracts post-catch yards
+  if (isPass && success) {
+    const wrYAC    = wr(off)?.yac         ?? 50;
+    const cbTackle = cb(def)?.tackling    ?? 50;
+    const sfTackle = safety(def)?.tackling ?? 50;
+    const lbPursue = lb(def)?.pursuit     ?? 50;
+    const defYAC   = avg(cbTackle, sfTackle, lbPursue);
+    // Net advantage drives bonus yards after catch
+    const yacNet   = (wrYAC - defYAC) * cfg.pass.yacNetScale;
+    yards = Math.max(0, Math.round(yards + yacNet));
+  }
   const newYardLine = yardLine + yards;
   const isTD   = newYardLine >= 100;
 

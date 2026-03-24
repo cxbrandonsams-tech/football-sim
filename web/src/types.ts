@@ -75,26 +75,33 @@ export interface LBRatings {
   coverage:    number;
   speed:       number;
   pursuit:     number;
+  awareness:   number;
   personality: PersonalityRatings;
 }
 
 export interface CBRatings {
   position: 'CB';
-  coverage:    number;
-  ballSkills:  number;
-  speed:       number;
-  size:        number;
-  personality: PersonalityRatings;
+  manCoverage:  number;
+  zoneCoverage: number;
+  ballSkills:   number;
+  speed:        number;
+  size:         number;
+  awareness:    number;
+  tackling:     number;
+  personality:  PersonalityRatings;
 }
 
 export interface SafetyRatings {
   position: 'FS' | 'SS';
-  coverage:    number;
-  ballSkills:  number;
-  speed:       number;
-  size:        number;
-  range:       number;
-  personality: PersonalityRatings;
+  // Range is a hidden derived stat (speed*0.6 + awareness*0.4) — NOT stored, NOT shown in UI
+  manCoverage:  number;
+  zoneCoverage: number;
+  ballSkills:   number;
+  speed:        number;
+  size:         number;
+  awareness:    number;
+  tackling:     number;
+  personality:  PersonalityRatings;
 }
 
 export interface SpecialTeamsRatings {
@@ -172,20 +179,25 @@ export function getVisibleRatings(ratings: AnyRatings): Record<string, number> {
         Coverage:     ratings.coverage,
         Speed:        ratings.speed,
         Pursuit:      ratings.pursuit,
+        Awareness:    ratings.awareness,
       };
     case 'CB':
+      // Range is hidden/derived — NOT shown; awareness + speed drive it implicitly
       return {
-        Coverage:     ratings.coverage,
-        'Ball Skl':   ratings.ballSkills,
+        'Man Cov':    ratings.manCoverage,
+        'Zone Cov':   ratings.zoneCoverage,
         Speed:        ratings.speed,
-        Size:         ratings.size,
+        'Ball Skl':   ratings.ballSkills,
+        Awareness:    ratings.awareness,
       };
     case 'FS':
     case 'SS':
+      // Range is hidden/derived (speed*0.6 + awareness*0.4) — NOT shown per GDD
       return {
-        Coverage:     ratings.coverage,
-        Range:        ratings.range,
+        'Zone Cov':   ratings.zoneCoverage,
+        'Man Cov':    ratings.manCoverage,
         Speed:        ratings.speed,
+        Awareness:    ratings.awareness,
         'Ball Skl':   ratings.ballSkills,
       };
     case 'K':
