@@ -9,12 +9,17 @@ import {
   extendPlayer as extendPlayerApi, releasePlayer as releasePlayerApi,
   signFreeAgent as signFreeAgentApi, setDepthChart as setDepthChartApi, setGameplan as setGameplanApi,
   draftPick as draftPickApi, simDraft as simDraftApi,
+  scoutProspect as scoutProspectApi, updateDraftBoard as updateDraftBoardApi,
+  advanceDraftPick as advanceDraftPickApi, advanceToUserPick as advanceToUserPickApi,
+  offerContract as offerContractApi,
+  shopPlayer as shopPlayerApi,
+  fireCoach as fireCoachApi, hireCoach as hireCoachApi, promoteWithin as promoteWithinApi,
   signup, login, getMyLeagues,
   getLeagueMembers as getLeagueMembersApi, updateLeagueSettings as updateLeagueSettingsApi, kickMember as kickMemberApi,
   setAuthToken, authToken,
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
-import { computeStandings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook } from './types';
+import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type LeagueNotification, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type NewsMention, type GameplanSettings, DEFAULT_GAMEPLAN, type PassEmphasis, type RunEmphasis, type Tempo, type PlayActionUsage, type DefensiveFocus, type OffensivePlaybook, type DefensivePlaybook, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry } from './types';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -492,7 +497,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'dashboard' | 'standings' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner' | 'gameplan' | 'playbooks' | 'coaching'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'standings' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner' | 'gameplan' | 'playbooks' | 'coaching' | 'scouting' | 'draft-board' | 'awards' | 'history' | 'hof' | 'legacy'>('dashboard');
   const [rosterTeamId, setRosterTeamId] = useState(myTeamId);
   const [detailPlayerId, setDetailPlayerId] = useState<string | null>(null);
 
@@ -511,6 +516,17 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
 
   async function handleRespondTrade(proposalId: string, accept: boolean) {
     setLeague(await respondTradeApi(leagueId, proposalId, accept));
+  }
+
+  async function handleShopPlayer(playerId: string): Promise<number> {
+    setBusy(true); setError(null);
+    try {
+      const result = await shopPlayerApi(leagueId, playerId);
+      setLeague(result.league);
+      return result.count;
+    }
+    catch (e) { setError(friendlyError(e)); return 0; }
+    finally { setBusy(false); }
   }
 
   async function handleMarkRead() {
@@ -538,6 +554,17 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
     finally { setBusy(false); }
   }
 
+  async function handleOfferContract(playerId: string, salary: number, years: number) {
+    setBusy(true); setError(null);
+    try {
+      const result = await offerContractApi(leagueId, playerId, salary, years);
+      setLeague(result.league);
+      if (!result.accepted) setError(result.message);
+    }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
   async function handleSetDepthChart(slot: string, playerIds: string[]) {
     setBusy(true); setError(null);
     try { setLeague(await setDepthChartApi(leagueId, slot, playerIds)); }
@@ -557,6 +584,32 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
     try { setLeague(await simDraftApi(leagueId)); }
     catch (e) { setError(friendlyError(e)); }
     finally { setBusy(false); }
+  }
+
+  async function handleAdvanceDraftPick() {
+    setBusy(true); setError(null);
+    try { setLeague(await advanceDraftPickApi(leagueId)); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function handleAdvanceToUserPick() {
+    setBusy(true); setError(null);
+    try { setLeague(await advanceToUserPickApi(leagueId)); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function handleScoutProspect(prospectId: string) {
+    setBusy(true); setError(null);
+    try { setLeague(await scoutProspectApi(leagueId, prospectId)); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function handleUpdateDraftBoard(board: string[]) {
+    try { setLeague(await updateDraftBoardApi(leagueId, board)); }
+    catch (e) { setError(friendlyError(e)); }
   }
 
   const myNotifications = league.notifications.filter(n => n.teamId === myTeamId);
@@ -654,10 +707,20 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           )}
           <button className={tab === 'news'    ? 'active' : ''} onClick={() => setTab('news')}>News</button>
           <button className={tab === 'leaders' ? 'active' : ''} onClick={() => setTab('leaders')}>Leaders</button>
+          <button className={tab === 'awards'  ? 'active' : ''} onClick={() => setTab('awards')}>Awards</button>
+          <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>History</button>
+          <button className={tab === 'hof'     ? 'active' : ''} onClick={() => setTab('hof')}>Hall of Fame</button>
+          <button className={tab === 'legacy'  ? 'active' : ''} onClick={() => setTab('legacy')}>Ring of Honor</button>
           {(league.phase === 'draft' || league.draft) && (
             <button className={tab === 'draft' ? 'active' : ''} onClick={() => setTab('draft')}>
               Draft{league.draft && !league.draft.complete && <span className="badge">!</span>}
             </button>
+          )}
+          {league.draftClass && (
+            <button className={tab === 'scouting' ? 'active' : ''} onClick={() => setTab('scouting')}>Scouting</button>
+          )}
+          {league.draftClass && (
+            <button className={tab === 'draft-board' ? 'active' : ''} onClick={() => setTab('draft-board')}>Draft Board</button>
           )}
         </div>
         <div className="nav-group">
@@ -701,9 +764,12 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           playoff={league.playoff}
           teams={league.teams}
           seasonHistory={league.seasonHistory}
+          history={league.history}
+          myTeamId={myTeamId}
           busy={busy}
           advanceBtnLabel={advanceBtnLabel()}
           onAdvance={() => action(advanceWeek)}
+          onViewPlayer={handleViewPlayer}
         />
       )}
       {tab === 'roster' && (
@@ -724,14 +790,41 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
         <TradesView
           league={league}
           myTeamId={myTeamId}
+          busy={busy}
           onPropose={handleProposeTrade}
           onRespond={handleRespondTrade}
+          onShopPlayer={handleShopPlayer}
         />
       )}
       {tab === 'activity' && <ActivityFeed activities={league.activities} />}
-      {tab === 'news' && <NewsView news={league.news ?? []} />}
+      {tab === 'news' && (
+        <NewsView
+          news={league.news ?? []}
+          myTeamId={myTeamId}
+          onViewPlayer={handleViewPlayer}
+        />
+      )}
       {tab === 'leaders' && (
-        <LeadersView games={league.currentSeason.games} teams={league.teams} />
+        <LeadersView
+          games={league.currentSeason.games}
+          teams={league.teams}
+          history={league.history}
+          freeAgents={league.freeAgents}
+          currentSeasonStats={league.currentSeasonStats}
+          onViewPlayer={handleViewPlayer}
+        />
+      )}
+      {tab === 'awards'  && (
+        <AwardsView history={league.history} myTeamId={myTeamId} teams={league.teams} onViewPlayer={handleViewPlayer} />
+      )}
+      {tab === 'history' && (
+        <HistoryView history={league.history} teams={league.teams} myTeamId={myTeamId} />
+      )}
+      {tab === 'hof' && (
+        <HallOfFameView history={league.history} teams={league.teams} onViewPlayer={handleViewPlayer} />
+      )}
+      {tab === 'legacy' && (
+        <RingOfHonorView history={league.history} teams={league.teams} myTeamId={myTeamId} onViewPlayer={handleViewPlayer} />
       )}
       {tab === 'depth' && (
         <DepthChartView
@@ -745,10 +838,10 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
       )}
       {tab === 'free-agents' && (
         <FreeAgentsView
-          freeAgents={league.freeAgents}
-          isOffseason={league.phase === 'offseason'}
+          league={league}
+          myTeamId={myTeamId}
           busy={busy}
-          onSign={handleSignFreeAgent}
+          onOffer={handleOfferContract}
         />
       )}
       {tab === 'team' && (
@@ -774,6 +867,23 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           onPick={handleDraftPick}
           onSimDraft={handleSimDraft}
           onAdvance={() => action(advanceWeek)}
+          onAdvanceOnePick={handleAdvanceDraftPick}
+          onAdvanceToMyPick={handleAdvanceToUserPick}
+        />
+      )}
+      {tab === 'scouting' && league.draftClass && (
+        <ScoutingView
+          draftClass={league.draftClass}
+          myTeam={league.teams.find(t => t.id === myTeamId)!}
+          busy={busy}
+          onScout={handleScoutProspect}
+        />
+      )}
+      {tab === 'draft-board' && league.draftClass && (
+        <DraftBoardView
+          draftClass={league.draftClass}
+          myTeam={league.teams.find(t => t.id === myTeamId)!}
+          onUpdateBoard={handleUpdateDraftBoard}
         />
       )}
       {tab === 'commissioner' && isCommissioner && (
@@ -786,7 +896,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
       )}
       {tab === 'gameplan'  && <GameplanView  team={league.teams.find(t => t.id === myTeamId)!} leagueId={leagueId} onLeagueUpdated={setLeague} />}
       {tab === 'playbooks' && <PlaybooksView team={league.teams.find(t => t.id === myTeamId)!} leagueId={leagueId} onLeagueUpdated={setLeague} />}
-      {tab === 'coaching'  && <CoachingView  team={league.teams.find(t => t.id === myTeamId)!} />}
+      {tab === 'coaching'  && <CoachingView  team={league.teams.find(t => t.id === myTeamId)!} league={league} leagueId={leagueId} onLeagueUpdated={setLeague} />}
 
       {detailPlayerId && (() => {
         const allPlayers = league.teams.flatMap(t => t.roster).concat(league.freeAgents);
@@ -804,6 +914,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
             player={stats}
             games={league.currentSeason.games}
             allTeams={league.teams}
+            history={league.history}
             onClose={() => setDetailPlayerId(null)}
           />
         );
@@ -1115,55 +1226,244 @@ function PlaybooksView({ team, leagueId, onLeagueUpdated }: {
   );
 }
 
+// ── Coaching helpers ──────────────────────────────────────────────────────────
+
+function traitLabel(trait: CoachTrait): string {
+  const labels: Record<CoachTrait, string> = {
+    talent_evaluator:    'Talent Evaluator',
+    contract_negotiator: 'Contract Negotiator',
+    offensive_pioneer:   'Offensive Pioneer',
+    quarterback_guru:    'QB Guru',
+    run_game_specialist: 'Run Game Specialist',
+    defensive_architect: 'Defensive Architect',
+    pass_rush_specialist:'Pass Rush Specialist',
+    turnover_machine:    'Turnover Machine',
+    player_developer:    'Player Developer',
+    youth_developer:     'Youth Developer',
+    veteran_stabilizer:  'Veteran Stabilizer',
+  };
+  return labels[trait] ?? trait;
+}
+
+function traitDesc(trait: CoachTrait): string {
+  const descs: Record<CoachTrait, string> = {
+    talent_evaluator:    '+2 scouting budget each season',
+    contract_negotiator: '5% discount on all FA signings',
+    offensive_pioneer:   '+2.5% offensive play success',
+    quarterback_guru:    '+1.5% QB play success',
+    run_game_specialist: '+2.5% run play success',
+    defensive_architect: '+2% defensive play success',
+    pass_rush_specialist:'+2.5% pass rush success',
+    turnover_machine:    '+2% turnover chance',
+    player_developer:    '+10% improve / -5% decline chance',
+    youth_developer:     '+15% improve for players ≤3 years pro',
+    veteran_stabilizer:  '-8% decline chance for players 30+',
+  };
+  return descs[trait] ?? '';
+}
+
+function personalityLabel(p: CoachPersonality | undefined): string {
+  if (!p || p === 'balanced') return 'Balanced';
+  return p === 'conservative' ? 'Conservative' : 'Aggressive';
+}
+
+function CoachCard({
+  coach, role, isOffseason, onFire, onHire, onPromote, unemployed,
+}: {
+  coach: Coach | null;
+  role: 'HC' | 'OC' | 'DC';
+  isOffseason: boolean;
+  onFire?: () => void;
+  onHire?: (coachId: string) => void;
+  onPromote?: () => void;
+  unemployed: Coach[];
+}) {
+  const [showPool, setShowPool] = useState(false);
+  const roleLabel = role === 'HC' ? 'Head Coach' : role === 'OC' ? 'Offensive Coord.' : 'Defensive Coord.';
+
+  if (!coach) {
+    // Vacancy
+    const candidates = unemployed.filter(c => c.role === role || role !== 'HC');
+    return (
+      <div className="coach-card coach-card--vacant">
+        <div className="coach-card-header">
+          <span className="coach-role-label">{roleLabel}</span>
+          <span className="coach-vacant-badge">VACANT</span>
+        </div>
+        {isOffseason && (
+          <div className="coach-card-actions">
+            {role !== 'HC' && (
+              <button className="btn-sm" onClick={onPromote}>Promote From Within</button>
+            )}
+            <button className="btn-sm btn-primary" onClick={() => setShowPool(v => !v)}>
+              {showPool ? 'Hide Pool' : 'Hire from Pool'}
+            </button>
+          </div>
+        )}
+        {showPool && (
+          <div className="coach-pool-list">
+            {candidates.length === 0
+              ? <p className="muted">No candidates available.</p>
+              : candidates.map(c => (
+                  <div key={c.id} className="coach-pool-row">
+                    <span>{c.name}</span>
+                    <span className="ovr-cell">{c.overall}</span>
+                    {c.trait && <span className="coach-trait-badge">{traitLabel(c.trait)}</span>}
+                    <button className="btn-sm btn-primary" onClick={() => onHire?.(c.id)}>Hire</button>
+                  </div>
+                ))
+            }
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const scheme = role === 'OC' ? coach.offensiveScheme : role === 'DC' ? coach.defensiveScheme : undefined;
+  return (
+    <div className="coach-card">
+      <div className="coach-card-header">
+        <span className="coach-role-label">{roleLabel}</span>
+        <span className="coach-name">{coach.name}</span>
+        <span className="ovr-cell">{coach.overall}</span>
+      </div>
+      <div className="coach-card-details">
+        {scheme && <span className="coach-scheme">{scheme.replace(/_/g, ' ')}</span>}
+        {coach.personality && coach.personality !== 'balanced' && (
+          <span className={`coach-personality coach-personality--${coach.personality}`}>
+            {personalityLabel(coach.personality)}
+          </span>
+        )}
+        {coach.trait && (
+          <span className="coach-trait-badge" title={traitDesc(coach.trait)}>
+            {traitLabel(coach.trait)}
+          </span>
+        )}
+      </div>
+      {isOffseason && role !== 'HC' && (
+        <div className="coach-card-actions">
+          <button className="btn-sm btn-danger" onClick={onFire}>Fire</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Coaching View ──────────────────────────────────────────────────────────────
 
-function CoachingView({ team }: { team: League['teams'][0] }) {
+function CoachingView({ team, league, leagueId, onLeagueUpdated }: {
+  team: League['teams'][0];
+  league: League;
+  leagueId: string;
+  onLeagueUpdated: (l: League) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const isOffseason = league.phase === 'offseason';
+
   const { hc, oc, dc } = team.coaches;
-  const ocScheme = oc.offensiveScheme ?? 'balanced';
-  const dcScheme = dc.defensiveScheme ?? 'balanced';
+  const ocScheme = oc?.offensiveScheme ?? 'balanced';
+  const dcScheme = dc?.defensiveScheme ?? 'balanced';
   const hcOffMatch = hc.offensiveScheme === ocScheme;
   const hcDefMatch = hc.defensiveScheme === dcScheme;
+
+  async function handleFire(role: 'OC' | 'DC') {
+    setBusy(true); setError(null);
+    try {
+      const updated = await fireCoachApi(leagueId, role);
+      onLeagueUpdated(updated);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function handleHire(coachId: string, role: 'HC' | 'OC' | 'DC') {
+    setBusy(true); setError(null);
+    try {
+      const updated = await hireCoachApi(leagueId, coachId, role);
+      onLeagueUpdated(updated);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function handlePromote(role: 'OC' | 'DC') {
+    setBusy(true); setError(null);
+    try {
+      const updated = await promoteWithinApi(leagueId, role);
+      onLeagueUpdated(updated);
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  }
+
+  const unemployed = league.unemployedCoaches ?? [];
 
   return (
     <section className="gp-view">
       <h2>Coaching Staff — {team.name}</h2>
-      <div className="coaching-table-wrap">
-        <table>
-          <thead>
-            <tr><th>Role</th><th>Name</th><th>OVR</th><th>Scheme</th><th>Alignment</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="muted">Head Coach</td>
-              <td>{hc.name}</td>
-              <td className="ovr-cell">{hc.overall}</td>
-              <td className="muted">—</td>
-              <td>
-                <span className={`align-badge${hcOffMatch ? ' align-yes' : ' align-no'}`}>OFF {hcOffMatch ? '✓' : '✗'}</span>
-                {' '}
-                <span className={`align-badge${hcDefMatch ? ' align-yes' : ' align-no'}`}>DEF {hcDefMatch ? '✓' : '✗'}</span>
-              </td>
-            </tr>
-            <tr>
-              <td className="muted">Offensive Coord.</td>
-              <td>{oc.name}</td>
-              <td className="ovr-cell">{oc.overall}</td>
-              <td className="muted">{ocScheme.replace(/_/g, ' ')}</td>
-              <td><span className={`align-badge${hcOffMatch ? ' align-yes' : ' align-no'}`}>{hcOffMatch ? 'HC match ✓' : 'No HC match'}</span></td>
-            </tr>
-            <tr>
-              <td className="muted">Defensive Coord.</td>
-              <td>{dc.name}</td>
-              <td className="ovr-cell">{dc.overall}</td>
-              <td className="muted">{dcScheme.replace(/_/g, ' ')}</td>
-              <td><span className={`align-badge${hcDefMatch ? ' align-yes' : ' align-no'}`}>{hcDefMatch ? 'HC match ✓' : 'No HC match'}</span></td>
-            </tr>
-          </tbody>
-        </table>
+      {error && <p className="error-msg">{error}</p>}
+      {busy && <p className="muted">Working…</p>}
+
+      <div className="coaching-cards">
+        <CoachCard
+          coach={hc} role="HC" isOffseason={isOffseason}
+          onHire={id => handleHire(id, 'HC')}
+          onPromote={undefined}
+          unemployed={unemployed}
+        />
+        <CoachCard
+          coach={oc} role="OC" isOffseason={isOffseason}
+          onFire={() => handleFire('OC')}
+          onHire={id => handleHire(id, 'OC')}
+          onPromote={() => handlePromote('OC')}
+          unemployed={unemployed}
+        />
+        <CoachCard
+          coach={dc} role="DC" isOffseason={isOffseason}
+          onFire={() => handleFire('DC')}
+          onHire={id => handleHire(id, 'DC')}
+          onPromote={() => handlePromote('DC')}
+          unemployed={unemployed}
+        />
       </div>
-      <p className="muted coaching-note">
-        When the HC's scheme preferences match the OC or DC, your team earns a small bonus to success probability each play. Green badges indicate an active alignment bonus.
-      </p>
+
+      <div className="coaching-alignment-summary">
+        <h3>Scheme Alignment</h3>
+        <p>
+          <span className={`align-badge${hcOffMatch ? ' align-yes' : ' align-no'}`}>
+            OFF {hcOffMatch ? '✓' : '✗'}
+          </span>
+          {' '}
+          <span className={`align-badge${hcDefMatch ? ' align-yes' : ' align-no'}`}>
+            DEF {hcDefMatch ? '✓' : '✗'}
+          </span>
+          <span className="muted"> — HC pref: {hc.offensiveScheme?.replace(/_/g, ' ') ?? '—'} / {hc.defensiveScheme?.replace(/_/g, ' ') ?? '—'}</span>
+        </p>
+        <p className="muted coaching-note">
+          When the HC's scheme preferences match the OC or DC, your team earns a small bonus to success probability each play.
+        </p>
+      </div>
+
+      {isOffseason && unemployed.length > 0 && (
+        <div className="coaching-pool-section">
+          <h3>Available Coaches ({unemployed.length})</h3>
+          <table className="coaching-pool-table">
+            <thead>
+              <tr><th>Name</th><th>Role</th><th>OVR</th><th>Scheme</th><th>Trait</th><th>Personality</th></tr>
+            </thead>
+            <tbody>
+              {unemployed.map(c => (
+                <tr key={c.id}>
+                  <td>{c.name}</td>
+                  <td className="muted">{c.role}</td>
+                  <td className="ovr-cell">{c.overall}</td>
+                  <td className="muted">{(c.offensiveScheme ?? c.defensiveScheme ?? '—').replace(/_/g, ' ')}</td>
+                  <td>{c.trait ? <span className="coach-trait-badge">{traitLabel(c.trait)}</span> : <span className="muted">—</span>}</td>
+                  <td className="muted">{personalityLabel(c.personality)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
@@ -1340,207 +1640,507 @@ function CommissionerView({ league, leagueId, userId, onLeagueUpdated }: {
   );
 }
 
+// ── Career / Records helpers ────────────────────────────────────────────────
+
+interface CareerLeaderEntry {
+  playerId: string; name: string; teamAbbr: string; seasons: number;
+  passingYards: number; passingTDs: number; rushingYards: number; rushingTDs: number;
+  receivingYards: number; receivingTDs: number; receptions: number;
+  sacks: number; interceptionsCaught: number;
+}
+
+interface SeasonRecordEntry {
+  playerId: string; name: string; teamAbbr: string; year: number; value: number;
+}
+
+function buildPlayerNameMap(
+  teams: League['teams'],
+  freeAgents: Player[],
+  retiredPlayers: RetiredPlayerRecord[],
+): Map<string, { name: string; teamAbbr: string }> {
+  const map = new Map<string, { name: string; teamAbbr: string }>();
+  for (const team of teams) {
+    for (const p of team.roster) map.set(p.id, { name: p.name, teamAbbr: team.abbreviation });
+  }
+  for (const p of freeAgents) {
+    if (!map.has(p.id)) map.set(p.id, { name: p.name, teamAbbr: 'FA' });
+  }
+  for (const rp of retiredPlayers) {
+    if (!map.has(rp.playerId)) map.set(rp.playerId, { name: rp.name, teamAbbr: 'RET' });
+  }
+  return map;
+}
+
+function buildCareerLeaders(
+  playerHistory: LeagueHistory['playerHistory'],
+  nameMap: Map<string, { name: string; teamAbbr: string }>,
+): CareerLeaderEntry[] {
+  const out: CareerLeaderEntry[] = [];
+  for (const [playerId, seasons] of Object.entries(playerHistory)) {
+    const info = nameMap.get(playerId);
+    if (!info) continue;
+    const e: CareerLeaderEntry = {
+      playerId, name: info.name, teamAbbr: info.teamAbbr, seasons: seasons.length,
+      passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0,
+      receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0,
+    };
+    for (const s of seasons) {
+      e.passingYards += s.passingYards; e.passingTDs += s.passingTDs;
+      e.rushingYards += s.rushingYards; e.rushingTDs += s.rushingTDs;
+      e.receivingYards += s.receivingYards; e.receivingTDs += s.receivingTDs;
+      e.receptions += s.receptions; e.sacks += s.sacks;
+      e.interceptionsCaught += s.interceptionsCaught;
+    }
+    out.push(e);
+  }
+  return out;
+}
+
+const RECORD_CATS = [
+  { key: 'passingYards'        as const, label: 'Passing Yards'   },
+  { key: 'passingTDs'          as const, label: 'Passing TDs'     },
+  { key: 'rushingYards'        as const, label: 'Rushing Yards'   },
+  { key: 'rushingTDs'          as const, label: 'Rushing TDs'     },
+  { key: 'receivingYards'      as const, label: 'Receiving Yards' },
+  { key: 'receivingTDs'        as const, label: 'Receiving TDs'   },
+  { key: 'receptions'          as const, label: 'Receptions'      },
+  { key: 'sacks'               as const, label: 'Sacks'           },
+  { key: 'interceptionsCaught' as const, label: 'Interceptions'   },
+];
+
+type RecordCatKey = typeof RECORD_CATS[number]['key'];
+
+function buildSeasonRecords(
+  playerHistory: LeagueHistory['playerHistory'],
+  nameMap: Map<string, { name: string; teamAbbr: string }>,
+): Record<RecordCatKey, SeasonRecordEntry[]> {
+  const buckets = Object.fromEntries(RECORD_CATS.map(c => [c.key, [] as SeasonRecordEntry[]])) as Record<RecordCatKey, SeasonRecordEntry[]>;
+  for (const [playerId, seasons] of Object.entries(playerHistory)) {
+    const info = nameMap.get(playerId);
+    if (!info) continue;
+    for (const s of seasons) {
+      for (const cat of RECORD_CATS) {
+        const val = s[cat.key] as number;
+        if (val > 0) buckets[cat.key].push({ playerId, name: info.name, teamAbbr: info.teamAbbr, year: s.year, value: val });
+      }
+    }
+  }
+  for (const cat of RECORD_CATS) {
+    buckets[cat.key] = buckets[cat.key].sort((a, b) => b.value - a.value).slice(0, 5);
+  }
+  return buckets;
+}
+
 // ── Leaders ────────────────────────────────────────────────────────────────────
 
-function LeadersView({ games, teams }: { games: League['currentSeason']['games']; teams: League['teams'] }) {
-  const stats      = aggregateSeasonStats(games);
-  const allPlayers = Object.values(stats);
-  const gamesPlayed = games.filter(g => g.status === 'final').length;
+function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, onViewPlayer }: {
+  games: League['currentSeason']['games'];
+  teams: League['teams'];
+  history: LeagueHistory;
+  freeAgents: Player[];
+  currentSeasonStats: Record<string, PlayerSeasonStats>;
+  onViewPlayer?: (id: string) => void;
+}) {
+  const [mode, setMode] = useState<'season' | 'career' | 'records'>('season');
+  const stats        = aggregateSeasonStats(games);
+  const allPlayers   = Object.values(stats);
+  const gamesPlayed  = games.filter(g => g.status === 'final').length;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedPlayer = selectedId !== null ? (stats[selectedId] ?? null) : null;
 
-  const passers   = allPlayers.filter(p => p.attempts >= 1)
-    .sort((a, b) => b.passingYards   - a.passingYards).slice(0, 10);
-  const rushers   = allPlayers.filter(p => p.carries   >= 1)
-    .sort((a, b) => b.rushingYards   - a.rushingYards).slice(0, 10);
-  const receivers = allPlayers.filter(p => p.targets   >= 1)
-    .sort((a, b) => b.receivingYards - a.receivingYards).slice(0, 10);
+  const nameMap = useMemo(
+    () => buildPlayerNameMap(teams, freeAgents, history.retiredPlayers),
+    [teams, freeAgents, history.retiredPlayers],
+  );
+  const careerLeaders = useMemo(
+    () => buildCareerLeaders(history.playerHistory, nameMap),
+    [history.playerHistory, nameMap],
+  );
+  const seasonRecords = useMemo(
+    () => buildSeasonRecords(history.playerHistory, nameMap),
+    [history.playerHistory, nameMap],
+  );
+
+  const hasCareerData = Object.keys(history.playerHistory).length > 0;
+
+  // Offensive season leaders (from client-aggregated game events)
+  const passers   = allPlayers.filter(p => p.attempts >= 1).sort((a, b) => b.passingYards - a.passingYards).slice(0, 10);
+  const rushers   = allPlayers.filter(p => p.carries  >= 1).sort((a, b) => b.rushingYards - a.rushingYards).slice(0, 10);
+  const receivers = allPlayers.filter(p => p.targets  >= 1).sort((a, b) => b.receivingYards - a.receivingYards).slice(0, 10);
   const tdLeaders = allPlayers
     .map(p => ({ ...p, totalTDs: p.passingTDs + p.rushingTDs + p.receivingTDs }))
-    .filter(p => p.totalTDs > 0)
-    .sort((a, b) => b.totalTDs - a.totalTDs)
-    .slice(0, 10);
+    .filter(p => p.totalTDs > 0).sort((a, b) => b.totalTDs - a.totalTDs).slice(0, 10);
 
-  function pName(id: string, name: string) {
-    return (
-      <button className="pd-trigger" onClick={() => setSelectedId(id)}>{name}</button>
-    );
+  // Defensive season leaders (from backend-computed stats which has sacks/INTs)
+  const cssEntries = Object.entries(currentSeasonStats);
+  const sackLeaders = cssEntries
+    .filter(([, p]) => p.sacks > 0)
+    .sort(([, a], [, b]) => b.sacks - a.sacks).slice(0, 10)
+    .map(([id, p]) => ({ id, abbr: p.teamAbbreviation, val: p.sacks, name: nameMap.get(id)?.name ?? '?' }));
+  const intLeaders = cssEntries
+    .filter(([, p]) => p.interceptionsCaught > 0)
+    .sort(([, a], [, b]) => b.interceptionsCaught - a.interceptionsCaught).slice(0, 10)
+    .map(([id, p]) => ({ id, abbr: p.teamAbbreviation, val: p.interceptionsCaught, name: nameMap.get(id)?.name ?? '?' }));
+
+  function handleClick(id: string) {
+    if (onViewPlayer) onViewPlayer(id);
+    else setSelectedId(id);
   }
-
-  if (gamesPlayed === 0) {
-    return (
-      <section className="leaders-section">
-        <div className="leaders-page-header">
-          <h2>League Leaders</h2>
-        </div>
-        <p className="muted" style={{ padding: '1rem 0' }}>No games have been played yet.</p>
-      </section>
-    );
+  function pBtn(id: string, name: string) {
+    return <button className="pd-trigger" onClick={() => handleClick(id)}>{name}</button>;
   }
 
   return (
     <section className="leaders-section">
-      {selectedPlayer && (
-        <PlayerDetail
-          player={selectedPlayer}
-          games={games}
-          allTeams={teams}
-          onClose={() => setSelectedId(null)}
-        />
+      {selectedPlayer && !onViewPlayer && (
+        <PlayerDetail player={selectedPlayer} games={games} allTeams={teams} history={history} onClose={() => setSelectedId(null)} />
       )}
       <div className="leaders-page-header">
         <h2>League Leaders</h2>
-        <span className="leaders-meta">{gamesPlayed} game{gamesPlayed !== 1 ? 's' : ''} played</span>
+        {gamesPlayed > 0 && <span className="leaders-meta">{gamesPlayed} game{gamesPlayed !== 1 ? 's' : ''} played</span>}
       </div>
 
-      <div className="leaders-grid">
-
-        {/* Passing */}
-        <div className="leaders-card">
-          <div className="lc-header">
-            <span className="lc-category">PASSING</span>
-            <span className="lc-stat-label">YDS</span>
-          </div>
-          <table className="leaders-table">
-            <thead>
-              <tr>
-                <th className="col-rank"></th>
-                <th className="col-player">Player</th>
-                <th className="col-team">Team</th>
-                <th className="col-num">C/ATT</th>
-                <th className="col-num col-primary">YDS</th>
-                <th className="col-num">TD</th>
-                <th className="col-num">INT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {passers.length === 0
-                ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
-                : passers.map((p, i) => (
-                  <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
-                    <td className="col-rank">{i + 1}</td>
-                    <td className="col-player">{pName(p.playerId, p.name)}</td>
-                    <td className="col-team">{p.teamAbbreviation}</td>
-                    <td className="col-num">{p.completions}/{p.attempts}</td>
-                    <td className="col-num col-primary">{p.passingYards}</td>
-                    <td className="col-num">{p.passingTDs}</td>
-                    <td className="col-num">{p.interceptions}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Rushing */}
-        <div className="leaders-card">
-          <div className="lc-header">
-            <span className="lc-category">RUSHING</span>
-            <span className="lc-stat-label">YDS</span>
-          </div>
-          <table className="leaders-table">
-            <thead>
-              <tr>
-                <th className="col-rank"></th>
-                <th className="col-player">Player</th>
-                <th className="col-team">Team</th>
-                <th className="col-num">CAR</th>
-                <th className="col-num col-primary">YDS</th>
-                <th className="col-num">AVG</th>
-                <th className="col-num">TD</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rushers.length === 0
-                ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
-                : rushers.map((p, i) => (
-                  <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
-                    <td className="col-rank">{i + 1}</td>
-                    <td className="col-player">{pName(p.playerId, p.name)}</td>
-                    <td className="col-team">{p.teamAbbreviation}</td>
-                    <td className="col-num">{p.carries}</td>
-                    <td className="col-num col-primary">{p.rushingYards}</td>
-                    <td className="col-num">{p.carries > 0 ? (p.rushingYards / p.carries).toFixed(1) : '—'}</td>
-                    <td className="col-num">{p.rushingTDs}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Receiving */}
-        <div className="leaders-card">
-          <div className="lc-header">
-            <span className="lc-category">RECEIVING</span>
-            <span className="lc-stat-label">YDS</span>
-          </div>
-          <table className="leaders-table">
-            <thead>
-              <tr>
-                <th className="col-rank"></th>
-                <th className="col-player">Player</th>
-                <th className="col-team">Team</th>
-                <th className="col-num">REC</th>
-                <th className="col-num col-primary">YDS</th>
-                <th className="col-num">AVG</th>
-                <th className="col-num">TD</th>
-              </tr>
-            </thead>
-            <tbody>
-              {receivers.length === 0
-                ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
-                : receivers.map((p, i) => (
-                  <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
-                    <td className="col-rank">{i + 1}</td>
-                    <td className="col-player">{pName(p.playerId, p.name)}</td>
-                    <td className="col-team">{p.teamAbbreviation}</td>
-                    <td className="col-num">{p.receptions}</td>
-                    <td className="col-num col-primary">{p.receivingYards}</td>
-                    <td className="col-num">{p.receptions > 0 ? (p.receivingYards / p.receptions).toFixed(1) : '—'}</td>
-                    <td className="col-num">{p.receivingTDs}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Touchdowns */}
-        <div className="leaders-card">
-          <div className="lc-header">
-            <span className="lc-category">TOUCHDOWNS</span>
-            <span className="lc-stat-label">TD</span>
-          </div>
-          <table className="leaders-table">
-            <thead>
-              <tr>
-                <th className="col-rank"></th>
-                <th className="col-player">Player</th>
-                <th className="col-team">Team</th>
-                <th className="col-num">PASS</th>
-                <th className="col-num">RUSH</th>
-                <th className="col-num">REC</th>
-                <th className="col-num col-primary">TOT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tdLeaders.length === 0
-                ? <tr><td colSpan={7} className="lc-empty">No touchdowns yet</td></tr>
-                : tdLeaders.map((p, i) => (
-                  <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
-                    <td className="col-rank">{i + 1}</td>
-                    <td className="col-player">{pName(p.playerId, p.name)}</td>
-                    <td className="col-team">{p.teamAbbreviation}</td>
-                    <td className="col-num">{p.passingTDs  || '—'}</td>
-                    <td className="col-num">{p.rushingTDs  || '—'}</td>
-                    <td className="col-num">{p.receivingTDs || '—'}</td>
-                    <td className="col-num col-primary">{p.totalTDs}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-
+      <div className="leaders-mode-tabs">
+        <button className={mode === 'season'  ? 'active' : ''} onClick={() => setMode('season')}>Season</button>
+        <button className={mode === 'career'  ? 'active' : ''} onClick={() => setMode('career')}  disabled={!hasCareerData}>Career</button>
+        <button className={mode === 'records' ? 'active' : ''} onClick={() => setMode('records')} disabled={!hasCareerData}>Records</button>
       </div>
+
+      {mode === 'season' && (
+        gamesPlayed === 0
+          ? <p className="muted" style={{ padding: '1rem 0' }}>No games have been played yet.</p>
+          : <div className="leaders-grid">
+
+            {/* Passing */}
+            <div className="leaders-card">
+              <div className="lc-header"><span className="lc-category">PASSING</span><span className="lc-stat-label">YDS</span></div>
+              <table className="leaders-table">
+                <thead><tr>
+                  <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+                  <th className="col-num">C/ATT</th><th className="col-num col-primary">YDS</th><th className="col-num">TD</th><th className="col-num">INT</th>
+                </tr></thead>
+                <tbody>
+                  {passers.length === 0
+                    ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
+                    : passers.map((p, i) => (
+                      <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
+                        <td className="col-rank">{i + 1}</td>
+                        <td className="col-player">{pBtn(p.playerId, p.name)}</td>
+                        <td className="col-team">{p.teamAbbreviation}</td>
+                        <td className="col-num">{p.completions}/{p.attempts}</td>
+                        <td className="col-num col-primary">{p.passingYards}</td>
+                        <td className="col-num">{p.passingTDs}</td>
+                        <td className="col-num">{p.interceptions}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Rushing */}
+            <div className="leaders-card">
+              <div className="lc-header"><span className="lc-category">RUSHING</span><span className="lc-stat-label">YDS</span></div>
+              <table className="leaders-table">
+                <thead><tr>
+                  <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+                  <th className="col-num">CAR</th><th className="col-num col-primary">YDS</th><th className="col-num">AVG</th><th className="col-num">TD</th>
+                </tr></thead>
+                <tbody>
+                  {rushers.length === 0
+                    ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
+                    : rushers.map((p, i) => (
+                      <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
+                        <td className="col-rank">{i + 1}</td>
+                        <td className="col-player">{pBtn(p.playerId, p.name)}</td>
+                        <td className="col-team">{p.teamAbbreviation}</td>
+                        <td className="col-num">{p.carries}</td>
+                        <td className="col-num col-primary">{p.rushingYards}</td>
+                        <td className="col-num">{p.carries > 0 ? (p.rushingYards / p.carries).toFixed(1) : '—'}</td>
+                        <td className="col-num">{p.rushingTDs}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Receiving */}
+            <div className="leaders-card">
+              <div className="lc-header"><span className="lc-category">RECEIVING</span><span className="lc-stat-label">YDS</span></div>
+              <table className="leaders-table">
+                <thead><tr>
+                  <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+                  <th className="col-num">REC</th><th className="col-num col-primary">YDS</th><th className="col-num">AVG</th><th className="col-num">TD</th>
+                </tr></thead>
+                <tbody>
+                  {receivers.length === 0
+                    ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
+                    : receivers.map((p, i) => (
+                      <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
+                        <td className="col-rank">{i + 1}</td>
+                        <td className="col-player">{pBtn(p.playerId, p.name)}</td>
+                        <td className="col-team">{p.teamAbbreviation}</td>
+                        <td className="col-num">{p.receptions}</td>
+                        <td className="col-num col-primary">{p.receivingYards}</td>
+                        <td className="col-num">{p.receptions > 0 ? (p.receivingYards / p.receptions).toFixed(1) : '—'}</td>
+                        <td className="col-num">{p.receivingTDs}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Touchdowns */}
+            <div className="leaders-card">
+              <div className="lc-header"><span className="lc-category">TOUCHDOWNS</span><span className="lc-stat-label">TD</span></div>
+              <table className="leaders-table">
+                <thead><tr>
+                  <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+                  <th className="col-num">PASS</th><th className="col-num">RUSH</th><th className="col-num">REC</th><th className="col-num col-primary">TOT</th>
+                </tr></thead>
+                <tbody>
+                  {tdLeaders.length === 0
+                    ? <tr><td colSpan={7} className="lc-empty">No touchdowns yet</td></tr>
+                    : tdLeaders.map((p, i) => (
+                      <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
+                        <td className="col-rank">{i + 1}</td>
+                        <td className="col-player">{pBtn(p.playerId, p.name)}</td>
+                        <td className="col-team">{p.teamAbbreviation}</td>
+                        <td className="col-num">{p.passingTDs   || '—'}</td>
+                        <td className="col-num">{p.rushingTDs   || '—'}</td>
+                        <td className="col-num">{p.receivingTDs || '—'}</td>
+                        <td className="col-num col-primary">{p.totalTDs}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Sacks */}
+            {sackLeaders.length > 0 && (
+              <div className="leaders-card">
+                <div className="lc-header"><span className="lc-category">SACKS</span><span className="lc-stat-label">SCK</span></div>
+                <table className="leaders-table">
+                  <thead><tr>
+                    <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+                    <th className="col-num col-primary">SACKS</th>
+                  </tr></thead>
+                  <tbody>
+                    {sackLeaders.map((p, i) => (
+                      <tr key={p.id} className={i === 0 ? 'lc-top' : ''}>
+                        <td className="col-rank">{i + 1}</td>
+                        <td className="col-player">{pBtn(p.id, p.name)}</td>
+                        <td className="col-team">{p.abbr}</td>
+                        <td className="col-num col-primary">{p.val.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Interceptions */}
+            {intLeaders.length > 0 && (
+              <div className="leaders-card">
+                <div className="lc-header"><span className="lc-category">INTERCEPTIONS</span><span className="lc-stat-label">INT</span></div>
+                <table className="leaders-table">
+                  <thead><tr>
+                    <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+                    <th className="col-num col-primary">INT</th>
+                  </tr></thead>
+                  <tbody>
+                    {intLeaders.map((p, i) => (
+                      <tr key={p.id} className={i === 0 ? 'lc-top' : ''}>
+                        <td className="col-rank">{i + 1}</td>
+                        <td className="col-player">{pBtn(p.id, p.name)}</td>
+                        <td className="col-team">{p.abbr}</td>
+                        <td className="col-num col-primary">{p.val}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+          </div>
+      )}
+
+      {mode === 'career' && (
+        hasCareerData
+          ? <CareerLeadersGrid leaders={careerLeaders} onViewPlayer={handleClick} />
+          : <p className="muted" style={{ padding: '1rem 0' }}>No historical data yet — complete a season first.</p>
+      )}
+
+      {mode === 'records' && (
+        hasCareerData
+          ? <SingleSeasonRecordsView records={seasonRecords} onViewPlayer={handleClick} />
+          : <p className="muted" style={{ padding: '1rem 0' }}>No records yet — complete a season first.</p>
+      )}
+
     </section>
+  );
+}
+
+function CareerLeadersGrid({ leaders, onViewPlayer }: {
+  leaders: CareerLeaderEntry[];
+  onViewPlayer: (id: string) => void;
+}) {
+  const passers   = [...leaders].filter(l => l.passingYards > 0).sort((a, b) => b.passingYards - a.passingYards).slice(0, 10);
+  const rushers   = [...leaders].filter(l => l.rushingYards > 0).sort((a, b) => b.rushingYards - a.rushingYards).slice(0, 10);
+  const receivers = [...leaders].filter(l => l.receivingYards > 0).sort((a, b) => b.receivingYards - a.receivingYards).slice(0, 10);
+  const sackers   = [...leaders].filter(l => l.sacks > 0).sort((a, b) => b.sacks - a.sacks).slice(0, 10);
+  const inters    = [...leaders].filter(l => l.interceptionsCaught > 0).sort((a, b) => b.interceptionsCaught - a.interceptionsCaught).slice(0, 10);
+
+  function pBtn(l: CareerLeaderEntry) {
+    return <button className="pd-trigger" onClick={() => onViewPlayer(l.playerId)}>{l.name}</button>;
+  }
+
+  if (leaders.length === 0) return <p className="muted" style={{ padding: '1rem 0' }}>No career data yet.</p>;
+
+  return (
+    <div className="leaders-grid">
+      {passers.length > 0 && (
+        <div className="leaders-card">
+          <div className="lc-header"><span className="lc-category">PASSING — CAREER</span><span className="lc-stat-label">YDS</span></div>
+          <table className="leaders-table">
+            <thead><tr>
+              <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+              <th className="col-num">YRS</th><th className="col-num col-primary">YDS</th><th className="col-num">TD</th>
+            </tr></thead>
+            <tbody>
+              {passers.map((l, i) => (
+                <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
+                  <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-num col-primary">{l.passingYards}</td><td className="col-num">{l.passingTDs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {rushers.length > 0 && (
+        <div className="leaders-card">
+          <div className="lc-header"><span className="lc-category">RUSHING — CAREER</span><span className="lc-stat-label">YDS</span></div>
+          <table className="leaders-table">
+            <thead><tr>
+              <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+              <th className="col-num">YRS</th><th className="col-num col-primary">YDS</th><th className="col-num">TD</th>
+            </tr></thead>
+            <tbody>
+              {rushers.map((l, i) => (
+                <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
+                  <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-num col-primary">{l.rushingYards}</td><td className="col-num">{l.rushingTDs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {receivers.length > 0 && (
+        <div className="leaders-card">
+          <div className="lc-header"><span className="lc-category">RECEIVING — CAREER</span><span className="lc-stat-label">YDS</span></div>
+          <table className="leaders-table">
+            <thead><tr>
+              <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+              <th className="col-num">YRS</th><th className="col-num">REC</th><th className="col-num col-primary">YDS</th><th className="col-num">TD</th>
+            </tr></thead>
+            <tbody>
+              {receivers.map((l, i) => (
+                <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
+                  <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-num">{l.receptions}</td>
+                  <td className="col-num col-primary">{l.receivingYards}</td><td className="col-num">{l.receivingTDs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {sackers.length > 0 && (
+        <div className="leaders-card">
+          <div className="lc-header"><span className="lc-category">SACKS — CAREER</span><span className="lc-stat-label">SCK</span></div>
+          <table className="leaders-table">
+            <thead><tr>
+              <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+              <th className="col-num">YRS</th><th className="col-num col-primary">SACKS</th>
+            </tr></thead>
+            <tbody>
+              {sackers.map((l, i) => (
+                <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
+                  <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-num col-primary">{l.sacks.toFixed(1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {inters.length > 0 && (
+        <div className="leaders-card">
+          <div className="lc-header"><span className="lc-category">INTERCEPTIONS — CAREER</span><span className="lc-stat-label">INT</span></div>
+          <table className="leaders-table">
+            <thead><tr>
+              <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+              <th className="col-num">YRS</th><th className="col-num col-primary">INT</th>
+            </tr></thead>
+            <tbody>
+              {inters.map((l, i) => (
+                <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
+                  <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-num col-primary">{l.interceptionsCaught}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SingleSeasonRecordsView({ records, onViewPlayer }: {
+  records: Record<RecordCatKey, SeasonRecordEntry[]>;
+  onViewPlayer: (id: string) => void;
+}) {
+  const fmtVal = (key: RecordCatKey, v: number) => key === 'sacks' ? v.toFixed(1) : String(v);
+  return (
+    <div className="records-grid">
+      {RECORD_CATS.map(cat => {
+        const entries = records[cat.key] ?? [];
+        if (entries.length === 0) return null;
+        return (
+          <div key={cat.key} className="leaders-card">
+            <div className="lc-header">
+              <span className="lc-category">{cat.label.toUpperCase()} — SEASON BEST</span>
+            </div>
+            <table className="leaders-table">
+              <thead><tr>
+                <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+                <th className="col-num">Year</th><th className="col-num col-primary">Value</th>
+              </tr></thead>
+              <tbody>
+                {entries.map((e, i) => (
+                  <tr key={i} className={i === 0 ? 'lc-top' : ''}>
+                    <td className="col-rank">{i + 1}</td>
+                    <td className="col-player">
+                      <button className="pd-trigger" onClick={() => onViewPlayer(e.playerId)}>{e.name}</button>
+                    </td>
+                    <td className="col-team">{e.teamAbbr}</td>
+                    <td className="col-num">{e.year}</td>
+                    <td className="col-num col-primary">{fmtVal(cat.key, e.value)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1600,14 +2200,27 @@ function buildGameLog(player: { playerId: string; name: string }, games: Game[])
   return rows.sort((a, b) => a.week - b.week);
 }
 
-function PlayerDetail({ player, games, allTeams, onClose }: {
+function PlayerDetail({ player, games, allTeams, history, onClose }: {
   player: import('./seasonStats').SeasonPlayerStats;
   games: Game[];
   allTeams: League['teams'];
+  history?: LeagueHistory;
   onClose: () => void;
 }) {
-  const rosterPlayer = allTeams.flatMap(t => t.roster).find(p => p.id === player.playerId);
-  const gameLog      = buildGameLog(player, games);
+  const [pdTab, setPdTab] = useState<'season' | 'career'>('season');
+  const rosterPlayer  = allTeams.flatMap(t => t.roster).find(p => p.id === player.playerId);
+  const gameLog       = buildGameLog(player, games);
+  const seasonHistory = history?.playerHistory[player.playerId] ?? [];
+  const playerAwards  = history?.seasonAwards.flatMap(sa => sa.awards.filter(a => a.playerId === player.playerId)) ?? [];
+  const visibleRatings = rosterPlayer?.ratings ? getVisibleRatings(rosterPlayer.ratings) : null;
+  const devBadge = rosterPlayer?.devTrait && rosterPlayer.devTrait !== 'normal' ? DEV_TRAIT_BADGE[rosterPlayer.devTrait] : null;
+
+  // Legacy / HoF
+  const hofEntry    = history?.hallOfFame?.find(e => e.playerId === player.playerId);
+  const position    = rosterPlayer?.position ?? '';
+  const legacyScore = history && position ? computeClientLegacyScore(player.playerId, position, history) : 0;
+  const legacyTier  = computeClientLegacyTier(legacyScore);
+  const showLegacy  = seasonHistory.length > 0 && legacyScore > 0;
 
   const hasPassing   = player.attempts  > 0;
   const hasRushing   = player.carries   > 0;
@@ -1655,11 +2268,66 @@ function PlayerDetail({ player, games, allTeams, onClose }: {
                 <span className="pd-badge">{rosterPlayer.position}</span>
                 <span className="pd-badge">Age {rosterPlayer.age}</span>
                 <span className="pd-badge">OVR {rosterPlayer.scoutedOverall}</span>
+                {rosterPlayer.yearsPro !== undefined && (
+                  <span className="pd-badge">{rosterPlayer.yearsPro === 0 ? 'Rookie' : `Yr ${rosterPlayer.yearsPro}`}</span>
+                )}
+                {devBadge && (
+                  <span className={`pd-badge dev-trait-badge dev-trait-${rosterPlayer.devTrait}`} title={devBadge.label}>{devBadge.short}</span>
+                )}
               </>
             )}
+            {hofEntry && (
+              <span className="pd-badge hof-badge" title={`Hall of Fame — Inducted ${hofEntry.inductionYear}`}>★ HoF {hofEntry.inductionYear}</span>
+            )}
+            {(() => {
+              const rohEntries = Object.entries(history?.ringOfHonor ?? {})
+                .flatMap(([tid, entries]) => entries.filter(e => e.playerId === player.playerId).map(e => ({ ...e, teamId: tid })));
+              if (rohEntries.length === 0) return null;
+              return rohEntries.map(e => {
+                const teamName = allTeams.find(t => t.id === e.teamId)?.name ?? e.teamId;
+                return (
+                  <span key={e.teamId} className={`pd-badge roh-badge${e.jerseyRetired ? ' roh-jersey-badge' : ''}`}
+                    title={`${teamName} Ring of Honor — ${e.inductedYear}`}>
+                    {e.jerseyRetired ? '◈' : '◇'} {teamName.split(' ').pop()} RoH
+                  </span>
+                );
+              });
+            })()}
           </div>
           <button className="pd-close" onClick={onClose}>✕</button>
         </div>
+
+        {/* Legacy meter */}
+        {showLegacy && (
+          <div className="pd-legacy">
+            <LegacyMeter score={legacyScore} tier={legacyTier} />
+          </div>
+        )}
+
+        {/* Ratings breakdown */}
+        {visibleRatings && (
+          <div className="pd-ratings-row">
+            {Object.entries(visibleRatings).map(([label, val]) => (
+              <div key={label} className="pd-rating-item">
+                <span className="pd-rating-val" style={{ color: val >= 80 ? '#4ade80' : val >= 65 ? '#fbbf24' : '#f87171' }}>{val}</span>
+                <span className="pd-rating-lbl">{label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab selector */}
+        {seasonHistory.length > 0 && (
+          <div className="pd-tabs">
+            <button className={pdTab === 'season' ? 'active' : ''} onClick={() => setPdTab('season')}>This Season</button>
+            <button className={pdTab === 'career' ? 'active' : ''} onClick={() => setPdTab('career')}>Career</button>
+          </div>
+        )}
+
+        {pdTab === 'career' && seasonHistory.length > 0 ? (
+          <PlayerCareerView seasons={seasonHistory} position={rosterPlayer?.position} awards={playerAwards} />
+        ) : (
+          <>
 
         {/* Season totals */}
         <div className="pd-section-label">Season Totals</div>
@@ -1733,9 +2401,342 @@ function PlayerDetail({ player, games, allTeams, onClose }: {
         {gameLog.length === 0 && (
           <p className="muted" style={{ padding: '1rem' }}>No game data available.</p>
         )}
+          </>
+        )}
 
       </div>
     </div>
+  );
+}
+
+// ── Player career view ─────────────────────────────────────────────────────────
+
+function PlayerCareerView({ seasons, position, awards }: {
+  seasons: PlayerSeasonHistoryLine[];
+  position?: string;
+  awards?: AwardRecord[];
+}) {
+
+  // Career totals
+  let totPYds = 0, totPTD = 0, totInt = 0, totRYds = 0, totRTD = 0, totRec = 0, totRecYds = 0, totRecTD = 0, totSacks = 0, totIntC = 0, totGP = 0;
+  for (const s of seasons) {
+    totPYds += s.passingYards; totPTD += s.passingTDs; totInt += s.interceptions;
+    totRYds += s.rushingYards; totRTD += s.rushingTDs; totRec += s.receptions;
+    totRecYds += s.receivingYards; totRecTD += s.receivingTDs;
+    totSacks += s.sacks; totIntC += s.interceptionsCaught; totGP += s.gamesPlayed;
+  }
+
+  return (
+    <>
+      <div className="pd-section-label">Career Totals ({seasons.length} season{seasons.length !== 1 ? 's' : ''}, {totGP} GP)</div>
+      <div className="pd-stats-row">
+        {totPYds > 0 && <>
+          <div className="pd-stat"><span className="pd-stat-val">{totPYds}</span><span className="pd-stat-lbl">Pass Yds</span></div>
+          <div className="pd-stat"><span className="pd-stat-val">{totPTD}</span><span className="pd-stat-lbl">Pass TD</span></div>
+          <div className="pd-stat"><span className="pd-stat-val">{totInt}</span><span className="pd-stat-lbl">INT</span></div>
+        </>}
+        {totRYds > 0 && <>
+          <div className="pd-stat"><span className="pd-stat-val">{totRYds}</span><span className="pd-stat-lbl">Rush Yds</span></div>
+          <div className="pd-stat"><span className="pd-stat-val">{totRTD}</span><span className="pd-stat-lbl">Rush TD</span></div>
+        </>}
+        {totRecYds > 0 && <>
+          <div className="pd-stat"><span className="pd-stat-val">{totRec}</span><span className="pd-stat-lbl">Rec</span></div>
+          <div className="pd-stat"><span className="pd-stat-val">{totRecYds}</span><span className="pd-stat-lbl">Rec Yds</span></div>
+          <div className="pd-stat"><span className="pd-stat-val">{totRecTD}</span><span className="pd-stat-lbl">Rec TD</span></div>
+        </>}
+        {totSacks > 0 && <div className="pd-stat"><span className="pd-stat-val">{totSacks.toFixed(1)}</span><span className="pd-stat-lbl">Sacks</span></div>}
+        {totIntC  > 0 && <div className="pd-stat"><span className="pd-stat-val">{totIntC}</span><span className="pd-stat-lbl">INT</span></div>}
+      </div>
+
+      <div className="pd-section-label">Season by Season</div>
+      <div className="pd-table-wrap">
+        <table className="pd-table career-table">
+          <thead>
+            <tr>
+              <th>Year</th><th>Team</th><th>GP</th>
+              {totPYds > 0 && <><th className="col-num">P.YDS</th><th className="col-num">TD</th><th className="col-num">INT</th></>}
+              {totRYds > 0 && <><th className="col-num">R.YDS</th><th className="col-num">TD</th></>}
+              {totRecYds > 0 && <><th className="col-num">REC</th><th className="col-num">R.YDS</th><th className="col-num">TD</th></>}
+              {totSacks > 0 && <th className="col-num">SACKS</th>}
+              {totIntC  > 0 && <th className="col-num">INT</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {[...seasons].reverse().map((s, i) => (
+              <tr key={i}>
+                <td>{s.year}</td>
+                <td className="muted">{s.teamAbbreviation}</td>
+                <td className="col-num">{s.gamesPlayed}</td>
+                {totPYds > 0 && <><td className="col-num col-primary">{s.passingYards}</td><td className="col-num">{s.passingTDs}</td><td className="col-num">{s.interceptions}</td></>}
+                {totRYds > 0 && <><td className="col-num col-primary">{s.rushingYards}</td><td className="col-num">{s.rushingTDs}</td></>}
+                {totRecYds > 0 && <><td className="col-num">{s.receptions}</td><td className="col-num col-primary">{s.receivingYards}</td><td className="col-num">{s.receivingTDs}</td></>}
+                {totSacks > 0 && <td className="col-num">{s.sacks.toFixed(1)}</td>}
+                {totIntC  > 0 && <td className="col-num">{s.interceptionsCaught}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {awards && awards.length > 0 && (
+        <>
+          <div className="pd-section-label">Awards & Honors</div>
+          <div className="pd-awards-list">
+            {awards.map((a, i) => (
+              <div key={i} className="pd-award-item">
+                <span className="pd-award-year">{a.year}</span>
+                <span className="pd-award-name">{AWARD_LABELS[a.type] ?? a.type}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+// ── Award labels / helpers ─────────────────────────────────────────────────────
+
+const AWARD_LABELS: Record<string, string> = {
+  MVP:             'Most Valuable Player',
+  OPOY:            'Offensive Player of the Year',
+  DPOY:            'Defensive Player of the Year',
+  OROY:            'Offensive Rookie of the Year',
+  DROY:            'Defensive Rookie of the Year',
+  Coach_of_Year:   'Coach of the Year',
+  Comeback_Player: 'Comeback Player of the Year',
+  AllPro1:         '1st Team All-Pro',
+  AllPro2:         '2nd Team All-Pro',
+  Champion:        'League Champion',
+};
+
+function formatPlayoffRound(madePlayoffs: boolean, round?: string): string {
+  if (!madePlayoffs) return '—';
+  const labels: Record<string, string> = {
+    wildcard:     'Wild Card',
+    divisional:   'Divisional',
+    conference:   'Conf. Champ',
+    championship: 'Runner-Up',
+    champion:     'Champion',
+  };
+  return labels[round ?? ''] ?? (madePlayoffs ? 'Playoffs' : '—');
+}
+
+// ── Awards view ────────────────────────────────────────────────────────────────
+
+function AwardsView({ history, myTeamId, teams, onViewPlayer }: {
+  history: LeagueHistory;
+  myTeamId: string;
+  teams: League['teams'];
+  onViewPlayer?: (id: string) => void;
+}) {
+  const pastSeasons = [...history.seasonAwards].reverse();
+  const [selectedYear, setSelectedYear] = useState<number | null>(pastSeasons[0]?.year ?? null);
+  const seasonAwards = pastSeasons.find(sa => sa.year === selectedYear);
+
+  if (pastSeasons.length === 0) {
+    return (
+      <section>
+        <h2>Awards</h2>
+        <p className="muted" style={{ padding: '1rem 0' }}>No awards yet — complete a season to see awards here.</p>
+      </section>
+    );
+  }
+
+  const majorTypes  = ['MVP', 'OPOY', 'DPOY', 'Coach_of_Year', 'Comeback_Player'];
+  const rookieTypes = ['OROY', 'DROY'];
+  const major   = seasonAwards?.awards.filter(a => majorTypes.includes(a.type))   ?? [];
+  const rookies = seasonAwards?.awards.filter(a => rookieTypes.includes(a.type))  ?? [];
+  const allPro1 = seasonAwards?.awards.filter(a => a.type === 'AllPro1')           ?? [];
+  const allPro2 = seasonAwards?.awards.filter(a => a.type === 'AllPro2')           ?? [];
+
+  return (
+    <section>
+      <div className="awards-header">
+        <h2>Season Awards</h2>
+        <select className="awards-year-select" value={selectedYear ?? ''} onChange={e => setSelectedYear(Number(e.target.value))}>
+          {pastSeasons.map(sa => (
+            <option key={sa.year} value={sa.year}>{sa.year} Season</option>
+          ))}
+        </select>
+      </div>
+
+      {seasonAwards && (
+        <div className="awards-body">
+          {major.length > 0 && (
+            <div className="awards-section">
+              <div className="awards-section-title">Major Awards</div>
+              <div className="awards-cards">
+                {major.map(a => <AwardCard key={a.type} award={a} myTeamId={myTeamId} onViewPlayer={onViewPlayer} />)}
+              </div>
+            </div>
+          )}
+
+          {rookies.length > 0 && (
+            <div className="awards-section">
+              <div className="awards-section-title">Rookie Awards</div>
+              <div className="awards-cards">
+                {rookies.map(a => <AwardCard key={a.type} award={a} myTeamId={myTeamId} onViewPlayer={onViewPlayer} />)}
+              </div>
+            </div>
+          )}
+
+          {(allPro1.length > 0 || allPro2.length > 0) && (
+            <div className="awards-section">
+              <div className="awards-section-title">All-Pro Teams</div>
+              <div className="allpro-grid">
+                {allPro1.length > 0 && (
+                  <div className="allpro-team">
+                    <div className="allpro-team-label">1st Team All-Pro</div>
+                    <table className="allpro-table">
+                      <thead><tr><th>Pos</th><th>Player</th><th>Team</th></tr></thead>
+                      <tbody>
+                        {allPro1.map((a, i) => (
+                          <tr key={i} className={a.teamId === myTeamId ? 'user-row' : ''}>
+                            <td className="allpro-pos">{a.position ?? '—'}</td>
+                            <td>{a.playerId && onViewPlayer
+                              ? <button className="pd-trigger" onClick={() => onViewPlayer(a.playerId!)}>{a.playerName ?? '—'}</button>
+                              : (a.playerName ?? '—')}</td>
+                            <td className="muted">{a.teamName ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {allPro2.length > 0 && (
+                  <div className="allpro-team">
+                    <div className="allpro-team-label">2nd Team All-Pro</div>
+                    <table className="allpro-table">
+                      <thead><tr><th>Pos</th><th>Player</th><th>Team</th></tr></thead>
+                      <tbody>
+                        {allPro2.map((a, i) => (
+                          <tr key={i} className={a.teamId === myTeamId ? 'user-row' : ''}>
+                            <td className="allpro-pos">{a.position ?? '—'}</td>
+                            <td>{a.playerId && onViewPlayer
+                              ? <button className="pd-trigger" onClick={() => onViewPlayer(a.playerId!)}>{a.playerName ?? '—'}</button>
+                              : (a.playerName ?? '—')}</td>
+                            <td className="muted">{a.teamName ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AwardCard({ award: a, myTeamId, onViewPlayer }: { award: AwardRecord; myTeamId: string; onViewPlayer?: (id: string) => void }) {
+  const isMyTeam = a.teamId === myTeamId;
+  const winnerName = a.playerName ?? a.coachName ?? '—';
+  return (
+    <div className={`award-card${isMyTeam ? ' award-card-mine' : ''}`}>
+      <div className="award-card-label">{AWARD_LABELS[a.type] ?? a.type}</div>
+      <div className="award-card-winner">
+        {a.playerId && onViewPlayer
+          ? <button className="pd-trigger award-winner-btn" onClick={() => onViewPlayer(a.playerId!)}>{winnerName}</button>
+          : winnerName}
+      </div>
+      {a.teamName && <div className="award-card-team">{a.teamName}</div>}
+      {a.position && <div className="award-card-pos muted">{a.position}</div>}
+    </div>
+  );
+}
+
+// ── History view ───────────────────────────────────────────────────────────────
+
+function HistoryView({ history, teams, myTeamId }: {
+  history: LeagueHistory;
+  teams: League['teams'];
+  myTeamId: string;
+}) {
+  const [selectedTeamId, setSelectedTeamId] = useState(myTeamId);
+  const teamHistory    = history.teamHistory[selectedTeamId] ?? [];
+  const championsList  = Object.entries(history.championsByYear)
+    .sort(([a], [b]) => Number(b) - Number(a));
+
+  return (
+    <section>
+      <h2>League History</h2>
+
+      {championsList.length > 0 && (
+        <div className="history-section">
+          <div className="history-section-title">League Champions</div>
+          <table className="history-table">
+            <thead><tr><th>Year</th><th>Champion</th></tr></thead>
+            <tbody>
+              {championsList.map(([year, champ]) => (
+                <tr key={year} className={champ.teamId === myTeamId ? 'user-row' : ''}>
+                  <td>{year}</td>
+                  <td>{champ.teamName}{champ.teamId === myTeamId && <span className="you"> YOU</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="history-section">
+        <div className="history-section-header">
+          <div className="history-section-title">Team Season History</div>
+          <select value={selectedTeamId} onChange={e => setSelectedTeamId(e.target.value)}>
+            {teams.map(t => (
+              <option key={t.id} value={t.id}>{t.name}{t.id === myTeamId ? ' (You)' : ''}</option>
+            ))}
+          </select>
+        </div>
+        {teamHistory.length === 0 ? (
+          <p className="muted" style={{ padding: '0.5rem 0' }}>No season history yet for this team.</p>
+        ) : (
+          <table className="history-table">
+            <thead>
+              <tr><th>Year</th><th>W</th><th>L</th><th>PF</th><th>PA</th><th>Diff</th><th>Playoffs</th></tr>
+            </thead>
+            <tbody>
+              {[...teamHistory].reverse().map((s, i) => (
+                <tr key={i}>
+                  <td>{s.year}</td>
+                  <td>{s.wins}</td><td>{s.losses}</td>
+                  <td>{s.pointsFor}</td><td>{s.pointsAgainst}</td>
+                  <td className={s.pointsFor - s.pointsAgainst >= 0 ? 'pos' : 'neg'}>
+                    {s.pointsFor - s.pointsAgainst > 0 ? '+' : ''}{s.pointsFor - s.pointsAgainst}
+                  </td>
+                  <td className={s.championshipRound === 'champion' ? 'pos' : ''}>
+                    {formatPlayoffRound(s.madePlayoffs, s.championshipRound)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {history.retiredPlayers.length > 0 && (
+        <div className="history-section">
+          <div className="history-section-title">Retired Players</div>
+          <table className="history-table">
+            <thead><tr><th>Name</th><th>Pos</th><th>Year</th><th>Age</th><th>Final OVR</th></tr></thead>
+            <tbody>
+              {[...history.retiredPlayers].reverse().slice(0, 25).map(p => (
+                <tr key={p.playerId}>
+                  <td>{p.name}</td>
+                  <td className="muted">{p.position}</td>
+                  <td>{p.retirementYear}</td>
+                  <td>{p.finalAge}</td>
+                  <td>{p.finalOverall}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1785,8 +2786,11 @@ function DashboardView({ league, myTeamId, standings, onNavTo }: {
     .filter(g => g.status === 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId))
     .slice(-4).reverse();
 
-  // Latest news
-  const latestNews = (league.news ?? []).slice(0, 4);
+  // Latest news — prioritize my-team items, then show recent mix (up to 6)
+  const allNews = league.news ?? [];
+  const myTeamNews  = allNews.filter(n => n.teamIds.includes(myTeamId)).slice(0, 2);
+  const otherNews   = allNews.filter(n => !n.teamIds.includes(myTeamId)).slice(0, 4);
+  const latestNews  = [...myTeamNews, ...otherNews].slice(0, 6);
 
   return (
     <div className="dashboard">
@@ -1874,17 +2878,86 @@ function DashboardView({ league, myTeamId, standings, onNavTo }: {
         {latestNews.length > 0 && (
           <div className="dash-panel dash-panel-news">
             <div className="dash-panel-header">
-              <span className="dash-panel-title">Latest News</span>
+              <span className="dash-panel-title">League Feed</span>
               <button className="dash-panel-link" onClick={() => onNavTo('news')}>All →</button>
             </div>
             {latestNews.map(n => (
-              <div key={n.id} className="dash-news-row">
-                <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>{NEWS_TYPE_LABEL[n.type] ?? n.type}</span>
-                <span className="dash-news-headline">{n.headline}</span>
+              <div key={n.id} className={`dash-news-row${n.teamIds.includes(myTeamId) ? ' dash-news-mine' : ''}`}>
+                <div className="dash-news-top">
+                  <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>{NEWS_TYPE_LABEL[n.type] ?? n.type}</span>
+                  <span className="dash-news-headline">{n.headline}</span>
+                </div>
+                <div className="dash-news-body">{n.body}</div>
               </div>
             ))}
           </div>
         )}
+
+        {(() => {
+          const lastAwards = league.history.seasonAwards.length > 0
+            ? league.history.seasonAwards[league.history.seasonAwards.length - 1]
+            : null;
+          const majorTypes = ['MVP', 'OPOY', 'DPOY', 'Coach_of_Year'];
+          const majorAwards = lastAwards?.awards.filter(a => majorTypes.includes(a.type)) ?? [];
+          if (!lastAwards || majorAwards.length === 0) return null;
+          return (
+            <div className="dash-panel">
+              <div className="dash-panel-header">
+                <span className="dash-panel-title">{lastAwards.year} Season Awards</span>
+                <button className="dash-panel-link" onClick={() => onNavTo('awards')}>All →</button>
+              </div>
+              {majorAwards.map(a => (
+                <div key={a.type} className="dash-award-row">
+                  <span className="dash-award-label">{AWARD_LABELS[a.type] ?? a.type}</span>
+                  <span className="dash-award-winner">{a.playerName ?? a.coachName ?? '—'}</span>
+                  {a.teamName && <span className="dash-award-team muted">{a.teamName}</span>}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
+        {(() => {
+          const hof = league.history.hallOfFame ?? [];
+          if (hof.length === 0) return null;
+          const recent = hof.slice().sort((a, b) => b.inductionYear - a.inductionYear).slice(0, 4);
+          return (
+            <div className="dash-panel">
+              <div className="dash-panel-header">
+                <span className="dash-panel-title">Hall of Fame</span>
+                <button className="dash-panel-link" onClick={() => onNavTo('hof')}>View All →</button>
+              </div>
+              {recent.map(e => (
+                <div key={e.playerId} className="dash-hof-row">
+                  <span className="dash-hof-name">★ {e.name}</span>
+                  <span className="dash-hof-pos muted">{e.position}</span>
+                  <span className="dash-hof-year muted">{e.inductionYear}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
+        {(() => {
+          const rohAll = Object.values(league.history.ringOfHonor ?? {}).flat();
+          if (rohAll.length === 0) return null;
+          const recent = rohAll.slice().sort((a, b) => b.inductedYear - a.inductedYear).slice(0, 4);
+          return (
+            <div className="dash-panel">
+              <div className="dash-panel-header">
+                <span className="dash-panel-title">Ring of Honor</span>
+                <button className="dash-panel-link" onClick={() => onNavTo('legacy')}>View All →</button>
+              </div>
+              {recent.map(e => (
+                <div key={`${e.playerId}-roh`} className="dash-hof-row">
+                  <span className="dash-hof-name">{e.jerseyRetired ? '◈ ' : '◇ '}{e.name}</span>
+                  <span className="dash-hof-pos muted">{e.position}</span>
+                  <span className="dash-hof-year muted">{e.inductedYear}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         <div className="dash-panel dash-panel-links">
           <div className="dash-panel-header"><span className="dash-panel-title">Quick Access</span></div>
@@ -1896,6 +2969,9 @@ function DashboardView({ league, myTeamId, standings, onNavTo }: {
               ? ` (${league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending').length})`
               : ''}
           </button>
+          {league.history.seasonAwards.length > 0 && (
+            <button className="dash-link-btn" onClick={() => onNavTo('history')}>League History</button>
+          )}
         </div>
       </div>
     </div>
@@ -1980,42 +3056,243 @@ function StandingsView({ standings, userTeamId, divisions }: {
 
 // ── Playoff View ───────────────────────────────────────────────────────────────
 
-function PlayoffView({ playoff, teams, seasonHistory, busy, advanceBtnLabel, onAdvance }: {
+const AWARD_SHORT_LABELS: Record<string, string> = {
+  MVP:             'MVP',
+  OPOY:            'Off. Player of the Year',
+  DPOY:            'Def. Player of the Year',
+  OROY:            'Off. Rookie of the Year',
+  DROY:            'Def. Rookie of the Year',
+  Coach_of_Year:   'Coach of the Year',
+  Comeback_Player: 'Comeback Player',
+};
+
+function SeasonRecapView({ seasonHistory, history, teams, myTeamId, onViewPlayer }: {
+  seasonHistory: SeasonRecord[];
+  history: LeagueHistory;
+  teams: League['teams'];
+  myTeamId: string;
+  onViewPlayer?: (id: string) => void;
+}) {
+  const years = [...seasonHistory].reverse().map(r => r.year);
+  const [selectedYear, setSelectedYear] = useState<number>(years[0] ?? 0);
+
+  if (years.length === 0) {
+    return <p className="muted" style={{ padding: '1rem 0' }}>No completed seasons yet.</p>;
+  }
+
+  const champion   = history.championsByYear[selectedYear];
+  const yearAwards = history.seasonAwards.find(sa => sa.year === selectedYear);
+  const majorTypes = ['MVP', 'OPOY', 'DPOY', 'OROY', 'DROY', 'Coach_of_Year', 'Comeback_Player'];
+  const majorAwards = yearAwards?.awards.filter(a => majorTypes.includes(a.type)) ?? [];
+
+  // Runner-up: team with championshipRound === 'championship' for this year, not the champion
+  const allTeamSeasons = Object.entries(history.teamHistory)
+    .flatMap(([tid, seasons]) => seasons.map(s => ({ teamId: tid, ...s })));
+  const runnerUpEntry = allTeamSeasons.find(
+    s => s.year === selectedYear && s.championshipRound === 'championship' && s.teamId !== champion?.teamId,
+  );
+  const runnerUpTeam = teams.find(t => t.id === runnerUpEntry?.teamId);
+  const runnerUpName = runnerUpTeam?.name ?? runnerUpEntry?.teamId ?? null;
+
+  // Build a name map for player lookup
+  const nameMap = new Map<string, string>();
+  teams.forEach(t => t.roster.forEach(p => nameMap.set(p.id, p.name)));
+  history.retiredPlayers.forEach(r => nameMap.set(r.playerId, r.name));
+
+  // Season leaders from playerHistory for this year
+  const yearStats = Object.entries(history.playerHistory)
+    .flatMap(([pid, seasons]) => seasons.filter(s => s.year === selectedYear).map(s => ({ playerId: pid, ...s })));
+
+  type StatKey = keyof typeof yearStats[0];
+  function statLeader(key: StatKey): { playerId: string; name: string; value: number } | null {
+    if (yearStats.length === 0) return null;
+    const sorted = [...yearStats].sort((a, b) => (b[key] as number) - (a[key] as number));
+    const top = sorted[0];
+    if (!top || (top[key] as number) <= 0) return null;
+    return { playerId: top.playerId, name: nameMap.get(top.playerId) ?? top.playerId, value: top[key] as number };
+  }
+
+  const leaders: { label: string; key: StatKey }[] = [
+    { label: 'Passing Yards',  key: 'passingYards'        },
+    { label: 'Rushing Yards',  key: 'rushingYards'        },
+    { label: 'Receiving Yards', key: 'receivingYards'     },
+    { label: 'Passing TDs',    key: 'passingTDs'          },
+    { label: 'Rushing TDs',    key: 'rushingTDs'          },
+    { label: 'Sacks',          key: 'sacks'               },
+    { label: 'INTs',           key: 'interceptionsCaught' },
+  ];
+
+  // Playoff teams — sorted by how far they went
+  const roundOrder: Record<string, number> = { champion: 4, championship: 3, semifinal: 2 };
+  const playoffTeams = allTeamSeasons
+    .filter(s => s.year === selectedYear && s.madePlayoffs)
+    .sort((a, b) =>
+      (roundOrder[b.championshipRound ?? ''] ?? 1) - (roundOrder[a.championshipRound ?? ''] ?? 1),
+    );
+
+  const isMyTeam = (id: string) => id === myTeamId;
+
+  return (
+    <div className="season-recap">
+      <div className="recap-year-select">
+        <span className="recap-year-label">Season</span>
+        <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))}>
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </div>
+
+      {champion && (
+        <div className={`champion-block${isMyTeam(champion.teamId) ? ' user-champion' : ''}`}>
+          <div className="champion-trophy">🏆</div>
+          <div className="champion-year">{selectedYear} Champions</div>
+          <div className="champion-name">{champion.teamName}</div>
+          {runnerUpName && (
+            <div className="champion-runnerup">Runner-up: {runnerUpName}</div>
+          )}
+        </div>
+      )}
+
+      <div className="recap-grid">
+        {majorAwards.length > 0 && (
+          <div className="recap-section">
+            <h3>Awards</h3>
+            <div className="recap-awards-list">
+              {majorAwards.map(a => (
+                <div key={a.type} className={`recap-award-row${isMyTeam(a.teamId ?? '') ? ' user-row' : ''}`}>
+                  <span className="recap-award-type">{AWARD_SHORT_LABELS[a.type] ?? a.type}</span>
+                  {a.playerId && onViewPlayer
+                    ? <button className="pd-trigger" onClick={() => onViewPlayer(a.playerId!)}>{a.playerName ?? '—'}</button>
+                    : <span className="recap-award-name">{a.playerName ?? a.coachName ?? '—'}</span>}
+                  <span className="muted recap-award-team">{a.teamName ?? '—'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {yearStats.length > 0 && (
+          <div className="recap-section">
+            <h3>Season Leaders</h3>
+            <div className="recap-leaders-list">
+              {leaders.map(({ label, key }) => {
+                const leader = statLeader(key);
+                if (!leader) return null;
+                return (
+                  <div key={key} className="recap-leader-row">
+                    <span className="recap-leader-stat">{label}</span>
+                    {onViewPlayer
+                      ? <button className="pd-trigger" onClick={() => onViewPlayer(leader.playerId)}>{leader.name}</button>
+                      : <span className="recap-leader-name">{leader.name}</span>}
+                    <span className="recap-leader-val">{leader.value.toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {playoffTeams.length > 0 && (
+        <div className="recap-section recap-playoff-section">
+          <h3>Playoff Results</h3>
+          <div className="recap-playoff-grid">
+            {playoffTeams.map(p => {
+              const team = teams.find(t => t.id === p.teamId);
+              const resultLabel =
+                p.championshipRound === 'champion'      ? '🏆 Champion'    :
+                p.championshipRound === 'championship'  ? 'Runner-up'      :
+                p.championshipRound === 'semifinal'     ? 'Conf. Final'    : 'First Round';
+              return (
+                <div
+                  key={p.teamId}
+                  className={`recap-playoff-team${isMyTeam(p.teamId) ? ' user-team' : ''}${p.championshipRound === 'champion' ? ' champion' : ''}`}
+                >
+                  <span className="recap-po-name">{team?.name ?? p.teamId}</span>
+                  <span className="recap-po-record">{p.wins}–{p.losses}</span>
+                  <span className="recap-po-result">{resultLabel}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlayoffView({ playoff, teams, seasonHistory, history, myTeamId, busy, advanceBtnLabel, onAdvance, onViewPlayer }: {
   playoff?: PlayoffBracket;
   teams: League['teams'];
   seasonHistory: SeasonRecord[];
+  history: LeagueHistory;
+  myTeamId: string;
   busy: boolean;
   advanceBtnLabel: string;
   onAdvance: () => void;
+  onViewPlayer?: (id: string) => void;
 }) {
-  const teamName = (id: string) => teams.find(t => t.id === id)?.name ?? id;
-  const done = advanceBtnLabel === 'Season Complete' || advanceBtnLabel === 'Draft In Progress';
+  const [mode, setMode] = useState<'bracket' | 'recap'>('bracket');
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+
+  const teamName  = (id: string) => teams.find(t => t.id === id)?.name ?? id;
+  const isMyTeam  = (id: string) => id === myTeamId;
+  const done      = advanceBtnLabel === 'Season Complete' || advanceBtnLabel === 'Draft In Progress';
+  const hasHistory = seasonHistory.length > 0;
 
   const ROUND_LABELS: Record<string, string> = {
     wildcard: 'Wild Card', divisional: 'Divisional', conference: 'Conference', championship: 'Championship',
   };
   const ROUND_ORDER = ['wildcard', 'divisional', 'conference', 'championship'];
 
-  // Group matchups by round, only show rounds that have matchups
   const roundGroups = ROUND_ORDER.map(r => ({
     round: r,
     label: ROUND_LABELS[r]!,
     matchups: playoff?.matchups.filter(m => m.round === r) ?? [],
   })).filter(g => g.matchups.length > 0);
 
-  function MatchupRow({ m }: { m: PlayoffBracket['matchups'][0] }) {
-    const topSeed   = m.topSeed   !== undefined ? `(${m.topSeed}) ` : '';
-    const botSeed   = m.bottomSeed !== undefined ? `(${m.bottomSeed}) ` : '';
-    const confLabel = m.conference ? `[${m.conference}] ` : '';
+  function MatchupCard({ m, isChampionship }: { m: PlayoffBracket['matchups'][0]; isChampionship?: boolean }) {
+    // Derive per-team scores from the game object
+    const topScore = m.game
+      ? (m.game.homeTeam.id === m.topSeedId ? m.game.homeScore : m.game.awayScore)
+      : null;
+    const botScore = m.game
+      ? (m.game.homeTeam.id === m.bottomSeedId ? m.game.homeScore : m.game.awayScore)
+      : null;
+    const topWon   = !!m.winnerId && m.winnerId === m.topSeedId;
+    const botWon   = !!m.winnerId && m.winnerId === m.bottomSeedId;
+    const isPlayed = !!m.winnerId;
+
     return (
-      <div className="playoff-matchup">
-        <span className="playoff-conf">{confLabel}</span>
-        <span className={m.winnerId === m.topSeedId ? 'po-winner' : 'po-team'}>{topSeed}{teamName(m.topSeedId)}</span>
-        <span className="vs"> vs </span>
-        <span className={m.winnerId === m.bottomSeedId ? 'po-winner' : 'po-team'}>{botSeed}{teamName(m.bottomSeedId)}</span>
-        {m.game
-          ? <span className="playoff-score"> — {m.game.homeScore}–{m.game.awayScore}</span>
-          : <span className="muted"> (pending)</span>}
+      <div
+        className={`po-matchup-card${isChampionship ? ' po-championship-card' : ''}${m.game ? ' po-clickable' : ''}`}
+        onClick={() => m.game && setSelectedGame(m.game)}
+        title={m.game ? 'Click to view box score' : undefined}
+      >
+        {m.conference && <div className="po-conf-badge">{m.conference}</div>}
+        <div className="po-matchup-inner">
+          <div className={[
+            'po-team-row',
+            topWon ? 'winner' : (isPlayed ? 'loser' : ''),
+            isMyTeam(m.topSeedId) ? 'my-team' : '',
+          ].filter(Boolean).join(' ')}>
+            {m.topSeed !== undefined && <span className="po-seed">{m.topSeed}</span>}
+            <span className="po-name">{teamName(m.topSeedId)}</span>
+            {topScore !== null && <span className="po-score">{topScore}</span>}
+            {topWon && <span className="po-win-mark">✓</span>}
+          </div>
+          <div className={[
+            'po-team-row',
+            botWon ? 'winner' : (isPlayed ? 'loser' : ''),
+            isMyTeam(m.bottomSeedId) ? 'my-team' : '',
+          ].filter(Boolean).join(' ')}>
+            {m.bottomSeed !== undefined && <span className="po-seed">{m.bottomSeed}</span>}
+            <span className="po-name">{teamName(m.bottomSeedId)}</span>
+            {botScore !== null && <span className="po-score">{botScore}</span>}
+            {botWon && <span className="po-win-mark">✓</span>}
+          </div>
+          {!isPlayed && <div className="po-pending">TBD</div>}
+        </div>
+        {m.game && <div className="po-click-hint">box score</div>}
       </div>
     );
   }
@@ -2029,27 +3306,78 @@ function PlayoffView({ playoff, teams, seasonHistory, busy, advanceBtnLabel, onA
         </button>
       </div>
 
-      {playoff?.championId && (
-        <div className="champion-banner">
-          {playoff.year} Champion: <strong>{playoff.championName}</strong>
+      {(playoff?.championId || hasHistory) && (
+        <div className="po-mode-tabs">
+          <button className={mode === 'bracket' ? 'active' : ''} onClick={() => setMode('bracket')}>Bracket</button>
+          {hasHistory && (
+            <button className={mode === 'recap' ? 'active' : ''} onClick={() => setMode('recap')}>Season Recap</button>
+          )}
         </div>
       )}
 
-      {!playoff && <p className="muted">Playoffs have not started yet.</p>}
+      {mode === 'bracket' && (
+        <>
+          {playoff?.championId && (
+            <div className={`champion-banner${isMyTeam(playoff.championId) ? ' champion-banner-mine' : ''}`}>
+              🏆 {playoff.year} Champions: <strong>{playoff.championName}</strong>
+            </div>
+          )}
 
-      {roundGroups.map(g => (
-        <div key={g.round} className="playoff-round">
-          <h3>{g.label}</h3>
-          {g.matchups.map(m => <MatchupRow key={m.id} m={m} />)}
-        </div>
-      ))}
+          {!playoff && <p className="muted">Playoffs have not started yet.</p>}
 
-      {seasonHistory.length > 0 && (
-        <div className="playoff-round">
-          <h3>Past Champions</h3>
-          {[...seasonHistory].reverse().map(r => (
-            <div key={r.year} className="history-item">{r.year}: {r.championName}</div>
+          {roundGroups.map(g => (
+            <div key={g.round} className="po-round-section">
+              <h3 className={`po-round-title${g.round === 'championship' ? ' championship' : ''}`}>
+                {g.label}
+              </h3>
+              <div className={`po-matchups${g.round === 'championship' ? ' po-matchups-championship' : ''}`}>
+                {g.matchups.map(m => (
+                  <MatchupCard key={m.id} m={m} isChampionship={g.round === 'championship'} />
+                ))}
+              </div>
+            </div>
           ))}
+
+          {seasonHistory.length > 0 && (
+            <div className="po-round-section">
+              <h3 className="po-round-title">Past Champions</h3>
+              <div className="po-past-champions">
+                {[...seasonHistory].reverse().map(r => (
+                  <div key={r.year} className={`po-past-champion-row${r.championId === myTeamId ? ' my-team' : ''}`}>
+                    <span className="po-past-year">{r.year}</span>
+                    <span className="po-past-name">{r.championName}</span>
+                    {r.championId === myTeamId && <span className="po-past-mine">★</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {mode === 'recap' && hasHistory && (
+        <SeasonRecapView
+          seasonHistory={seasonHistory}
+          history={history}
+          teams={teams}
+          myTeamId={myTeamId}
+          onViewPlayer={onViewPlayer}
+        />
+      )}
+
+      {selectedGame && (
+        <div className="pd-overlay" onClick={() => setSelectedGame(null)}>
+          <div className="pd-modal po-game-modal" onClick={e => e.stopPropagation()}>
+            <div className="pd-header">
+              <span className="pd-name">
+                {selectedGame.awayTeam.name} @ {selectedGame.homeTeam.name}
+              </span>
+              <button className="pd-close" onClick={() => setSelectedGame(null)}>✕</button>
+            </div>
+            <div style={{ padding: '0 1rem 1rem' }}>
+              <GameDetail game={selectedGame} />
+            </div>
+          </div>
         </div>
       )}
     </section>
@@ -2360,50 +3688,593 @@ function ActivityFeed({ activities }: { activities: Activity[] }) {
   );
 }
 
+// ── Hall of Fame ───────────────────────────────────────────────────────────────
+
+const HOF_CONFIG = {
+  inductionThreshold: 120,
+  longevityPerYear:   3,
+  championshipBonus:  20,
+  rankBonus: { top3: 25, top5: 15, top10: 8 },
+  awardPoints: { MVP: 30, OPOY: 20, DPOY: 20, OROY: 10, DROY: 10, AllPro1: 15, AllPro2: 8, Comeback_Player: 10 } as Record<string, number>,
+  statWeights: {
+    QB:  { passingYards: 0.018, passingTDs: 5.0, rushingYards: 0.008, rushingTDs: 3.0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
+    RB:  { passingYards: 0, passingTDs: 0, rushingYards: 0.050, rushingTDs: 6.0, receivingYards: 0.015, receivingTDs: 3.0, receptions: 0.20, sacks: 0, interceptionsCaught: 0 },
+    WR:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0.050, receivingTDs: 6.0, receptions: 0.40, sacks: 0, interceptionsCaught: 0 },
+    TE:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0.050, receivingTDs: 6.0, receptions: 0.40, sacks: 0, interceptionsCaught: 0 },
+    OL:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
+    DL:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 10.0, interceptionsCaught: 4.0 },
+    LB:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 8.0, interceptionsCaught: 6.0 },
+    CB:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 3.0, interceptionsCaught: 12.0 },
+    SAF: { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 4.0, interceptionsCaught: 10.0 },
+    ST:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
+  } as Record<string, Record<string, number>>,
+  tierThresholds: { outside_shot: 30, building: 55, strong: 80, likely: 100, hall_of_famer: 120 },
+};
+
+const PRIMARY_STATS_CLIENT: Record<string, string[]> = {
+  QB: ['passingYards', 'passingTDs'], RB: ['rushingYards', 'rushingTDs'],
+  WR: ['receivingYards', 'receivingTDs'], TE: ['receivingYards', 'receivingTDs'],
+  OL: [], DL: ['sacks'], LB: ['sacks', 'interceptionsCaught'],
+  CB: ['interceptionsCaught'], SAF: ['interceptionsCaught'], ST: [],
+};
+
+function getPositionGroupClient(position: string): string {
+  switch (position) {
+    case 'QB':                       return 'QB';
+    case 'RB':                       return 'RB';
+    case 'WR':                       return 'WR';
+    case 'TE':                       return 'TE';
+    case 'OT': case 'OG': case 'C': return 'OL';
+    case 'DE': case 'DT':            return 'DL';
+    case 'OLB': case 'MLB':          return 'LB';
+    case 'CB':                       return 'CB';
+    case 'FS': case 'SS':            return 'SAF';
+    default:                         return 'ST';
+  }
+}
+
+function computeClientLegacyScore(playerId: string, position: string, history: LeagueHistory): number {
+  const seasons = history.playerHistory[playerId];
+  if (!seasons || seasons.length === 0) return 0;
+
+  const posGroup = getPositionGroupClient(position);
+  const w = HOF_CONFIG.statWeights[posGroup];
+
+  // Career totals
+  let pYds = 0, pTDs = 0, rYds = 0, rTDs = 0, recYds = 0, recTDs = 0, rec = 0, sacks = 0, intC = 0;
+  for (const s of seasons) {
+    pYds   += s.passingYards;        pTDs  += s.passingTDs;
+    rYds   += s.rushingYards;        rTDs  += s.rushingTDs;
+    recYds += s.receivingYards;      recTDs += s.receivingTDs;
+    rec    += s.receptions;          sacks  += s.sacks;
+    intC   += s.interceptionsCaught;
+  }
+
+  let score = 0;
+  score += pYds   * w.passingYards;
+  score += pTDs   * w.passingTDs;
+  score += rYds   * w.rushingYards;
+  score += rTDs   * w.rushingTDs;
+  score += recYds * w.receivingYards;
+  score += recTDs * w.receivingTDs;
+  score += rec    * w.receptions;
+  score += sacks  * w.sacks;
+  score += intC   * w.interceptionsCaught;
+  score += seasons.length * HOF_CONFIG.longevityPerYear;
+
+  // Awards
+  for (const sa of history.seasonAwards) {
+    for (const a of sa.awards) {
+      if (a.playerId !== playerId) continue;
+      score += HOF_CONFIG.awardPoints[a.type] ?? 0;
+    }
+  }
+
+  // Championships
+  for (const s of seasons) {
+    if (history.championsByYear[s.year]?.teamId === s.teamId) {
+      score += HOF_CONFIG.championshipBonus;
+    }
+  }
+
+  // All-time rank bonus
+  const primStats = PRIMARY_STATS_CLIENT[posGroup] ?? [];
+  for (const stat of primStats) {
+    const leaders = Object.entries(history.playerHistory)
+      .map(([pid, pSeasons]) => ({
+        playerId: pid,
+        total: pSeasons.reduce((sum, s) => sum + ((s as Record<string, number>)[stat] ?? 0), 0),
+      }))
+      .filter(e => e.total > 0)
+      .sort((a, b) => b.total - a.total);
+    const rank = leaders.findIndex(e => e.playerId === playerId) + 1;
+    if (rank <= 0) continue;
+    if (rank <= 3)       score += HOF_CONFIG.rankBonus.top3;
+    else if (rank <= 5)  score += HOF_CONFIG.rankBonus.top5;
+    else if (rank <= 10) score += HOF_CONFIG.rankBonus.top10;
+  }
+
+  return Math.round(score);
+}
+
+function computeClientLegacyTier(score: number): LegacyTier {
+  const t = HOF_CONFIG.tierThresholds;
+  if (score >= t.hall_of_famer) return 'hall_of_famer';
+  if (score >= t.likely)        return 'likely';
+  if (score >= t.strong)        return 'strong';
+  if (score >= t.building)      return 'building';
+  if (score >= t.outside_shot)  return 'outside_shot';
+  return 'none';
+}
+
+function getLegacyLabel(tier: LegacyTier): string {
+  switch (tier) {
+    case 'hall_of_famer': return 'Hall of Famer';
+    case 'likely':        return 'Likely HoFer';
+    case 'strong':        return 'Strong Candidate';
+    case 'building':      return 'Building a Case';
+    case 'outside_shot':  return 'Outside Shot';
+    default:              return 'No Case';
+  }
+}
+
+function LegacyMeter({ score, tier }: { score: number; tier: LegacyTier }) {
+  const maxScore = HOF_CONFIG.tierThresholds.hall_of_famer + 30; // a bit above threshold for visual
+  const pct = Math.min(100, Math.round((score / maxScore) * 100));
+  const tierColor: Record<LegacyTier, string> = {
+    hall_of_famer: '#fbbf24',
+    likely:        '#a78bfa',
+    strong:        '#34d399',
+    building:      '#60a5fa',
+    outside_shot:  '#94a3b8',
+    none:          '#475569',
+  };
+  const color = tierColor[tier];
+  return (
+    <div className="legacy-meter">
+      <div className="legacy-meter-header">
+        <span className="legacy-meter-label" style={{ color }}>
+          {tier === 'hall_of_famer' ? '★ ' : ''}{getLegacyLabel(tier)}
+        </span>
+        <span className="legacy-meter-score">{score} pts</span>
+      </div>
+      <div className="legacy-meter-bar-bg">
+        <div className="legacy-meter-bar-fill" style={{ width: `${pct}%`, background: color }} />
+        <div
+          className="legacy-meter-threshold"
+          style={{ left: `${Math.round((HOF_CONFIG.tierThresholds.hall_of_famer / maxScore) * 100)}%` }}
+          title="HoF threshold"
+        />
+      </div>
+    </div>
+  );
+}
+
+function HallOfFameView({ history, teams, onViewPlayer }: {
+  history: LeagueHistory;
+  teams: League['teams'];
+  onViewPlayer?: (id: string) => void;
+}) {
+  const [posFilter, setPosFilter] = useState('all');
+  const [teamFilter, setTeamFilter] = useState('all');
+  const [viewMode, setViewMode] = useState<'inducted' | 'watch'>('inducted');
+
+  const hof = history.hallOfFame ?? [];
+
+  // Build near-HoF watch list from retired players not yet inducted
+  const inducedIds = new Set(hof.map(e => e.playerId));
+  const watchList = useMemo(() => {
+    return history.retiredPlayers
+      .filter(r => !inducedIds.has(r.playerId))
+      .map(r => {
+        const score = computeClientLegacyScore(r.playerId, r.position, history);
+        const tier  = computeClientLegacyTier(score);
+        return { ...r, score, tier };
+      })
+      .filter(r => r.score >= HOF_CONFIG.tierThresholds.outside_shot)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 20);
+  }, [history]);
+
+  // Position groups for filter
+  const positions = useMemo(() => {
+    const posSet = new Set(hof.map(e => e.position));
+    return Array.from(posSet).sort();
+  }, [hof]);
+
+  // Teams for filter
+  const teamOptions = useMemo(() => {
+    const tSet = new Set<string>();
+    for (const e of hof) for (const tid of e.teamIds) tSet.add(tid);
+    return Array.from(tSet)
+      .map(tid => ({ id: tid, name: teams.find(t => t.id === tid)?.name ?? tid }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [hof, teams]);
+
+  const filtered = hof.filter(e => {
+    if (posFilter !== 'all' && e.position !== posFilter) return false;
+    if (teamFilter !== 'all' && !e.teamIds.includes(teamFilter)) return false;
+    return true;
+  });
+
+  // Group by induction year
+  const byYear = useMemo(() => {
+    const map = new Map<number, HallOfFameEntry[]>();
+    for (const e of filtered) {
+      const arr = map.get(e.inductionYear) ?? [];
+      arr.push(e);
+      map.set(e.inductionYear, arr);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[0] - a[0]);
+  }, [filtered]);
+
+  return (
+    <section className="hof-view">
+      <div className="hof-header">
+        <h2>Hall of Fame</h2>
+        <span className="hof-count">{hof.length} inductees</span>
+      </div>
+
+      <div className="hof-mode-tabs">
+        <button className={viewMode === 'inducted' ? 'active' : ''} onClick={() => setViewMode('inducted')}>
+          Inducted ({hof.length})
+        </button>
+        <button className={viewMode === 'watch' ? 'active' : ''} onClick={() => setViewMode('watch')}>
+          Watch List ({watchList.length})
+        </button>
+      </div>
+
+      {viewMode === 'inducted' ? (
+        <>
+          {/* Filters */}
+          <div className="hof-filters">
+            <select value={posFilter} onChange={e => setPosFilter(e.target.value)}>
+              <option value="all">All Positions</option>
+              {positions.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <select value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
+              <option value="all">All Teams</option>
+              {teamOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+
+          {filtered.length === 0 ? (
+            <p className="muted hof-empty">No inductees yet. Players are evaluated for the Hall of Fame after retirement.</p>
+          ) : (
+            byYear.map(([year, entries]) => (
+              <div key={year} className="hof-class">
+                <div className="hof-class-header">{year} Induction Class</div>
+                <div className="hof-cards">
+                  {entries.map(e => (
+                    <HofCard key={e.playerId} entry={e} onViewPlayer={onViewPlayer} />
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </>
+      ) : (
+        <div className="hof-watch-list">
+          {watchList.length === 0 ? (
+            <p className="muted hof-empty">No retired players with enough legacy score to track.</p>
+          ) : (
+            watchList.map(r => (
+              <div key={r.playerId} className="hof-watch-row">
+                <div className="hof-watch-info">
+                  <span className="hof-watch-name">{r.name}</span>
+                  <span className="hof-watch-pos">{r.position}</span>
+                  <span className="hof-watch-years muted">Ret. {r.retirementYear}</span>
+                </div>
+                <LegacyMeter score={r.score} tier={r.tier} />
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HofCard({ entry, onViewPlayer }: { entry: HallOfFameEntry; onViewPlayer?: (id: string) => void }) {
+  const cs = entry.careerStats;
+  const hasPassing   = cs.passingYards > 0;
+  const hasRushing   = cs.rushingYards > 0;
+  const hasReceiving = cs.receivingYards > 0;
+  const hasDefense   = cs.sacks > 0 || cs.interceptionsCaught > 0;
+
+  return (
+    <div className="hof-card" onClick={() => onViewPlayer?.(entry.playerId)}>
+      <div className="hof-card-header">
+        <span className="hof-card-name">{entry.name}</span>
+        <span className="hof-card-badge">{entry.position}</span>
+      </div>
+      <div className="hof-card-teams muted">{entry.teamNames.join(' · ')}</div>
+      <div className="hof-card-meta">
+        <span>{entry.yearsPlayed} seasons</span>
+        {entry.championships > 0 && <span className="hof-card-rings">{'★'.repeat(entry.championships)} Ring{entry.championships > 1 ? 's' : ''}</span>}
+      </div>
+      <div className="hof-card-stats">
+        {hasPassing   && <span>{cs.passingYards.toLocaleString()} Pass Yds · {cs.passingTDs} TD</span>}
+        {hasRushing   && <span>{cs.rushingYards.toLocaleString()} Rush Yds · {cs.rushingTDs} TD</span>}
+        {hasReceiving && <span>{cs.receivingYards.toLocaleString()} Rec Yds · {cs.receivingTDs} TD</span>}
+        {hasDefense   && <span>{cs.sacks > 0 ? `${cs.sacks} Sacks` : ''}{cs.sacks > 0 && cs.interceptionsCaught > 0 ? ' · ' : ''}{cs.interceptionsCaught > 0 ? `${cs.interceptionsCaught} INT` : ''}</span>}
+        {!hasPassing && !hasRushing && !hasReceiving && !hasDefense && <span className="muted">Lineman</span>}
+      </div>
+      <div className="hof-card-awards">
+        {Object.entries(entry.awardsCount).map(([type, count]) => (
+          <span key={type} className="hof-award-chip">{count > 1 ? `${count}x ` : ''}{type.replace(/_/g, ' ')}</span>
+        ))}
+      </div>
+      <div className="hof-card-score">Legacy Score: {entry.legacyScore}</div>
+    </div>
+  );
+}
+
+// ── Ring of Honor View ─────────────────────────────────────────────────────────
+
+function RingOfHonorView({ history, teams, myTeamId, onViewPlayer }: {
+  history: LeagueHistory;
+  teams: League['teams'];
+  myTeamId: string;
+  onViewPlayer?: (id: string) => void;
+}) {
+  const rohAll = history.ringOfHonor ?? {};
+  const [selectedTeamId, setSelectedTeamId] = useState<string>(myTeamId);
+  const [posFilter, setPosFilter] = useState<string>('all');
+
+  // Teams that have at least one Ring of Honor entry
+  const teamsWithRoH = teams.filter(t => (rohAll[t.id] ?? []).length > 0);
+
+  const entries: RingOfHonorEntry[] = rohAll[selectedTeamId] ?? [];
+  const positions = ['all', ...new Set(entries.map(e => e.position))].sort();
+  const filtered  = posFilter === 'all' ? entries : entries.filter(e => e.position === posFilter);
+  const sorted    = [...filtered].sort((a, b) => b.teamLegacyScore - a.teamLegacyScore);
+
+  const selectedTeamName = teams.find(t => t.id === selectedTeamId)?.name ?? selectedTeamId;
+
+  if (teamsWithRoH.length === 0 && (rohAll[myTeamId] ?? []).length === 0) {
+    return (
+      <section className="gp-view">
+        <h2>Ring of Honor</h2>
+        <p className="muted">No players have been inducted into any Ring of Honor yet. Check back after players retire.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="gp-view roh-view">
+      <h2>Ring of Honor</h2>
+
+      {/* Team selector */}
+      <div className="roh-team-tabs">
+        {teamsWithRoH.map(t => (
+          <button
+            key={t.id}
+            className={`roh-team-tab${t.id === selectedTeamId ? ' active' : ''}`}
+            onClick={() => { setSelectedTeamId(t.id); setPosFilter('all'); }}
+          >
+            {t.abbreviation}
+          </button>
+        ))}
+      </div>
+
+      <div className="roh-header">
+        <h3>{selectedTeamName} Ring of Honor</h3>
+        {entries.length > 0 && (
+          <div className="roh-pos-filter">
+            {positions.map(pos => (
+              <button
+                key={pos}
+                className={`roh-pos-btn${posFilter === pos ? ' active' : ''}`}
+                onClick={() => setPosFilter(pos)}
+              >
+                {pos === 'all' ? 'All' : pos}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {sorted.length === 0 ? (
+        <p className="muted">No honorees for this team yet.</p>
+      ) : (
+        <div className="roh-table-wrap">
+          <table className="roh-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Pos</th>
+                <th>Yrs</th>
+                <th>Score</th>
+                <th>Rings</th>
+                <th>Inducted</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(e => (
+                <tr key={e.playerId} className={e.jerseyRetired ? 'roh-jersey-row' : ''}>
+                  <td>
+                    <span className="roh-player-name">
+                      {e.jerseyRetired && <span className="roh-jersey-icon" title="Jersey Retired">◈ </span>}
+                      {onViewPlayer
+                        ? <button className="player-link" onClick={() => onViewPlayer(e.playerId)}>{e.name}</button>
+                        : e.name
+                      }
+                    </span>
+                  </td>
+                  <td className="muted">{e.position}</td>
+                  <td className="muted">{e.yearsWithTeam}</td>
+                  <td className="ovr-cell">{e.teamLegacyScore}</td>
+                  <td>{e.championshipsWithTeam > 0 ? '★'.repeat(e.championshipsWithTeam) : <span className="muted">—</span>}</td>
+                  <td className="muted">{e.inductedYear}</td>
+                  <td>
+                    {Object.entries(e.awardsWithTeam).map(([type, count]) => (
+                      <span key={type} className="hof-award-chip">{count > 1 ? `${count}x ` : ''}{type.replace(/_/g, ' ')}</span>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="muted coaching-note">
+        Ring of Honor recognizes franchise legends based only on contributions to this specific team — seasons, championships, and awards earned here. ◈ indicates a retired jersey.
+      </p>
+    </section>
+  );
+}
+
 // ── News ───────────────────────────────────────────────────────────────────────
 
 const NEWS_TYPE_LABEL: Record<string, string> = {
-  game_result:    'Game',
-  playoff_result: 'Playoffs',
-  championship:   'Championship',
-  award:          'Award',
-  signing:        'Signing',
-  trade:          'Trade',
-  retirement:     'Retirement',
+  game_result:     'Game',
+  playoff_result:  'Playoffs',
+  championship:    'Championship',
+  award:           'Award',
+  signing:         'Signing',
+  trade:           'Trade',
+  retirement:      'Retirement',
+  draft_pick:      'Draft',
+  big_performance: 'Performance',
+  upset:           'Upset',
+  weekly_recap:    'Recap',
+  milestone:       'Milestone',
+  stat_race:       'Stat Race',
+  streak:          'Streak',
+  hall_of_fame:    'Hall of Fame',
+  coach_change:    'Coaching',
+  ring_of_honor:   'Ring of Honor',
+  retired_jersey:  'Retired Jersey',
 };
 
 const NEWS_TYPE_CLASS: Record<string, string> = {
-  game_result:    'news-game',
-  playoff_result: 'news-playoff',
-  championship:   'news-championship',
-  award:          'news-award',
-  signing:        'news-signing',
-  trade:          'news-trade',
-  retirement:     'news-retirement',
+  game_result:     'news-game',
+  playoff_result:  'news-playoff',
+  championship:    'news-championship',
+  award:           'news-award',
+  signing:         'news-signing',
+  trade:           'news-trade',
+  retirement:      'news-retirement',
+  draft_pick:      'news-draft',
+  big_performance: 'news-perf',
+  upset:           'news-upset',
+  weekly_recap:    'news-recap',
+  milestone:       'news-milestone',
+  stat_race:       'news-stat-race',
+  streak:          'news-streak',
+  hall_of_fame:    'news-hof',
+  coach_change:    'news-coaching',
+  ring_of_honor:   'news-roh',
+  retired_jersey:  'news-roh',
 };
 
-function NewsView({ news }: { news: NewsItem[] }) {
+// Map news types to filter categories
+const NEWS_FILTER_CATEGORY: Record<string, string> = {
+  game_result:     'games',
+  playoff_result:  'games',
+  championship:    'games',
+  upset:           'games',
+  big_performance: 'games',
+  award:           'awards',
+  signing:         'transactions',
+  trade:           'transactions',
+  draft_pick:      'transactions',
+  retirement:      'transactions',
+  weekly_recap:    'milestones',
+  milestone:       'milestones',
+  stat_race:       'milestones',
+  streak:          'milestones',
+  hall_of_fame:    'awards',
+  coach_change:    'transactions',
+  ring_of_honor:   'awards',
+  retired_jersey:  'awards',
+};
+
+type NewsFilter = 'all' | 'games' | 'transactions' | 'awards' | 'milestones';
+
+function NewsView({ news, myTeamId, onViewPlayer }: {
+  news: NewsItem[];
+  myTeamId: string;
+  onViewPlayer?: (id: string) => void;
+}) {
+  const [filter, setFilter] = useState<NewsFilter>('all');
+
+  const filtered = filter === 'all'
+    ? news
+    : news.filter(n => (NEWS_FILTER_CATEGORY[n.type] ?? 'other') === filter);
+
+  const filters: { id: NewsFilter; label: string }[] = [
+    { id: 'all',          label: 'All' },
+    { id: 'games',        label: 'Games' },
+    { id: 'transactions', label: 'Transactions' },
+    { id: 'awards',       label: 'Awards' },
+  ];
+
   return (
-    <section>
-      <h2>News</h2>
-      {news.length === 0
-        ? <p className="muted">No news yet — play some games!</p>
-        : news.map(n => (
-          <div key={n.id} className={`news-item ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>
-            <div className="news-header">
-              <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>
-                {NEWS_TYPE_LABEL[n.type] ?? n.type}
-              </span>
-              <span className="news-meta">
-                {n.week > 0 ? `Wk ${n.week} · ` : ''}{n.year}
-              </span>
-            </div>
-            <div className="news-headline">{n.headline}</div>
-            <div className="news-body">{n.body}</div>
-          </div>
+    <section className="news-section">
+      <div className="news-page-header">
+        <h2>League News</h2>
+      </div>
+      <div className="news-filter-bar">
+        {filters.map(f => (
+          <button
+            key={f.id}
+            className={`news-filter-btn${filter === f.id ? ' active' : ''}`}
+            onClick={() => setFilter(f.id)}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+      {filtered.length === 0
+        ? <p className="muted" style={{ padding: '1rem 0' }}>
+            {news.length === 0 ? 'No news yet — play some games!' : 'No news in this category.'}
+          </p>
+        : filtered.map(n => (
+          <NewsCard
+            key={n.id}
+            item={n}
+            isMyTeam={n.teamIds.includes(myTeamId)}
+            onViewPlayer={onViewPlayer}
+          />
         ))
       }
     </section>
+  );
+}
+
+function NewsCard({ item: n, isMyTeam, onViewPlayer }: {
+  item: NewsItem;
+  isMyTeam: boolean;
+  onViewPlayer?: (id: string) => void;
+}) {
+  const playerMentions = n.mentions?.filter(m => m.entityType === 'player') ?? [];
+  return (
+    <div className={`news-item ${NEWS_TYPE_CLASS[n.type] ?? ''}${isMyTeam ? ' news-item-mine' : ''}`}>
+      <div className="news-header">
+        <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>
+          {NEWS_TYPE_LABEL[n.type] ?? n.type}
+        </span>
+        <span className="news-meta">
+          {n.week > 0 ? `Wk ${n.week} · ` : ''}{n.year}
+        </span>
+        {isMyTeam && <span className="news-mine-dot" title="Involves your team" />}
+      </div>
+      <div className="news-headline">{n.headline}</div>
+      <div className="news-body">{n.body}</div>
+      {playerMentions.length > 0 && onViewPlayer && (
+        <div className="news-mentions">
+          {playerMentions.map(m => (
+            <button key={m.id} className="news-mention-btn" onClick={() => onViewPlayer(m.id)}>
+              {m.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2455,26 +4326,31 @@ function assetLabel(asset: TradeAsset): string {
 type PickAsset = Extract<TradeAsset, { type: 'pick' }>;
 
 function getOwnedPicks(league: League, teamId: string): PickAsset[] {
-  const draftYear = league.draft?.year ?? (league.currentSeason.year + 1);
-  const ownership = league.draftPickOwnership ?? {};
+  const nextYear  = league.draft?.year ?? (league.currentSeason.year + 1);
+  const futureYear = nextYear + 1;
+  const ownership  = league.draftPickOwnership ?? {};
   const picks: PickAsset[] = [];
-  for (const team of league.teams) {
-    for (let round = 1; round <= 7; round++) {
-      const key   = `${draftYear}:${round}:${team.id}`;
-      const owner = ownership[key] ?? team.id;
-      if (owner === teamId) {
-        picks.push({ type: 'pick', year: draftYear, round, originalTeamId: team.id, originalTeamName: team.name });
+  for (const year of [nextYear, futureYear]) {
+    for (const team of league.teams) {
+      for (let round = 1; round <= 7; round++) {
+        const key   = `${year}:${round}:${team.id}`;
+        const owner = ownership[key] ?? team.id;
+        if (owner === teamId) {
+          picks.push({ type: 'pick', year, round, originalTeamId: team.id, originalTeamName: team.name });
+        }
       }
     }
   }
   return picks;
 }
 
-function TradesView({ league, myTeamId, onPropose, onRespond }: {
+function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, onShopPlayer }: {
   league: League;
   myTeamId: string;
+  busy: boolean;
   onPropose: (toTeamId: string, fromAssets: TradeAsset[], toAssets: TradeAsset[]) => Promise<void>;
   onRespond: (proposalId: string, accept: boolean) => Promise<void>;
+  onShopPlayer: (playerId: string) => Promise<number>;
 }) {
   const [respondBusy, setRespondBusy] = useState<string | null>(null);
   const [respondError, setRespondError] = useState<string | null>(null);
@@ -2485,6 +4361,10 @@ function TradesView({ league, myTeamId, onPropose, onRespond }: {
   const [receiveSet,    setReceiveSet]     = useState<Set<string>>(new Set());
   const [proposeBusy,   setProposeBusy]   = useState(false);
   const [proposeError,  setProposeError]  = useState<string | null>(null);
+
+  // Shop player state
+  const [shopPlayerId,  setShopPlayerId]  = useState('');
+  const [shopStatus,    setShopStatus]    = useState<string | null>(null);
 
   const incoming = league.tradeProposals.filter(p => p.toTeamId === myTeamId && p.status === 'pending');
   const history  = league.tradeProposals.filter(p =>
@@ -2534,6 +4414,12 @@ function TradesView({ league, myTeamId, onPropose, onRespond }: {
   const giveVal    = fromAssets.reduce((s, a) => s + assetDisplayValue(a), 0);
   const recvVal    = toAssets.reduce((s, a) => s + assetDisplayValue(a), 0);
 
+  // Cap impact for user after this trade
+  const myPayroll       = myTeam.roster.reduce((s, p) => s + p.salary, 0);
+  const outgoingSalary  = fromAssets.reduce((s, a) => a.type === 'player' ? s + (myTeam.roster.find(p => p.id === a.playerId)?.salary ?? 0) : s, 0);
+  const incomingSalary  = toAssets.reduce((s, a) => a.type === 'player' ? s + (targetTeam?.roster.find(p => p.id === a.playerId)?.salary ?? 0) : s, 0);
+  const postTradePayroll = myPayroll - outgoingSalary + incomingSalary;
+
   async function submitProposal() {
     if (!targetTeamId || (fromAssets.length === 0 && toAssets.length === 0)) return;
     setProposeBusy(true); setProposeError(null);
@@ -2554,7 +4440,26 @@ function TradesView({ league, myTeamId, onPropose, onRespond }: {
     finally { setRespondBusy(null); }
   }
 
+  async function handleShop() {
+    if (!shopPlayerId) return;
+    setShopStatus(null);
+    const count = await onShopPlayer(shopPlayerId);
+    setShopStatus(count > 0
+      ? `${count} offer${count !== 1 ? 's' : ''} generated — see Incoming Proposals above.`
+      : 'No offers found. Try a higher-value or more in-demand player.');
+  }
+
   function teamName(id: string) { return league.teams.find(t => t.id === id)?.name ?? id; }
+
+  function tradeHistoryContext(p: TradeProposal): string {
+    if (p.completedAt) {
+      const parts: string[] = [];
+      if (p.completedWeek)  parts.push(`Wk ${p.completedWeek}`);
+      if (p.completedPhase) parts.push(p.completedPhase.replace('_', ' '));
+      return parts.length ? ` · ${parts.join(', ')}` : '';
+    }
+    return '';
+  }
 
   return (
     <section>
@@ -2655,6 +4560,12 @@ function TradesView({ league, myTeamId, onPropose, onRespond }: {
                 {recvVal > 0 && <div className="trade-value-badge">Value: {recvVal}</div>}
               </div>
             </div>
+            {(fromAssets.length > 0 || toAssets.length > 0) && (
+              <div className={`trade-cap-impact ${postTradePayroll > CAP_LIMIT ? 'cap-over' : postTradePayroll > CAP_LIMIT * 0.92 ? 'cap-warn' : ''}`}>
+                Post-trade cap: ${postTradePayroll}M / ${CAP_LIMIT}M
+                {postTradePayroll > CAP_LIMIT && ' — exceeds cap!'}
+              </div>
+            )}
             <div className="trade-submit-row">
               <button
                 className="btn-primary"
@@ -2665,7 +4576,7 @@ function TradesView({ league, myTeamId, onPropose, onRespond }: {
               </button>
               {giveVal > 0 && recvVal > 0 && (
                 <span className={`trade-fairness ${recvVal >= giveVal * 0.85 ? 'fair' : recvVal >= giveVal * 0.70 ? 'borderline' : 'unfair'}`}>
-                  {recvVal >= giveVal * 0.85 ? '✓ Fair trade' : recvVal >= giveVal * 0.70 ? '~ Borderline' : '✗ Lopsided'}
+                  {recvVal >= giveVal * 0.85 ? 'Fair trade' : recvVal >= giveVal * 0.70 ? 'Borderline' : 'Lopsided'}
                 </span>
               )}
             </div>
@@ -2673,9 +4584,45 @@ function TradesView({ league, myTeamId, onPropose, onRespond }: {
         )}
       </div>
 
+      <h3 style={{ marginTop: '1.5rem' }}>Shop a Player</h3>
+      <div className="shop-player-panel">
+        <p className="muted" style={{ marginBottom: '0.6rem' }}>
+          Select one of your players to find CPU teams willing to make an offer.
+          Any generated offers will appear in Incoming Proposals above.
+        </p>
+        <div className="shop-player-row">
+          <select
+            value={shopPlayerId}
+            onChange={e => { setShopPlayerId(e.target.value); setShopStatus(null); }}
+            className="shop-player-select"
+          >
+            <option value="">— select player —</option>
+            {[...myTeam.roster]
+              .sort((a, b) => b.scoutedOverall - a.scoutedOverall)
+              .map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.position}, OVR {p.scoutedOverall}, ${p.salary}M)
+                </option>
+              ))}
+          </select>
+          <button
+            className="btn-primary"
+            disabled={!shopPlayerId || globalBusy}
+            onClick={handleShop}
+          >
+            Find Offers
+          </button>
+        </div>
+        {shopStatus && (
+          <div className={`shop-status ${shopStatus.startsWith('No offers') ? 'muted' : 'shop-status-ok'}`}>
+            {shopStatus}
+          </div>
+        )}
+      </div>
+
       {history.length > 0 && (
         <>
-          <h3>Recent History</h3>
+          <h3 style={{ marginTop: '1.5rem' }}>Recent History</h3>
           {history.map((p: TradeProposal) => {
             const isMine = p.fromTeamId === myTeamId;
             return (
@@ -2685,6 +4632,7 @@ function TradesView({ league, myTeamId, onPropose, onRespond }: {
                   {isMine ? 'You → ' : `${teamName(p.fromTeamId)} → You: `}
                   {describeAssetsDisplay(p.fromAssets)} for {describeAssetsDisplay(p.toAssets)}
                   {!isMine && ` (to ${teamName(p.toTeamId)})`}
+                  <span className="trade-history-ctx">{tradeHistoryContext(p)}</span>
                 </span>
               </div>
             );
@@ -2702,9 +4650,17 @@ function describeAssetsDisplay(assets: TradeAsset[]): string {
 
 // ── Roster ─────────────────────────────────────────────────────────────────────
 
+const DEV_TRAIT_BADGE: Record<string, { short: string; label: string }> = {
+  superDev:    { short: 'SD',   label: 'Super Dev — exceptional development trajectory' },
+  lateBloomer: { short: 'LB',   label: 'Late Bloomer — peaks after several pro seasons' },
+  bust:        { short: 'BUST', label: 'Bust — below-average development potential' },
+  declining:   { short: 'DEC',  label: 'Declining — accelerated regression curve' },
+};
+
 const ROSTER_POS_GROUPS: { label: string; positions: string[] }[] = [
   { label: 'Quarterback',    positions: ['QB'] },
   { label: 'Running Back',   positions: ['RB'] },
+
   { label: 'Wide Receiver',  positions: ['WR'] },
   { label: 'Tight End',      positions: ['TE'] },
   { label: 'Offensive Line', positions: ['OT', 'OG', 'C'] },
@@ -2755,7 +4711,7 @@ function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs</th><th>Inj</th>
+                  <th>Name</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs</th><th>Pro</th><th>Inj</th>
                   {isMyTeam && <th></th>}
                 </tr>
               </thead>
@@ -2793,6 +4749,9 @@ function PlayerRow({ player: p, isStarter, isMyTeam, isOffseason, busy, onReleas
   onViewPlayer?: (playerId: string) => void;
 }) {
   const injured = p.injuryWeeksRemaining > 0;
+  const devBadge = isMyTeam && p.devTrait && p.devTrait !== 'normal'
+    ? DEV_TRAIT_BADGE[p.devTrait]
+    : null;
   return (
     <tr className={injured ? 'injured' : ''}>
       <td>
@@ -2802,12 +4761,14 @@ function PlayerRow({ player: p, isStarter, isMyTeam, isOffseason, busy, onReleas
           : p.name}
         {p.contractDemand && <span className="contract-demand-badge" title={`Wants $${p.contractDemand.salary}M/${p.contractDemand.years}yr`}> !</span>}
         {p.isRookie && <span className="rookie-badge">R</span>}
+        {devBadge && <span className={`dev-trait-badge dev-trait-${p.devTrait}`} title={devBadge.label}>{devBadge.short}</span>}
       </td>
       <td>{p.position}</td>
       <td>{p.age}</td>
       <td className="ovr-cell">{p.scoutedOverall}</td>
       <td>${p.salary}M</td>
       <td className={p.yearsRemaining === 1 ? 'expiring' : ''}>{p.yearsRemaining}yr</td>
+      <td className="muted">{p.yearsPro ?? 0}yr</td>
       <td>{injured ? <span className="neg">IR:{p.injuryWeeksRemaining}wk</span> : <span className="muted">—</span>}</td>
       {isMyTeam && (
         <td className="action-cell">
@@ -2987,24 +4948,54 @@ function InjuryReportView({ teams, userTeamId }: { teams: League['teams']; userT
 
 // ── Free Agents ────────────────────────────────────────────────────────────────
 
-function FreeAgentsView({ freeAgents, isOffseason, busy, onSign }: {
-  freeAgents: Player[];
-  isOffseason: boolean;
-  busy: boolean;
-  onSign: (playerId: string) => void;
+function calcFAAskingPrice(player: Player): { salary: number; years: number } {
+  const premium = 1.05;
+  const marketSalary = Math.max(player.salary, Math.max(1, Math.round(player.scoutedOverall / 10)));
+  const salary = Math.round(marketSalary * premium);
+  let years: number;
+  if      (player.age <= 24) years = 4;
+  else if (player.age <= 27) years = 3;
+  else if (player.age <= 30) years = 2;
+  else                       years = 1;
+  return { salary, years };
+}
+
+function FreeAgentsView({ league, myTeamId, busy, onOffer }: {
+  league:    League;
+  myTeamId:  string;
+  busy:      boolean;
+  onOffer:   (playerId: string, salary: number, years: number) => void;
 }) {
-  const [error, setError] = useState<string | null>(null);
-  const [posFilter, setPosFilter] = useState('ALL');
+  const isOffseason = league.phase === 'offseason';
+  const myTeam      = league.teams.find(t => t.id === myTeamId)!;
+  const payroll     = myTeam.roster.reduce((s, p) => s + p.salary, 0);
+  const capRemaining = CAP_LIMIT - payroll;
+  const freeAgents   = league.freeAgents;
+
+  const [posFilter, setPosFilter]               = useState('ALL');
+  const [offers, setOffers]                     = useState<Record<string, { salary: string; years: string }>>({});
 
   const positions = ['ALL', ...Array.from(new Set(freeAgents.map(p => p.position))).sort()];
   let sorted = [...freeAgents].sort((a, b) => b.scoutedOverall - a.scoutedOverall);
   if (posFilter !== 'ALL') sorted = sorted.filter(p => p.position === posFilter);
 
-  async function handleSign(playerId: string) {
-    setError(null);
-    try { await onSign(playerId); }
-    catch (e) { setError(friendlyError(e)); }
+  function getOffer(id: string) {
+    return offers[id] ?? { salary: '', years: '' };
   }
+  function setOffer(id: string, field: 'salary' | 'years', val: string) {
+    setOffers(prev => ({ ...prev, [id]: { ...getOffer(id), [field]: val } }));
+  }
+
+  function handleSubmitOffer(player: Player) {
+    const o = getOffer(player.id);
+    const salary = parseInt(o.salary, 10);
+    const years  = parseInt(o.years,  10);
+    if (!salary || salary < 1) return;
+    if (!years  || years  < 1 || years > 10) return;
+    onOffer(player.id, salary, years);
+  }
+
+  const capPct = Math.min(100, (payroll / CAP_LIMIT) * 100);
 
   return (
     <section>
@@ -3015,28 +5006,74 @@ function FreeAgentsView({ freeAgents, isOffseason, busy, onSign }: {
         </select>
         <span className="muted">{sorted.length} player{sorted.length !== 1 ? 's' : ''}</span>
       </div>
+
+      <div className="cap-bar-wrap">
+        <div className="cap-bar-label">
+          <span>Cap: ${payroll}M / ${CAP_LIMIT}M used</span>
+          <span className={capRemaining < 10 ? 'cap-bar-tight' : 'muted'}>${capRemaining}M remaining</span>
+        </div>
+        <div className="cap-bar-track">
+          <div className="cap-bar-fill" style={{ width: `${capPct}%`, background: capPct > 90 ? '#e55' : capPct > 75 ? '#e90' : '#4caf' }} />
+        </div>
+      </div>
+
       {!isOffseason && <p className="muted" style={{ marginBottom: '0.75rem' }}>Signing available during offseason only.</p>}
-      {error && <div className="form-error">{error}</div>}
+
       {sorted.length === 0
         ? <p className="muted">No free agents{posFilter !== 'ALL' ? ` at ${posFilter}` : ''}.</p>
         : (
-          <table>
+          <table className="fa-table">
             <thead>
-              <tr><th>Name</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th>{isOffseason && <th></th>}</tr>
+              <tr>
+                <th>Name</th><th>Pos</th><th>Age</th><th>OVR</th>
+                <th>Cur $</th><th>Asking</th>
+                {isOffseason && <><th>Offer $</th><th>Yrs</th><th></th></>}
+              </tr>
             </thead>
             <tbody>
-              {sorted.map(p => (
-                <tr key={p.id}>
-                  <td>{p.name}{p.isRookie && <span className="rookie-badge">R</span>}</td>
-                  <td>{p.position}</td>
-                  <td>{p.age}</td>
-                  <td className="ovr-cell">{p.scoutedOverall}</td>
-                  <td>${p.salary}M</td>
-                  {isOffseason && (
-                    <td><button className="btn-sm btn-positive" disabled={busy} onClick={() => handleSign(p.id)}>Sign</button></td>
-                  )}
-                </tr>
-              ))}
+              {sorted.map(p => {
+                const asking = calcFAAskingPrice(p);
+                const o      = getOffer(p.id);
+                return (
+                  <tr key={p.id}>
+                    <td>{p.name}{p.isRookie && <span className="rookie-badge">R</span>}</td>
+                    <td>{p.position}</td>
+                    <td>{p.age}</td>
+                    <td className="ovr-cell">{p.scoutedOverall}</td>
+                    <td>${p.salary}M</td>
+                    <td className="fa-asking">${asking.salary}M / {asking.years}yr</td>
+                    {isOffseason && (
+                      <>
+                        <td>
+                          <input
+                            type="number" min={1} className="fa-offer-input"
+                            placeholder={String(asking.salary)}
+                            value={o.salary}
+                            onChange={e => setOffer(p.id, 'salary', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number" min={1} max={10} className="fa-offer-input fa-offer-years"
+                            placeholder={String(asking.years)}
+                            value={o.years}
+                            onChange={e => setOffer(p.id, 'years', e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <button
+                            className="btn-sm btn-positive"
+                            disabled={busy || !o.salary || !o.years}
+                            onClick={() => handleSubmitOffer(p)}
+                          >
+                            Offer
+                          </button>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -3095,8 +5132,8 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
         <div className="ov-card">
           <div className="ov-card-title">Coaching Staff</div>
           <div className="ov-coach"><span className="muted">HC</span> {team.coaches.hc.name} ({team.coaches.hc.overall})</div>
-          <div className="ov-coach"><span className="muted">OC</span> {team.coaches.oc.name} ({team.coaches.oc.overall})</div>
-          <div className="ov-coach"><span className="muted">DC</span> {team.coaches.dc.name} ({team.coaches.dc.overall})</div>
+          <div className="ov-coach"><span className="muted">OC</span> {team.coaches.oc ? `${team.coaches.oc.name} (${team.coaches.oc.overall})` : <span className="neg">Vacant</span>}</div>
+          <div className="ov-coach"><span className="muted">DC</span> {team.coaches.dc ? `${team.coaches.dc.name} (${team.coaches.dc.overall})` : <span className="neg">Vacant</span>}</div>
         </div>
 
         {/* Next game */}
@@ -3186,9 +5223,23 @@ function ContractsView({ team, isOffseason, busy, onExtend, onRelease }: {
     );
   }
 
+  const payroll      = team.roster.reduce((s, p) => s + p.salary, 0);
+  const capRemaining = CAP_LIMIT - payroll;
+  const capPct       = Math.min(100, (payroll / CAP_LIMIT) * 100);
+
   return (
     <section>
       <h2>Contracts — {team.name}</h2>
+
+      <div className="cap-bar-wrap">
+        <div className="cap-bar-label">
+          <span>Cap: ${payroll}M / ${CAP_LIMIT}M used</span>
+          <span className={capRemaining < 10 ? 'cap-bar-tight' : 'muted'}>${capRemaining}M remaining</span>
+        </div>
+        <div className="cap-bar-track">
+          <div className="cap-bar-fill" style={{ width: `${capPct}%`, background: capPct > 90 ? '#e55' : capPct > 75 ? '#e90' : '#4caf' }} />
+        </div>
+      </div>
 
       {withDemands.length > 0 && (
         <>
@@ -3223,47 +5274,87 @@ function ContractsView({ team, isOffseason, busy, onExtend, onRelease }: {
 
 // ── Draft View ─────────────────────────────────────────────────────────────────
 
-function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance }: {
+function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance, onAdvanceOnePick, onAdvanceToMyPick }: {
   league: League;
   myTeamId: string;
   busy: boolean;
   onPick: (playerId: string) => void;
   onSimDraft: () => void;
   onAdvance: () => void;
+  onAdvanceOnePick: () => void;
+  onAdvanceToMyPick: () => void;
 }) {
   const [posFilter, setPosFilter] = useState<string>('ALL');
-  const [sortBy, setSortBy] = useState<'ovr' | 'pos'>('ovr');
+  const [sortBy, setSortBy] = useState<'board' | 'ovr' | 'pos'>('board');
+  const [showResults, setShowResults] = useState(false);
   const draft = league.draft;
 
   if (!draft) {
     return (
-      <section>
+      <section className="panel">
         <h2>Draft</h2>
         <p className="muted">Draft has not started yet. Advance from the offseason to begin.</p>
       </section>
     );
   }
 
-  const currentSlot = draft.slots[draft.currentSlotIdx];
-  const isMyTurn = !draft.complete && currentSlot?.teamId === myTeamId;
-  const myTeamName = league.teams.find(t => t.id === myTeamId)?.name ?? 'Your Team';
+  const myTeam       = league.teams.find(t => t.id === myTeamId);
+  const scoutingData = myTeam?.scoutingData ?? {};
+  const draftBoard   = myTeam?.draftBoard   ?? [];
 
-  // Find next user pick
-  const nextUserSlot = draft.slots.find((s, i) => i >= draft.currentSlotIdx && s.teamId === myTeamId && !s.playerId);
+  const currentSlot = draft.slots[draft.currentSlotIdx];
+  const isMyTurn    = !draft.complete && currentSlot?.teamId === myTeamId;
+  const isCpuTurn   = !draft.complete && !isMyTurn;
+  const myTeamName  = myTeam?.name ?? 'Your Team';
+
+  // Next user pick slot (for "your next pick" info)
+  const nextUserSlot = draft.slots.find(
+    (s, i) => i >= draft.currentSlotIdx && s.teamId === myTeamId && !s.playerId,
+  );
+
+  // Cross-reference helper: prospect data for a draft player
+  function prospectInfo(player: Player) {
+    const pid = player.prospectId;
+    if (!pid) return null;
+    const state = scoutingData[pid];
+    const boardIdx = draftBoard.indexOf(pid);
+    return {
+      boardRank:  boardIdx >= 0 ? boardIdx + 1 : null,  // 1-based, null if not on board
+      report:     state?.report ?? null,
+    };
+  }
 
   // Prospect board
   const positions = ['ALL', ...Array.from(new Set(draft.players.map(p => p.position))).sort()];
   let prospects = [...draft.players];
   if (posFilter !== 'ALL') prospects = prospects.filter(p => p.position === posFilter);
-  if (sortBy === 'ovr') prospects = prospects.sort((a, b) => b.scoutedOverall - a.scoutedOverall);
-  else prospects = prospects.sort((a, b) => a.position.localeCompare(b.position) || b.scoutedOverall - a.scoutedOverall);
 
-  // Recent picks (last 15)
+  // Sort
+  if (sortBy === 'board') {
+    prospects = prospects.sort((a, b) => {
+      const aRank = a.prospectId ? draftBoard.indexOf(a.prospectId) : -1;
+      const bRank = b.prospectId ? draftBoard.indexOf(b.prospectId) : -1;
+      // Board-ranked first (ascending rank), then by OVR
+      if (aRank >= 0 && bRank < 0) return -1;
+      if (aRank < 0 && bRank >= 0) return 1;
+      if (aRank >= 0 && bRank >= 0) return aRank - bRank;
+      return b.scoutedOverall - a.scoutedOverall;
+    });
+  } else if (sortBy === 'ovr') {
+    prospects = prospects.sort((a, b) => b.scoutedOverall - a.scoutedOverall);
+  } else {
+    prospects = prospects.sort((a, b) => a.position.localeCompare(b.position) || b.scoutedOverall - a.scoutedOverall);
+  }
+
+  // Recent picks (last 12, newest first)
   const recentPicks: DraftSlot[] = draft.slots
     .slice(0, draft.currentSlotIdx)
     .filter(s => s.playerId)
-    .slice(-15)
+    .slice(-12)
     .reverse();
+
+  // All completed picks for results view
+  const completedPicks = draft.slots.filter(s => s.playerId);
 
   function tierLabel(ovr: number): string {
     if (ovr >= 70) return '★';
@@ -3271,94 +5362,191 @@ function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance }: {
     return '·';
   }
 
+  const ROUNDS = [1, 2, 3, 4, 5, 6, 7];
+  const totalCols = isMyTurn ? 9 : 8; // extra col for Draft button
+
   return (
-    <section>
+    <section className="panel draft-event-panel">
+      {/* ── Header ── */}
       <div className="draft-header">
-        <h2>{draft.year} Draft</h2>
+        <h2>{draft.year} Draft
+          <span className="draft-phase-badge">
+            {draft.complete ? ' — Complete' : ` — Round ${currentSlot?.round ?? '?'}`}
+          </span>
+        </h2>
         <div className="draft-header-actions">
           {!draft.complete && (
-            <button className="btn-sm" disabled={busy} onClick={onSimDraft}>Sim Remaining</button>
+            <button className="btn-sm" disabled={busy} onClick={onSimDraft}>Sim All Remaining</button>
           )}
           {draft.complete && (
             <button className="advance-btn" disabled={busy} onClick={onAdvance}>
-              {busy ? 'Loading…' : 'Start Season'}
+              {busy ? 'Loading…' : 'Start Season →'}
             </button>
           )}
+          <button
+            className={`btn-sm${showResults ? ' active' : ''}`}
+            onClick={() => setShowResults(v => !v)}
+          >
+            Results ({completedPicks.length}/{draft.slots.length})
+          </button>
         </div>
       </div>
 
-      {/* Status bar */}
+      {/* ── On-clock status bar ── */}
       {!draft.complete && currentSlot && (
         <div className={`draft-onclock${isMyTurn ? ' draft-onclock-user' : ''}`}>
-          <span className="draft-onclock-label">
-            Round {currentSlot.round}, Pick {currentSlot.pick} (#{currentSlot.overallPick})
-          </span>
-          <span className="draft-onclock-team">
-            {isMyTurn ? `🏈 ${myTeamName} — YOUR PICK` : `On the clock: ${currentSlot.teamName}`}
-          </span>
-          {!isMyTurn && nextUserSlot && (
-            <span className="draft-next-user">
-              Your next pick: Rd {nextUserSlot.round}, Pk {nextUserSlot.pick}
+          <div className="draft-onclock-info">
+            <span className="draft-onclock-label">
+              Round {currentSlot.round}, Pick {currentSlot.pick} (Overall #{currentSlot.overallPick})
             </span>
+            <span className="draft-onclock-team">
+              {isMyTurn
+                ? `${myTeamName} — YOUR PICK`
+                : `On the clock: ${currentSlot.teamName}`}
+            </span>
+            {isCpuTurn && nextUserSlot && (
+              <span className="draft-next-user">
+                Your next pick: Rd {nextUserSlot.round}, Pk {nextUserSlot.pick} (#{nextUserSlot.overallPick})
+              </span>
+            )}
+          </div>
+          {isCpuTurn && (
+            <div className="draft-cpu-actions">
+              <button className="btn-sm" disabled={busy} onClick={onAdvanceOnePick}>
+                Advance One Pick
+              </button>
+              <button className="btn-sm btn-positive" disabled={busy} onClick={onAdvanceToMyPick}>
+                Skip to My Pick
+              </button>
+            </div>
           )}
         </div>
       )}
       {draft.complete && (
         <div className="draft-onclock">
-          <span className="draft-onclock-label">Draft Complete</span>
+          <span className="draft-onclock-label">Draft Complete — {completedPicks.length} picks made</span>
           <span className="draft-onclock-team">Click "Start Season" to begin the regular season.</span>
         </div>
       )}
 
+      {/* ── Draft Results (toggle) ── */}
+      {showResults && (
+        <div className="draft-results-panel">
+          <h3>Draft Results</h3>
+          {ROUNDS.map(round => {
+            const roundPicks = draft.slots.filter(s => s.round === round && s.playerId);
+            return (
+              <details key={round} open={round <= 2}>
+                <summary className="draft-results-round">
+                  Round {round} <span className="muted">({roundPicks.length} picks)</span>
+                </summary>
+                {roundPicks.length > 0 ? (
+                  <table className="draft-table draft-results-table">
+                    <thead>
+                      <tr><th>#</th><th>Team</th><th>Pos</th><th>Player</th></tr>
+                    </thead>
+                    <tbody>
+                      {roundPicks.map(s => (
+                        <tr key={s.overallPick} className={s.teamId === myTeamId ? 'draft-log-user' : ''}>
+                          <td className="muted">{s.overallPick}</td>
+                          <td>{s.teamName}</td>
+                          <td>{s.playerPos}</td>
+                          <td className="draft-name">{s.playerName}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="muted" style={{ padding: '0.4rem 0.75rem' }}>No picks yet.</p>
+                )}
+              </details>
+            );
+          })}
+        </div>
+      )}
+
       <div className="draft-layout">
-        {/* Prospect board */}
+        {/* ── Available Prospects ── */}
         <div className="draft-board">
           <div className="draft-board-header">
-            <span className="draft-board-title">Available Prospects ({draft.players.length})</span>
+            <span className="draft-board-title">
+              Available ({draft.players.length})
+            </span>
             <div className="draft-board-filters">
               <select value={posFilter} onChange={e => setPosFilter(e.target.value)}>
                 {positions.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
-              <button className={`btn-sm${sortBy === 'ovr' ? ' active' : ''}`} onClick={() => setSortBy('ovr')}>OVR</button>
-              <button className={`btn-sm${sortBy === 'pos' ? ' active' : ''}`} onClick={() => setSortBy('pos')}>POS</button>
+              <button className={`btn-sm${sortBy === 'board' ? ' active' : ''}`} onClick={() => setSortBy('board')}>Board</button>
+              <button className={`btn-sm${sortBy === 'ovr'   ? ' active' : ''}`} onClick={() => setSortBy('ovr')}>OVR</button>
+              <button className={`btn-sm${sortBy === 'pos'   ? ' active' : ''}`} onClick={() => setSortBy('pos')}>Pos</button>
             </div>
           </div>
           <div className="draft-board-scroll">
             <table className="draft-table">
               <thead>
-                <tr><th></th><th>Name</th><th>Pos</th><th>Age</th><th>OVR</th>{isMyTurn && <th></th>}</tr>
+                <tr>
+                  <th></th>
+                  <th>Bd</th>
+                  <th>Name</th>
+                  <th>Pos</th>
+                  <th>Age</th>
+                  <th>OVR</th>
+                  <th>College</th>
+                  <th>Scout</th>
+                  {isMyTurn && <th></th>}
+                </tr>
               </thead>
               <tbody>
-                {prospects.slice(0, 80).map(p => (
-                  <tr key={p.id} className="draft-prospect-row">
-                    <td className="draft-tier">{tierLabel(p.scoutedOverall)}</td>
-                    <td className="draft-name">{p.name}</td>
-                    <td>{p.position}</td>
-                    <td>{p.age}</td>
-                    <td className="draft-ovr">{p.scoutedOverall}</td>
-                    {isMyTurn && (
-                      <td>
-                        <button className="btn-sm btn-positive" disabled={busy} onClick={() => onPick(p.id)}>
-                          Draft
-                        </button>
+                {prospects.slice(0, 100).map(p => {
+                  const info    = prospectInfo(p);
+                  const grade   = info?.report?.grade ?? null;
+                  const projRd  = info?.report?.projectedRound ?? null;
+                  const bdRank  = info?.boardRank ?? null;
+                  return (
+                    <tr key={p.id} className={`draft-prospect-row${bdRank ? ' draft-on-board' : ''}`}>
+                      <td className="draft-tier">{tierLabel(p.scoutedOverall)}</td>
+                      <td className="draft-bd-rank">{bdRank ? `#${bdRank}` : '—'}</td>
+                      <td className="draft-name">{p.name}</td>
+                      <td>{p.position}</td>
+                      <td>{p.age}</td>
+                      <td className="draft-ovr">{p.scoutedOverall}</td>
+                      <td className="draft-college">{p.college ?? '—'}</td>
+                      <td className="draft-scout-cell">
+                        {grade ? (
+                          <span title={projRd ? `Proj Rd ${projRd.min}–${projRd.max}` : ''}>
+                            {grade}
+                            {projRd && <span className="proj-rd-mini"> Rd{projRd.min}</span>}
+                          </span>
+                        ) : '—'}
                       </td>
-                    )}
+                      {isMyTurn && (
+                        <td>
+                          <button className="btn-sm btn-positive" disabled={busy} onClick={() => onPick(p.id)}>
+                            Draft
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+                {prospects.length > 100 && (
+                  <tr>
+                    <td colSpan={totalCols} className="muted" style={{ padding: '0.5rem', textAlign: 'center' }}>
+                      +{prospects.length - 100} more — use position filter to narrow
+                    </td>
                   </tr>
-                ))}
-                {prospects.length > 80 && (
-                  <tr><td colSpan={6} className="muted" style={{ padding: '0.5rem', textAlign: 'center' }}>
-                    +{prospects.length - 80} more (filter by position to narrow)
-                  </td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Recent picks log */}
+        {/* ── Recent Picks Log ── */}
         <div className="draft-log">
           <div className="draft-log-title">Recent Picks</div>
-          {recentPicks.length === 0 && <p className="muted" style={{ padding: '0.5rem' }}>No picks yet.</p>}
+          {recentPicks.length === 0 && (
+            <p className="muted" style={{ padding: '0.5rem' }}>No picks yet.</p>
+          )}
           {recentPicks.map(s => (
             <div key={s.overallPick} className={`draft-log-row${s.teamId === myTeamId ? ' draft-log-user' : ''}`}>
               <span className="draft-log-pick">R{s.round}P{s.pick}</span>
@@ -3368,6 +5556,220 @@ function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance }: {
           ))}
         </div>
       </div>
+    </section>
+  );
+}
+
+// ── Scouting View ──────────────────────────────────────────────────────────────
+
+function ScoutingView({ draftClass, myTeam, busy, onScout }: {
+  draftClass: NonNullable<League['draftClass']>;
+  myTeam: import('./types').Team;
+  busy: boolean;
+  onScout: (prospectId: string) => void;
+}) {
+  const [posFilter, setPosFilter] = useState<string>('ALL');
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const scoutingData = myTeam.scoutingData ?? {};
+  const scoutingPoints = myTeam.scoutingPoints ?? 0;
+  const scout = myTeam.scout;
+
+  const positions = ['ALL', ...Array.from(new Set(draftClass.prospects.map(p => p.position))).sort()];
+  const filtered = draftClass.prospects.filter(p => posFilter === 'ALL' || p.position === posFilter);
+
+  const COSTS = [10, 20, 35];
+  const LEVEL_LABELS = ['Unscouted', 'Level 1', 'Level 2', 'Level 3 (Full)'];
+
+  function confidenceLabel(c: ScoutingReport['confidence']): string {
+    return c === 'low' ? 'Low Conf.' : c === 'medium' ? 'Med Conf.' : 'High Conf.';
+  }
+
+  return (
+    <section className="panel scouting-panel">
+      <div className="scouting-header">
+        <div>
+          <h2>Scouting</h2>
+          {scout && <p className="muted">Scout: {scout.name} (OVR {scout.overall})</p>}
+        </div>
+        <div className="scouting-points">
+          <span className="points-val">{scoutingPoints}</span>
+          <span className="points-lbl"> pts remaining</span>
+        </div>
+      </div>
+
+      <div className="scouting-filters">
+        {positions.map(pos => (
+          <button
+            key={pos}
+            className={posFilter === pos ? 'active' : ''}
+            onClick={() => setPosFilter(pos)}
+          >{pos}</button>
+        ))}
+      </div>
+
+      <div className="prospect-list">
+        {filtered.map(p => {
+          const state: ProspectScoutingState | undefined = scoutingData[p.id];
+          const level = state?.scoutLevel ?? 0;
+          const report = state?.report ?? null;
+          const nextCost = level < 3 ? COSTS[level] : null;
+          const isOpen = expanded === p.id;
+
+          return (
+            <div key={p.id} className={`prospect-row${isOpen ? ' open' : ''}`}>
+              <div className="prospect-summary" onClick={() => setExpanded(isOpen ? null : p.id)}>
+                <span className="prospect-pos">{p.position}</span>
+                <span className="prospect-name">{p.name}</span>
+                <span className="prospect-meta">{p.college} · Age {p.age}</span>
+                <span className={`scout-level-badge level-${level}`}>{LEVEL_LABELS[level]}</span>
+                {report && (
+                  <span className="proj-round">
+                    Rd {report.projectedRound.min}–{report.projectedRound.max}
+                  </span>
+                )}
+                <span className="expand-arrow">{isOpen ? '▲' : '▼'}</span>
+              </div>
+
+              {isOpen && (
+                <div className="prospect-detail">
+                  <div className="prospect-detail-top">
+                    <span className="muted">{p.height} · {p.weight} lbs</span>
+                    {nextCost !== null && (
+                      <button
+                        className="btn-scout"
+                        disabled={busy || scoutingPoints < nextCost}
+                        onClick={() => onScout(p.id)}
+                      >
+                        Scout ({nextCost} pts)
+                      </button>
+                    )}
+                    {nextCost === null && <span className="muted">Fully scouted</span>}
+                  </div>
+                  {report ? (
+                    <div className="scout-report">
+                      <div className="report-row">
+                        <span className="report-grade">{report.grade}</span>
+                        <span className={`report-conf ${report.confidence}`}>{confidenceLabel(report.confidence)}</span>
+                        <span className="muted">Proj Rd {report.projectedRound.min}–{report.projectedRound.max}</span>
+                      </div>
+                      {report.strengths.length > 0 && (
+                        <div className="report-section">
+                          <span className="report-label strength-lbl">Strengths:</span>
+                          {report.strengths.map((s, i) => <span key={i} className="report-tag strength">{s}</span>)}
+                        </div>
+                      )}
+                      {report.weaknesses.length > 0 && (
+                        <div className="report-section">
+                          <span className="report-label weakness-lbl">Concerns:</span>
+                          {report.weaknesses.map((w, i) => <span key={i} className="report-tag weakness">{w}</span>)}
+                        </div>
+                      )}
+                      {report.notes && <p className="report-notes">{report.notes}</p>}
+                    </div>
+                  ) : (
+                    <p className="muted">No scouting report yet. Scout this prospect to reveal information.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ── Draft Board View ───────────────────────────────────────────────────────────
+
+function DraftBoardView({ draftClass, myTeam, onUpdateBoard }: {
+  draftClass: NonNullable<League['draftClass']>;
+  myTeam: import('./types').Team;
+  onUpdateBoard: (board: string[]) => void;
+}) {
+  const draftBoard = myTeam.draftBoard ?? [];
+  const scoutingData = myTeam.scoutingData ?? {};
+
+  const onBoard = draftBoard
+    .map(id => draftClass.prospects.find(p => p.id === id))
+    .filter((p): p is ClientProspect => !!p);
+  const unranked = draftClass.prospects.filter(p => !draftBoard.includes(p.id));
+
+  function addToBoard(prospectId: string) {
+    onUpdateBoard([...draftBoard, prospectId]);
+  }
+
+  function removeFromBoard(prospectId: string) {
+    onUpdateBoard(draftBoard.filter(id => id !== prospectId));
+  }
+
+  function moveUp(idx: number) {
+    if (idx === 0) return;
+    const next = [...draftBoard];
+    [next[idx - 1], next[idx]] = [next[idx]!, next[idx - 1]!];
+    onUpdateBoard(next);
+  }
+
+  function moveDown(idx: number) {
+    if (idx >= draftBoard.length - 1) return;
+    const next = [...draftBoard];
+    [next[idx + 1], next[idx]] = [next[idx]!, next[idx + 1]!];
+    onUpdateBoard(next);
+  }
+
+  function projRange(p: ClientProspect): string {
+    const state = scoutingData[p.id];
+    if (!state?.report) return '—';
+    const { min, max } = state.report.projectedRound;
+    return min === max ? `Rd ${min}` : `Rd ${min}–${max}`;
+  }
+
+  return (
+    <section className="panel draft-board-panel">
+      <h2>Draft Board</h2>
+      <p className="muted">{onBoard.length} ranked · {unranked.length} unranked</p>
+
+      {onBoard.length > 0 && (
+        <div className="draft-board-list">
+          <div className="draft-board-header-row">
+            <span>#</span><span>Pos</span><span>Name</span><span>College</span><span>Proj</span><span></span>
+          </div>
+          {onBoard.map((p, idx) => (
+            <div key={p.id} className="draft-board-row ranked">
+              <span className="board-rank">{idx + 1}</span>
+              <span className="prospect-pos">{p.position}</span>
+              <span className="prospect-name">{p.name}</span>
+              <span className="muted">{p.college}</span>
+              <span className="proj-round">{projRange(p)}</span>
+              <span className="board-actions">
+                <button onClick={() => moveUp(idx)} disabled={idx === 0}>↑</button>
+                <button onClick={() => moveDown(idx)} disabled={idx === onBoard.length - 1}>↓</button>
+                <button className="btn-remove" onClick={() => removeFromBoard(p.id)}>✕</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {unranked.length > 0 && (
+        <>
+          <h3 className="board-section-title">Unranked Prospects</h3>
+          <div className="draft-board-list unranked">
+            {unranked.map(p => (
+              <div key={p.id} className="draft-board-row">
+                <span></span>
+                <span className="prospect-pos">{p.position}</span>
+                <span className="prospect-name">{p.name}</span>
+                <span className="muted">{p.college}</span>
+                <span className="proj-round">{projRange(p)}</span>
+                <span className="board-actions">
+                  <button onClick={() => addToBoard(p.id)}>+ Add</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }

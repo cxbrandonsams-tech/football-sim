@@ -3,6 +3,7 @@ import { type Team } from '../models/Team';
 import { type League, getUserTeam } from '../models/League';
 import { buildDepthChart } from '../models/DepthChart';
 import { getTeamDirection, evaluateRosterNeeds, posGroup } from './teamDirection';
+import { TUNING } from './config';
 
 export const MAX_ROSTER_SIZE = 56;
 /** Teams must have at least this many players; auto-filled from FA pool if needed. */
@@ -31,11 +32,16 @@ export function signPlayer(league: League, playerId: string): { league: League; 
     return { league, error: `Signing ${player.name} ($${player.salary}) would exceed the cap ($${currentPayroll}/$${CAP_LIMIT}).` };
   }
 
+  // Apply Contract Negotiator discount if user team has that trait on any coach
+  const coaches = [userTeam.coaches.hc, userTeam.coaches.oc, userTeam.coaches.dc];
+  const hasNegotiator = coaches.some(c => c?.trait === 'contract_negotiator');
+  const discount = hasNegotiator ? (TUNING.coaching.traits.contractNegotiatorDiscount ?? 0) : 0;
+
   // Give signed player a fresh vet contract (2–4 years); signing clears rookie status.
   const signedPlayer = {
     ...player,
     isRookie:       false,
-    salary:         calcSalary(player.overall),
+    salary:         Math.max(1, Math.round(calcSalary(player.overall) * (1 - discount))),
     yearsRemaining: Math.floor(Math.random() * 3) + 2,
   };
 

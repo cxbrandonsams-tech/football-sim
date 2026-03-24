@@ -1,10 +1,12 @@
 import { type Player } from './Player';
+import { type Coach } from './Coach';
 import { type Team } from './Team';
 import { type Game } from './Game';
 import { type Season, createSeason } from './Season';
 import { type LeagueHistory, type PlayerSeasonStats, emptyLeagueHistory } from './History';
 import { type NewsItem } from './News';
 import { buildDepthChart } from './DepthChart';
+import { type DraftClass } from './Prospect';
 
 // ── Draft ─────────────────────────────────────────────────────────────────────
 
@@ -124,6 +126,10 @@ export interface TradeProposal {
   fromAssets: TradeAsset[];   // what fromTeam gives to toTeam
   toAssets:   TradeAsset[];   // what toTeam gives to fromTeam
   status:     'pending' | 'accepted' | 'rejected';
+  /** Set when the proposal is resolved (accepted or rejected). */
+  completedAt?:    number;   // epoch ms
+  completedWeek?:  number;
+  completedPhase?: string;
 }
 
 // ── League ────────────────────────────────────────────────────────────────────
@@ -158,11 +164,17 @@ export interface League {
   currentSeasonStats:   Record<string, PlayerSeasonStats>;
   /** News feed — most recent items first, capped at 500. */
   news:                 NewsItem[];
+  /** Milestone deduplication: playerId → array of milestone keys already fired (e.g. "passingYards:1000"). */
+  milestonesHit:        Record<string, string[]>;
   ownerBudget:          number;
   budgetAllocation:     BudgetAllocation;
   aiBudgetAllocations:  Record<string, BudgetAllocation>;
   scoutingBudget:       number;
   developmentBudget:    number;
+  /** Pre-draft prospect pool, generated at the start of each offseason. */
+  draftClass?:          DraftClass;
+  /** Pool of unemployed coaches available for hire. */
+  unemployedCoaches:    Coach[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -222,6 +234,8 @@ export function createLeague(
     scoutingBudget:     DEFAULT_ALLOCATION.scouting,
     developmentBudget:  DEFAULT_ALLOCATION.development,
     news:               [],
+    milestonesHit:      {},
+    unemployedCoaches:  [],
   };
 }
 

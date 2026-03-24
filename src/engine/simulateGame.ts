@@ -11,6 +11,7 @@ import { type PlayEvent, type PlayType, type PlayResult } from '../models/PlayEv
 import { DEFAULT_PLAYCALLING } from '../models/Playcalling';
 import { buildBoxScoreFromGame } from './gameStats';
 import { computeSchemeAdjustment } from './schemeBonus';
+import { getPersonality } from '../models/Coach';
 import { TUNING } from './config';
 
 const cfg = TUNING;
@@ -452,6 +453,30 @@ function simulatePlay(
 
 // ── Game loop ─────────────────────────────────────────────────────────────────
 
+// ── 4th-down decision ────────────────────────────────────────────────────────
+
+function shouldGoForIt(
+  distance: number,
+  yardLine: number,
+  personality: string,
+): boolean {
+  const cfg4 = TUNING.coaching.fourthDown;
+
+  // Base probability by yards to gain
+  let base: number;
+  if      (distance <= 1) base = cfg4.baseProb.dist1;
+  else if (distance <= 2) base = cfg4.baseProb.dist2;
+  else if (distance <= 3) base = cfg4.baseProb.dist3;
+  else if (distance <= 5) base = cfg4.baseProb.dist5;
+  else                    base = cfg4.baseProb.distLong;
+
+  // Near goal line: more aggressive
+  if (100 - yardLine <= 10) base += cfg4.goalLineBump;
+
+  const mult = cfg4.personalityMultiplier[personality] ?? 1.0;
+  return Math.random() < Math.min(0.95, base * mult);
+}
+
 export function simulateGame(game: Game): GameResult {
   const home = game.homeTeam;
   const away = game.awayTeam;
@@ -512,7 +537,13 @@ export function simulateGame(game: Game): GameResult {
     const off = withInGameInjuries(offRaw, offInjured);
     const def = withInGameInjuries(defRaw, defInjured);
 
-    if (down === 4) {
+    // 4th-down decision: FG attempt, go-for-it, or punt
+    const offPersonality = getPersonality(off.coaches.hc);
+    const goForIt = down === 4
+      && yardLine < cfg.fieldGoal.attemptYardLine
+      && shouldGoForIt(distance, yardLine, offPersonality);
+
+    if (down === 4 && !goForIt) {
       if (yardLine >= cfg.fieldGoal.attemptYardLine) {
         const ev = simulatePlay(off, def, 'field_goal', quarter, down, distance, yardLine);
         events.push(ev);
@@ -568,6 +599,10 @@ export function simulateGame(game: Game): GameResult {
         } else {
           down++;
           distance -= ev.yards;
+          // Failed 4th-down conversion — turnover on downs
+          if (down > 4) {
+            changePoss();
+          }
         }
       }
     }

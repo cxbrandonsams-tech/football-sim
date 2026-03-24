@@ -8,9 +8,14 @@ import { seedPlayoffBracket, advancePlayoffRound, getPlayoffActivityMessages } f
 import { rollupSeasonHistory, startNextSeason, runOffseasonProgression } from './engine/seasonEngine';
 import { extendPlayer }   from './engine/contracts';
 import { signPlayer, releasePlayer } from './engine/rosterManagement';
-import { startDraft, makeDraftPick, simRemainingDraft } from './engine/draft';
-import { createTradeProposal, applyTrade, shouldAIAcceptTrade, runAITrades, describeAssets } from './engine/trades';
-import { newsForGame, newsForTrade, newsForSigning, addNewsItems } from './engine/news';
+import { fireCoach, hireCoachFromPool, promoteWithin } from './engine/coachCarousel';
+import { offerContract, cpuInitialFASignings, calcAskingPrice } from './engine/freeAgency';
+import { startDraft, makeDraftPick, simRemainingDraft, advanceOneCpuPick, advanceToUserPick } from './engine/draft';
+import { generateDraftClass, generateScoutingReport, budgetToPoints } from './engine/scoutingEngine';
+import { type ProspectScoutingState, type Prospect } from './models/Prospect';
+import { TUNING } from './engine/config';
+import { createTradeProposal, applyTrade, shouldAIAcceptTrade, runAITrades, describeAssets, validateTradeCaps, generateShopOffers } from './engine/trades';
+import { newsForGame, newsForTrade, newsForSigning, newsForDraftPick, addNewsItems } from './engine/news';
 import { getUserTeam } from './models/League';
 import { type DepthChart } from './models/DepthChart';
 import { type GameplanSettings, DEFAULT_GAMEPLAN, derivePlaycalling } from './models/Team';
@@ -51,12 +56,47 @@ function addNotification(league: League, teamId: string, message: string): Leagu
   return { ...league, notifications: [...league.notifications, notif] };
 }
 
+/**
+ * Strip hidden prospect fields (trueOverall, trueRatings, truePotential, trueRound)
+ * from draftClass before sending League to the client.
+ */
+function sanitizeLeagueForClient(league: League): League {
+  if (!league.draftClass) return league;
+  const sanitizedProspects = league.draftClass.prospects.map(
+    ({ trueOverall: _1, trueRatings: _2, truePotential: _3, trueRound: _4, ...safe }) =>
+      safe as Prospect,
+  );
+  return { ...league, draftClass: { ...league.draftClass, prospects: sanitizedProspects } };
+}
+
+/** Send a League response with hidden prospect fields stripped. */
+function sendLeague(res: Response, league: League): void {
+  res.json(sanitizeLeagueForClient(league));
+}
+
+/**
+ * Generate a draft class for the upcoming season and reset all team scouting points.
+ * Called when the league transitions to the offseason phase.
+ */
+function initDraftCycle(league: League): League {
+  const draftYear  = league.currentSeason.year + 1;
+  const draftClass = generateDraftClass(draftYear);
+  const updatedTeams = league.teams.map(t => ({
+    ...t,
+    scoutingPoints: budgetToPoints(t.scoutingBudget ?? TUNING.scouting.defaultBudgetTier),
+    scoutingData:   {} as Record<string, ProspectScoutingState>,
+    draftBoard:     [] as string[],
+  }));
+  return { ...league, draftClass, teams: updatedTeams };
+}
+
 function doAdvance(league: League): League {
   // ── Offseason → start draft ────────────────────────────────────────────────
   if (league.phase === 'offseason') {
     const withAITrades = runAITrades(league);
     const withDraft    = startDraft(withAITrades);
-    return addActivity(withDraft, `Draft underway — ${withDraft.draft!.players.length} prospects available`);
+    const afterCpu     = advanceToUserPick(withDraft);  // advance CPU picks to user's first turn
+    return addActivity(afterCpu, `Draft underway — ${afterCpu.draft!.players.length} prospects available`);
   }
 
   // ── Draft complete → start next season ────────────────────────────────────
@@ -104,6 +144,10 @@ function doAdvance(league: League): League {
       // Age players, decrement contracts, surface demands — user can now manage
       // their roster before the next-season advance.
       updated = runOffseasonProgression(updated);
+      // CPU teams grab top FAs before the user can act.
+      updated = cpuInitialFASignings(updated);
+      // Generate the upcoming draft class and reset scouting points for all teams.
+      updated = initDraftCycle(updated);
     }
 
     return updated;
@@ -299,14 +343,14 @@ app.post('/league/join', (req: Request, res: Response) => {
     }
   }
 
-  res.json(league);
+  sendLeague(res, league);
 });
 
 // GET /league/:id — return league state.
 app.get('/league/:id', (req: Request, res: Response) => {
   const league = getLeagueOrFail(req, res);
   if (!league) return;
-  res.json(league);
+  sendLeague(res, league);
 });
 
 // POST /league/:id/claim-team — assign a GM to an unclaimed team. requireAuth.
@@ -345,7 +389,7 @@ app.post('/league/:id/claim-team', requireAuth, (req: Request, res: Response) =>
   dbSaveLeague(updated);
   addMembership(id, userId, teamId, team.name);
 
-  res.json(updated);
+  sendLeague(res, updated);
 });
 
 // POST /league/:id/propose-trade — user proposes a multi-asset trade; AI responds immediately.
@@ -381,11 +425,20 @@ app.post('/league/:id/propose-trade', requireAuth, (req: Request, res: Response)
   // AI teams respond immediately
   if (!toTeam.ownerId) {
     const accepted = shouldAIAcceptTrade(proposal, withProposal);
+
+    if (accepted) {
+      const capErr = validateTradeCaps(withProposal, proposal);
+      if (capErr) { res.status(400).json({ error: capErr }); return; }
+    }
+
+    const now      = Date.now();
     const status   = accepted ? 'accepted' : 'rejected';
     const withStatus: League = {
       ...withProposal,
       tradeProposals: withProposal.tradeProposals.map(p =>
-        p.id === proposal.id ? { ...p, status } : p
+        p.id === proposal.id
+          ? { ...p, status, completedAt: now, completedWeek: league.currentWeek, completedPhase: league.phase }
+          : p
       ),
     };
 
@@ -402,7 +455,7 @@ app.post('/league/:id/propose-trade', requireAuth, (req: Request, res: Response)
       )]);
     }
     dbSaveLeague(final);
-    res.json(final);
+    sendLeague(res, final);
     return;
   }
 
@@ -412,7 +465,7 @@ app.post('/league/:id/propose-trade', requireAuth, (req: Request, res: Response)
     `Trade offer from ${fromTeam.name}: send ${toDesc}, receive ${fromDesc}`
   );
   dbSaveLeague(updated);
-  res.json(updated);
+  sendLeague(res, updated);
 });
 
 // POST /league/:id/respond-trade — human GM accepts or rejects an incoming proposal.
@@ -443,11 +496,20 @@ app.post('/league/:id/respond-trade', requireAuth, (req: Request, res: Response)
   const fromTeam   = league.teams.find(t => t.id === proposal.fromTeamId)!;
   const fromDesc   = describeAssets(proposal.fromAssets);
   const toDesc     = describeAssets(proposal.toAssets);
-  const newStatus  = accept ? 'accepted' : 'rejected';
+
+  if (accept) {
+    const capErr = validateTradeCaps(league, proposal);
+    if (capErr) { res.status(400).json({ error: capErr }); return; }
+  }
+
+  const now       = Date.now();
+  const newStatus = accept ? 'accepted' : 'rejected';
   const withStatus: League = {
     ...league,
     tradeProposals: league.tradeProposals.map(p =>
-      p.id === proposalId ? { ...p, status: newStatus } : p
+      p.id === proposalId
+        ? { ...p, status: newStatus, completedAt: now, completedWeek: league.currentWeek, completedPhase: league.phase }
+        : p
     ),
   };
 
@@ -468,7 +530,23 @@ app.post('/league/:id/respond-trade', requireAuth, (req: Request, res: Response)
     : `${toTeam.name} rejected your trade offer`
   );
   dbSaveLeague(final);
-  res.json(final);
+  sendLeague(res, final);
+});
+
+// POST /league/:id/shop-player — generate CPU trade offers for one of the user's players.
+app.post('/league/:id/shop-player', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { playerId } = req.body as { playerId?: string };
+  if (!playerId) { res.status(400).json({ error: 'playerId is required.' }); return; }
+  const userTeam = league.teams.find(t => t.id === league.userTeamId);
+  if (!userTeam?.roster.some(p => p.id === playerId)) {
+    res.status(400).json({ error: 'Player not found on your roster.' }); return;
+  }
+  const { league: updated, count, error } = generateShopOffers(league, league.userTeamId, playerId);
+  if (error) { res.status(400).json({ error }); return; }
+  dbSaveLeague(updated);
+  res.json({ league: sanitizeLeagueForClient(updated), count });
 });
 
 // POST /league/:id/mark-notifications-read — mark all notifications as read for this GM's team.
@@ -495,7 +573,7 @@ app.post('/league/:id/mark-notifications-read', requireAuth, (req: Request, res:
     ),
   };
   dbSaveLeague(updated);
-  res.json(updated);
+  sendLeague(res, updated);
 });
 
 // POST /league/:id/advance-week — advance the league (commissioner only).
@@ -510,7 +588,7 @@ app.post('/league/:id/advance-week', requireAuth, (req: Request, res: Response) 
   try {
     const updated = doAdvance(league);
     dbSaveLeague(updated);
-    res.json(updated);
+    sendLeague(res, updated);
   } catch (e) {
     res.status(400).json({ error: errMsg(e) });
   }
@@ -525,7 +603,7 @@ app.post('/league/:id/extend-player', requireAuth, (req: Request, res: Response)
   const { league: updated, error } = extendPlayer(league, playerId);
   if (error) { res.status(400).json({ error }); return; }
   dbSaveLeague(updated);
-  res.json(updated);
+  sendLeague(res, updated);
 });
 
 // POST /league/:id/release-player — user releases a player to free agency.
@@ -537,7 +615,54 @@ app.post('/league/:id/release-player', requireAuth, (req: Request, res: Response
   const { league: updated, error } = releasePlayer(league, playerId);
   if (error) { res.status(400).json({ error }); return; }
   dbSaveLeague(updated);
-  res.json(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/fire-coach — user fires a coach from their staff.
+app.post('/league/:id/fire-coach', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { role } = req.body as { role?: string };
+  if (!role || !['HC', 'OC', 'DC'].includes(role)) {
+    res.status(400).json({ error: 'role must be HC, OC, or DC.' }); return;
+  }
+  if (role === 'HC') {
+    res.status(400).json({ error: 'Cannot fire the HC directly; hire a replacement first.' }); return;
+  }
+  const userTeam = getUserTeam(league);
+  const { league: updated } = fireCoach(league, userTeam.id, role as 'OC' | 'DC');
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/hire-coach — user hires a coach from the unemployed pool.
+app.post('/league/:id/hire-coach', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { coachId, role } = req.body as { coachId?: string; role?: string };
+  if (!coachId) { res.status(400).json({ error: 'coachId is required.' }); return; }
+  if (!role || !['HC', 'OC', 'DC'].includes(role)) {
+    res.status(400).json({ error: 'role must be HC, OC, or DC.' }); return;
+  }
+  const userTeam = getUserTeam(league);
+  const { league: updated, error } = hireCoachFromPool(league, userTeam.id, role as 'HC' | 'OC' | 'DC', coachId);
+  if (error) { res.status(400).json({ error }); return; }
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/promote-within — user promotes an internal coordinator candidate.
+app.post('/league/:id/promote-within', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { role } = req.body as { role?: string };
+  if (!role || !['OC', 'DC'].includes(role)) {
+    res.status(400).json({ error: 'role must be OC or DC.' }); return;
+  }
+  const userTeam = getUserTeam(league);
+  const { league: updated } = promoteWithin(league, userTeam.id, role as 'OC' | 'DC');
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
 });
 
 // POST /league/:id/sign-free-agent — user signs a player from free agency.
@@ -561,7 +686,35 @@ app.post('/league/:id/sign-free-agent', requireAuth, (req: Request, res: Respons
     }
   }
   dbSaveLeague(final);
-  res.json(final);
+  sendLeague(res, final);
+});
+
+// POST /league/:id/offer-contract — user offers a contract to a free agent.
+app.post('/league/:id/offer-contract', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { playerId, salary, years } = req.body as { playerId?: string; salary?: number; years?: number };
+  if (!playerId) { res.status(400).json({ error: 'playerId is required.' }); return; }
+  if (typeof salary !== 'number' || salary < 1) { res.status(400).json({ error: 'salary must be a positive number.' }); return; }
+  if (typeof years !== 'number' || years < 1 || years > 10) { res.status(400).json({ error: 'years must be between 1 and 10.' }); return; }
+  const { league: updated, accepted, message, error } = offerContract(league, playerId, salary, years);
+  if (error) { res.status(400).json({ error }); return; }
+  let final = updated;
+  if (accepted) {
+    const player = league.freeAgents.find(p => p.id === playerId);
+    if (player) {
+      const userTeam = league.teams.find(t => t.id === updated.userTeamId);
+      if (userTeam) {
+        final = addNewsItems(updated, [newsForSigning(
+          player.name, player.id, player.position,
+          userTeam.name, userTeam.id,
+          league.currentSeason.year, league.currentWeek,
+        )]);
+      }
+    }
+  }
+  dbSaveLeague(final);
+  res.json({ league: sanitizeLeagueForClient(final), accepted, message });
 });
 
 // POST /league/:id/draft-pick — user selects a prospect from the draft board.
@@ -572,9 +725,19 @@ app.post('/league/:id/draft-pick', requireAuth, (req: Request, res: Response) =>
   if (!playerId) { res.status(400).json({ error: 'playerId is required.' }); return; }
   const { league: updated, error } = makeDraftPick(league, playerId);
   if (error) { res.status(400).json({ error }); return; }
-  const withActivity = addActivity(updated, `You selected ${updated.draft?.slots.find(s => s.playerId === playerId)?.playerName ?? playerId}`);
+  const slot = updated.draft?.slots.find(s => s.playerId === playerId);
+  let withActivity = addActivity(updated, `You selected ${slot?.playerName ?? playerId}`);
+  // Generate news for early-round picks (rounds 1-3)
+  if (slot?.playerId && slot.playerName && slot.round <= 3) {
+    withActivity = addNewsItems(withActivity, [newsForDraftPick(
+      slot.playerName, slot.playerId, slot.playerPos ?? '?',
+      slot.teamName, slot.teamId,
+      slot.round, slot.overallPick,
+      updated.draft!.year,
+    )]);
+  }
   dbSaveLeague(withActivity);
-  res.json(withActivity);
+  sendLeague(res, withActivity);
 });
 
 // POST /league/:id/sim-draft — AI picks for all remaining slots (including user's).
@@ -584,10 +747,21 @@ app.post('/league/:id/sim-draft', requireAuth, (req: Request, res: Response) => 
   if (!league.draft || league.draft.complete) {
     res.status(400).json({ error: 'No active draft to simulate.' }); return;
   }
+  const prevIdx = league.draft.currentSlotIdx;
   const simmed = simRemainingDraft(league);
-  const withActivity = addActivity(simmed, 'Remaining draft picks simulated by AI.');
+  let withActivity = addActivity(simmed, 'Remaining draft picks simulated by AI.');
+  // Generate news for early-round picks that were just simulated
+  const newlyPickedSlots = simmed.draft?.slots.slice(prevIdx).filter(s => s.playerId && s.playerName && s.round <= 3) ?? [];
+  if (newlyPickedSlots.length > 0) {
+    const draftYear = simmed.draft!.year;
+    const draftNews = newlyPickedSlots.map(s => newsForDraftPick(
+      s.playerName!, s.playerId!, s.playerPos ?? '?',
+      s.teamName, s.teamId, s.round, s.overallPick, draftYear,
+    ));
+    withActivity = addNewsItems(withActivity, draftNews);
+  }
   dbSaveLeague(withActivity);
-  res.json(withActivity);
+  sendLeague(res, withActivity);
 });
 
 // POST /league/:id/set-depth-chart — reorder a position slot in the user's depth chart.
@@ -602,7 +776,7 @@ app.post('/league/:id/set-depth-chart', requireAuth, (req: Request, res: Respons
   const updatedTeam = { ...userTeam, depthChart: newChart };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  res.json(updated);
+  sendLeague(res, updated);
 });
 
 // POST /league/:id/set-gameplan — update the user's team gameplan and derived playcalling.
@@ -624,7 +798,7 @@ app.post('/league/:id/set-gameplan', requireAuth, (req: Request, res: Response) 
   const updatedTeam = { ...userTeam, gameplan, playcalling: derivePlaycalling(gameplan) };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  res.json(updated);
+  sendLeague(res, updated);
 });
 
 // POST /league/:id/settings — update league settings (commissioner only).
@@ -665,7 +839,120 @@ app.post('/league/:id/settings', requireAuth, async (req: Request, res: Response
   }
 
   dbSaveLeague(updated);
-  res.json(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/advance-draft-pick — advance exactly one CPU pick.
+app.post('/league/:id/advance-draft-pick', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { league: updated, error } = advanceOneCpuPick(league);
+  if (error) { res.status(400).json({ error }); return; }
+  // Build activity message from the just-completed slot (currentSlotIdx was incremented by applyPick)
+  const completedSlot = updated.draft?.slots[(updated.draft?.currentSlotIdx ?? 1) - 1];
+  const msg = completedSlot?.playerName
+    ? `${completedSlot.teamName} selects ${completedSlot.playerName} (${completedSlot.playerPos ?? ''})`
+    : 'Pick made.';
+  let withActivity = addActivity(updated, msg);
+  // Generate news for early-round CPU picks (rounds 1-3)
+  if (completedSlot?.playerId && completedSlot.playerName && completedSlot.round <= 3) {
+    withActivity = addNewsItems(withActivity, [newsForDraftPick(
+      completedSlot.playerName, completedSlot.playerId, completedSlot.playerPos ?? '?',
+      completedSlot.teamName, completedSlot.teamId,
+      completedSlot.round, completedSlot.overallPick,
+      updated.draft!.year,
+    )]);
+  }
+  dbSaveLeague(withActivity);
+  sendLeague(res, withActivity);
+});
+
+// POST /league/:id/advance-to-user-pick — advance all CPU picks until the user's next turn.
+app.post('/league/:id/advance-to-user-pick', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  if (!league.draft || league.draft.complete) {
+    res.status(400).json({ error: 'No active draft.' }); return;
+  }
+  const slot = league.draft.slots[league.draft.currentSlotIdx];
+  if (slot?.teamId === league.userTeamId) {
+    // Already at user's pick — no-op (avoid spurious activity log)
+    sendLeague(res, league); return;
+  }
+  const updated = advanceToUserPick(league);
+  const withActivity = addActivity(updated, "CPU picks complete — your turn.");
+  dbSaveLeague(withActivity);
+  sendLeague(res, withActivity);
+});
+
+// POST /league/:id/scout-prospect — spend scouting points to generate/upgrade a prospect report.
+app.post('/league/:id/scout-prospect', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { prospectId } = req.body as { prospectId?: string };
+  if (!prospectId) { res.status(400).json({ error: 'prospectId is required.' }); return; }
+
+  if (!league.draftClass) { res.status(400).json({ error: 'No draft class available to scout.' }); return; }
+
+  const prospect = league.draftClass.prospects.find(p => p.id === prospectId);
+  if (!prospect) { res.status(404).json({ error: `Prospect '${prospectId}' not found.` }); return; }
+
+  const userTeam = getUserTeam(league);
+  const scoutingData: Record<string, ProspectScoutingState> = userTeam.scoutingData ?? {};
+  const existing: ProspectScoutingState = scoutingData[prospectId] ?? {
+    prospectId, scoutLevel: 0, pointsSpent: 0, report: null,
+  };
+
+  if (existing.scoutLevel >= 3) {
+    res.status(400).json({ error: 'Already fully scouted.' }); return;
+  }
+
+  const costs = [TUNING.scouting.pass1Cost, TUNING.scouting.pass2Cost, TUNING.scouting.pass3Cost];
+  const cost  = costs[existing.scoutLevel]!;
+  const available = userTeam.scoutingPoints ?? 0;
+  if (available < cost) {
+    res.status(400).json({ error: `Not enough scouting points. Need ${cost}, have ${available}.` }); return;
+  }
+
+  const newLevel = (existing.scoutLevel + 1) as 1 | 2 | 3;
+  const scoutOverall = userTeam.scout?.overall ?? 60;
+  const report = generateScoutingReport(prospect, newLevel, scoutOverall);
+
+  const newState: ProspectScoutingState = {
+    prospectId,
+    scoutLevel:  newLevel,
+    pointsSpent: existing.pointsSpent + cost,
+    report,
+  };
+
+  const updatedTeam = {
+    ...userTeam,
+    scoutingPoints: available - cost,
+    scoutingData:   { ...scoutingData, [prospectId]: newState },
+  };
+  const updated: League = {
+    ...league,
+    teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t),
+  };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/draft-board — persist the user's ordered draft board.
+app.post('/league/:id/draft-board', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { board } = req.body as { board?: string[] };
+  if (!Array.isArray(board)) { res.status(400).json({ error: 'board must be an array of prospect IDs.' }); return; }
+
+  const userTeam = getUserTeam(league);
+  const updatedTeam = { ...userTeam, draftBoard: board };
+  const updated: League = {
+    ...league,
+    teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t),
+  };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
 });
 
 // GET /league/:id/members — list all members (auth required).

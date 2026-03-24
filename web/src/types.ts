@@ -219,7 +219,55 @@ export function getVisibleRatings(ratings: AnyRatings): Record<string, number> {
   }
 }
 
+// ── Scouting / Prospects ─────────────────────────────────────────────────────
+
+export interface HeadScout {
+  id:      string;
+  name:    string;
+  overall: number;
+}
+
+export type ScoutConfidence = 'low' | 'medium' | 'high';
+
+export interface ScoutingReport {
+  projectedRound: { min: number; max: number };
+  grade:          string;
+  strengths:      string[];
+  weaknesses:     string[];
+  confidence:     ScoutConfidence;
+  notes:          string;
+}
+
+export interface ProspectScoutingState {
+  prospectId:  string;
+  scoutLevel:  0 | 1 | 2 | 3;
+  pointsSpent: number;
+  report:      ScoutingReport | null;
+}
+
+/** Prospect as received from the server — hidden fields (trueOverall etc.) are stripped. */
+export interface ClientProspect {
+  id:       string;
+  name:     string;
+  position: string;
+  age:      number;
+  college:  string;
+  height:   string;
+  weight:   number;
+}
+
+export interface DraftClass {
+  year:      number;
+  prospects: ClientProspect[];
+}
+
+// ── Salary cap ────────────────────────────────────────────────────────────────
+
+export const CAP_LIMIT = 420;
+
 // ── Player ────────────────────────────────────────────────────────────────────
+
+export type DevTrait = 'superDev' | 'normal' | 'lateBloomer' | 'bust' | 'declining';
 
 export interface Player {
   id:                   string;
@@ -233,8 +281,12 @@ export interface Player {
   injuryWeeksRemaining: number;
   scoutingLevel:        number;
   stamina:              number;
+  devTrait:             DevTrait;
+  yearsPro:             number;
   isRookie?:            boolean;
   contractDemand?:      { salary: number; years: number };
+  college?:             string;
+  prospectId?:          string;
 }
 
 // ── Team ──────────────────────────────────────────────────────────────────────
@@ -265,6 +317,21 @@ export interface PlaycallingWeights {
   mediumPassPct: number;
 }
 
+export type CoachPersonality = 'conservative' | 'balanced' | 'aggressive';
+
+export type CoachTrait =
+  | 'talent_evaluator'
+  | 'contract_negotiator'
+  | 'offensive_pioneer'
+  | 'quarterback_guru'
+  | 'run_game_specialist'
+  | 'defensive_architect'
+  | 'pass_rush_specialist'
+  | 'turnover_machine'
+  | 'player_developer'
+  | 'youth_developer'
+  | 'veteran_stabilizer';
+
 export interface Coach {
   id:               string;
   name:             string;
@@ -272,12 +339,14 @@ export interface Coach {
   overall:          number;
   offensiveScheme?: OffensiveScheme;
   defensiveScheme?: DefensiveScheme;
+  personality?:     CoachPersonality;
+  trait?:           CoachTrait;
 }
 
 export interface CoachingStaff {
   hc: Coach;
-  oc: Coach;
-  dc: Coach;
+  oc: Coach | null;
+  dc: Coach | null;
 }
 
 // ── Gameplan ──────────────────────────────────────────────────────────────────
@@ -313,15 +382,20 @@ export const DEFAULT_GAMEPLAN: GameplanSettings = {
 // ── Team ──────────────────────────────────────────────────────────────────────
 
 export interface Team {
-  id:           string;
-  name:         string;
-  abbreviation: string;
-  ownerId?:     string;
-  roster:       Player[];
-  depthChart?:  Record<string, (Player | null)[]>;
-  coaches:      CoachingStaff;
-  playcalling:  PlaycallingWeights;
-  gameplan?:    GameplanSettings;
+  id:             string;
+  name:           string;
+  abbreviation:   string;
+  ownerId?:       string;
+  roster:         Player[];
+  depthChart?:    Record<string, (Player | null)[]>;
+  coaches:        CoachingStaff;
+  playcalling:    PlaycallingWeights;
+  gameplan?:      GameplanSettings;
+  scout?:         HeadScout;
+  scoutingBudget?: number;
+  scoutingPoints?: number;
+  scoutingData?:  Record<string, ProspectScoutingState>;
+  draftBoard?:    string[];
 }
 
 // ── Game events ───────────────────────────────────────────────────────────────
@@ -515,6 +589,50 @@ export interface RetiredPlayerRecord {
   finalOverall:   number;
 }
 
+export type LegacyTier = 'none' | 'outside_shot' | 'building' | 'strong' | 'likely' | 'hall_of_famer';
+
+export interface HofCareerStats {
+  seasons:             number;
+  passingYards:        number;
+  passingTDs:          number;
+  rushingYards:        number;
+  rushingTDs:          number;
+  receivingYards:      number;
+  receivingTDs:        number;
+  receptions:          number;
+  sacks:               number;
+  interceptionsCaught: number;
+}
+
+// ── Ring of Honor ─────────────────────────────────────────────────────────────
+
+export interface RingOfHonorEntry {
+  playerId:              string;
+  name:                  string;
+  position:              string;
+  inductedYear:          number;
+  yearsWithTeam:         number;
+  teamLegacyScore:       number;
+  awardsWithTeam:        Record<string, number>;
+  championshipsWithTeam: number;
+  jerseyRetired:         boolean;
+}
+
+export interface HallOfFameEntry {
+  playerId:      string;
+  name:          string;
+  position:      string;
+  inductionYear: number;
+  yearsPlayed:   number;
+  legacyScore:   number;
+  legacyTier:    LegacyTier;
+  careerStats:   HofCareerStats;
+  awardsCount:   Record<string, number>;
+  championships: number;
+  teamIds:       string[];
+  teamNames:     string[];
+}
+
 export interface LeagueHistory {
   seasonAwards:    SeasonAwards[];
   championsByYear: Record<number, { teamId: string; teamName: string }>;
@@ -522,6 +640,8 @@ export interface LeagueHistory {
   teamHistory:     Record<string, TeamSeasonHistory[]>;
   coachHistory:    Record<string, CoachSeasonRecord[]>;
   retiredPlayers:  RetiredPlayerRecord[];
+  hallOfFame:      HallOfFameEntry[];
+  ringOfHonor:     Record<string, RingOfHonorEntry[]>;
 }
 
 // ── League ────────────────────────────────────────────────────────────────────
@@ -609,6 +729,9 @@ export interface TradeProposal {
   fromAssets: TradeAsset[];
   toAssets:   TradeAsset[];
   status:     'pending' | 'accepted' | 'rejected';
+  completedAt?:    number;
+  completedWeek?:  number;
+  completedPhase?: string;
 }
 
 // ── News ──────────────────────────────────────────────────────────────────────
@@ -620,7 +743,24 @@ export type NewsType =
   | 'award'
   | 'signing'
   | 'trade'
-  | 'retirement';
+  | 'retirement'
+  | 'draft_pick'
+  | 'big_performance'
+  | 'upset'
+  | 'weekly_recap'
+  | 'milestone'
+  | 'stat_race'
+  | 'streak'
+  | 'hall_of_fame'
+  | 'coach_change'
+  | 'ring_of_honor'
+  | 'retired_jersey';
+
+export interface NewsMention {
+  id:         string;
+  name:       string;
+  entityType: 'player' | 'team';
+}
 
 export interface NewsItem {
   id:        string;
@@ -632,6 +772,7 @@ export interface NewsItem {
   createdAt: number;
   teamIds:   string[];
   playerIds: string[];
+  mentions?: NewsMention[];
 }
 
 // ── League ────────────────────────────────────────────────────────────────────
@@ -648,6 +789,7 @@ export interface League {
   phase:                LeaguePhase;
   playoff?:             PlayoffBracket;
   draft?:               Draft;
+  draftClass?:          DraftClass;
   seasonHistory:        SeasonRecord[];
   history:              LeagueHistory;
   activities:           Activity[];
@@ -659,12 +801,14 @@ export interface League {
   currentSeason:        Season;
   currentWeek:          number;
   freeAgents:           Player[];
+  unemployedCoaches:    Coach[];
   divisions:            Division[];
   currentSeasonStats:   Record<string, PlayerSeasonStats>;
   scoutingBudget:       number;
   developmentBudget:    number;
   ownerBudget:          number;
   news:                 NewsItem[];
+  milestonesHit:        Record<string, string[]>;
 }
 
 // ── Standings ─────────────────────────────────────────────────────────────────

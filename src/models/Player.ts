@@ -394,6 +394,24 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
   }
 }
 
+// ── Development trait ─────────────────────────────────────────────────────────
+
+export type DevTrait = 'superDev' | 'normal' | 'lateBloomer' | 'bust' | 'declining';
+
+/**
+ * Returns a randomly-selected development trait.
+ * Distribution: superDev 5%, lateBloomer 20%, bust 15%, declining 10%, normal 50%.
+ * Hardcoded (not from TUNING) because models can't import engine config.
+ */
+export function randomDevTrait(): DevTrait {
+  const r = Math.random();
+  if (r < 0.05) return 'superDev';
+  if (r < 0.25) return 'lateBloomer';
+  if (r < 0.40) return 'bust';
+  if (r < 0.50) return 'declining';
+  return 'normal';
+}
+
 // ── Salary ────────────────────────────────────────────────────────────────────
 
 export function calcSalary(overall: number): number {
@@ -427,13 +445,25 @@ export interface Player {
   yearsRemaining:        number;
   injuryWeeksRemaining:  number;   // 0 = healthy
   stamina:               number;   // 1-99: cardio/endurance — affects in-game fatigue buildup
+  /** Hidden development archetype — influences yearly progression curves. */
+  devTrait:              DevTrait;
+  /** Seasons completed as a professional (0 = rookie year, increments each offseason). */
+  yearsPro:              number;
+  /** College the player attended; preserved from Prospect at draft time. */
+  college?:              string;
+  /** ID of the originating Prospect (before the "p-" player-id prefix). Used to look up scoutingData and draftBoard entries. */
+  prospectId?:           string;
 }
 
 export interface PlayerOptions {
-  scoutingLevel?:  number;  // default 60
-  yearsRemaining?: number;  // default: 3–4 for rookies, 1–3 for veterans
-  isRookie?:       boolean; // default: age <= 23
-  stamina?:        number;  // default: random 50–90
+  scoutingLevel?:  number;    // default 60
+  yearsRemaining?: number;    // default: 3–4 for rookies, 1–3 for veterans
+  isRookie?:       boolean;   // default: age <= 23
+  stamina?:        number;    // default: random 50–90
+  devTrait?:       DevTrait;  // default: randomDevTrait()
+  yearsPro?:       number;    // default: 0
+  college?:        string;
+  prospectId?:     string;
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -471,7 +501,11 @@ export function createPlayer(
     salary:         calcSalary(overall),
     yearsRemaining,
     injuryWeeksRemaining: 0,
-    stamina: options.stamina ?? (50 + Math.floor(Math.random() * 41)), // 50–90
+    stamina:  options.stamina  ?? (50 + Math.floor(Math.random() * 41)), // 50–90
+    devTrait: options.devTrait ?? randomDevTrait(),
+    yearsPro: options.yearsPro ?? 0,
+    ...(options.college    !== undefined && { college:    options.college }),
+    ...(options.prospectId !== undefined && { prospectId: options.prospectId }),
   };
 }
 

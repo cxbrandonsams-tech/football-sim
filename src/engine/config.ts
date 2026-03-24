@@ -142,6 +142,57 @@ export const TUNING = {
     overallToSuccessScalar: 0.001, // per point of coach overall above 70
     maxCoachBonus:          0.06,
     minCoachPenalty:       -0.04,
+
+    // 4th-down go-for-it base probabilities and personality multipliers
+    fourthDown: {
+      baseProb: {
+        dist1:    0.55,  // 4th and 1
+        dist2:    0.35,  // 4th and 2
+        dist3:    0.20,  // 4th and 3
+        dist5:    0.12,  // 4th and 4-5
+        distLong: 0.04,  // 4th and 6+
+      },
+      goalLineBump:          0.20,  // extra chance when inside opponent's 10
+      personalityMultiplier: {
+        conservative: 0.50,
+        balanced:     1.00,
+        aggressive:   1.70,
+      } as Record<string, number>,
+    },
+
+    // Coach carousel & pool
+    carousel: {
+      poolTargetSize:      15,   // target number of unemployed coaches
+      traitChanceHC:       0.35, // probability initial HC gets a trait
+      traitChanceCoord:    0.25, // probability initial OC/DC gets a trait
+      traitChanceInternal: 0.40, // probability internal coordinator gets a trait
+      traitChancePool:     0.30, // probability pool coach gets a trait
+      internalOvrPenalty:  8,    // OVR below external pool avg for internal promotions
+      // HC firing thresholds (AI teams only)
+      firing: {
+        belowWinThreshold:  4,    // < 4 wins: high fire chance
+        midWinThreshold:    7,    // 4-6 wins: moderate chance; 7+: low chance
+        probBelowThreshold: 0.60,
+        probMidWins:        0.25,
+        probHighWins:       0.05,
+      },
+    },
+
+    // Coaching trait effect sizes — all modest and centralized
+    traits: {
+      talentEvaluatorScoutingBonus:  2,      // +N scouting actions per season
+      contractNegotiatorDiscount:    0.05,   // 5% off FA signing salaries
+      offensivePioneerBonus:         0.025,  // +2.5% pass / play-action success
+      quarterbackGuruBonus:          0.015,  // +1.5% QB completion / INT reduction
+      runGameSpecialistBonus:        0.025,  // +2.5% run success
+      defensiveArchitectBonus:       0.020,  // +2.0% defensive resistance (pass)
+      passRushSpecialistBonus:       0.025,  // +2.5% sack/pressure effectiveness
+      turnovertMachineBonus:         0.020,  // +2.0% turnover generation (pass def)
+      playerDeveloperImproveBonus:   0.10,   // +10% improve chance in progression
+      playerDeveloperDeclineSave:    0.05,   // -5% decline chance in progression
+      youthDeveloperImproveBonus:    0.15,   // +15% improve chance for yearsPro <= 3
+      veteranStabilizerDeclineSave:  0.08,   // -8% decline chance for age >= 30
+    } as Record<string, number>,
   },
 
   // ── Scheme bonuses ────────────────────────────────────────────────────────
@@ -340,6 +391,81 @@ export const TUNING = {
     eliteOverallSave:      0.05,
   },
 
+  // ── Scouting system ───────────────────────────────────────────────────────
+  scouting: {
+    // Point costs for each scouting pass (escalating)
+    pass1Cost:          10,
+    pass2Cost:          20,
+    pass3Cost:          35,
+    // Scouting points per unit of team scoutingBudget (budget 5 → 150 pts)
+    pointsPerBudgetUnit: 30,
+    // Default budget tier for new teams (5 → 150 points)
+    defaultBudgetTier:   5,
+    // How many rounds of variance the projected round has per scout level
+    roundVarianceL1: 2,  // wide early look
+    roundVarianceL2: 1,  // tighter after film study
+    roundVarianceL3: 1,  // still uncertain even at max
+    // Rating noise (added to each true rating before ranking strengths/weaknesses)
+    ratingNoiseL1: 22,   // rough — often picks wrong strengths
+    ratingNoiseL2: 11,   // moderate
+    ratingNoiseL3:  5,   // low but never zero
+    // Per point of scout overall above/below 70 — scales noise up or down
+    scoutQualityFactor: 0.20,
+  },
+
+  // ── Development traits ────────────────────────────────────────────────────
+  // Modifiers applied on top of age-band + workEthic in progressPlayer.
+  // declineSave: positive = saves from declining; negative = adds to decline chance.
+  devTraits: {
+    superDev:    { improveBonus: 0.15, declineSave:  0.08 },
+    normal:      { improveBonus: 0.00, declineSave:  0.00 },
+    lateBloomer: { improveBonus: -0.08, declineSave: 0.04 },
+    bust:        { improveBonus: -0.15, declineSave: -0.08 },
+    declining:   { improveBonus: -0.12, declineSave: -0.15 },
+    /** Late bloomer activates peak modifiers once yearsPro reaches this. */
+    lateBloomerPeakYears:        4,
+    lateBloomerPeakImproveBonus: 0.20,
+    lateBloomerPeakDeclineSave:  0.12,
+  },
+
+  // ── Trades ────────────────────────────────────────────────────────────────
+  trades: {
+    /** Default AI acceptance threshold: incoming / outgoing must be >= this. */
+    aiAcceptThreshold:        0.85,
+    /** Contenders slightly more willing to overpay for proven players. */
+    contenderThreshold:       0.80,
+    /** Rebuilders eager for picks/youth — lower threshold when getting them. */
+    rebuilderPickThreshold:   0.75,
+    /** Rebuilders wary of trading away vets with no youth/pick return. */
+    rebuilderNoPickThreshold: 0.90,
+    /** Min offer-value / asked-value ratio for a shop offer to be generated. */
+    shopMinRatio:             0.82,
+    /** Max shop offers generated per player. */
+    shopMaxOffers:            3,
+    /** Max AI-to-AI trades per offseason advance. */
+    aiMaxTrades:              3,
+    /** Max candidate pair attempts for AI-to-AI matching. */
+    aiMaxAttempts:            15,
+    /** AI-to-AI trades are skipped when offer ratio is below this. */
+    aiLopsidedThreshold:      0.80,
+  },
+
+  // ── Free agency ───────────────────────────────────────────────────────────
+  freeAgency: {
+    /** FAs request this multiple of their market salary (5% premium). */
+    salaryPremium:        1.05,
+    /** Offer ≥ this fraction of asking salary always accepted (if years OK). */
+    autoAcceptThreshold:  1.00,
+    /** Offer below this fraction of asking salary always rejected. */
+    acceptThreshold:      0.88,
+    /** Max years any FA will demand. */
+    maxDemandYears:       4,
+    /** CPU teams compete for FAs with overall at or above this in the initial round. */
+    cpuCompeteMinOvr:     62,
+    /** Fraction of open roster spots CPU fills in the initial FA round. */
+    cpuInitialSignFrac:   0.40,
+  },
+
   // ── In-game fatigue ───────────────────────────────────────────────────────
   fatigue: {
     /** Per-play fatigue buildup for a player with stamina=50 (scaled by (100-stamina)/50). */
@@ -364,5 +490,118 @@ export const TUNING = {
     minor:    { weight: 0.60, weeksMin: 1, weeksMax: 1 },
     moderate: { weight: 0.30, weeksMin: 2, weeksMax: 4 },
     major:    { weight: 0.10, weeksMin: 5, weeksMax: 8 },
+  },
+
+  // ── Hall of Fame / Legacy scoring (Phase 31) ──────────────────────────────
+  hof: {
+    /** Minimum legacy score required for induction. */
+    inductionThreshold: 120,
+    /** Score added per season of professional play. */
+    longevityPerYear:   3,
+    /** Score added per championship won (as a member of the winning team). */
+    championshipBonus:  20,
+    /** Score bonus for all-time rank in a position's primary stat(s). */
+    rankBonus: {
+      top3:  25,
+      top5:  15,
+      top10:  8,
+    },
+    /** Award point values. Keyed by AwardType string. */
+    awardPoints: {
+      MVP:             30,
+      OPOY:            20,
+      DPOY:            20,
+      OROY:            10,
+      DROY:            10,
+      AllPro1:         15,
+      AllPro2:          8,
+      Comeback_Player: 10,
+    },
+    /**
+     * Career stat multipliers per position group.
+     * All nine tracked stats listed for every group; zero = not relevant.
+     */
+    statWeights: {
+      QB:  { passingYards: 0.018, passingTDs: 5.0, rushingYards: 0.008, rushingTDs: 2.0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
+      RB:  { passingYards: 0, passingTDs: 0, rushingYards: 0.050, rushingTDs: 6.0, receivingYards: 0.015, receivingTDs: 2.0, receptions: 0.30, sacks: 0, interceptionsCaught: 0 },
+      WR:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0.050, receivingTDs: 6.0, receptions: 0.40, sacks: 0, interceptionsCaught: 0 },
+      TE:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0.050, receivingTDs: 6.0, receptions: 0.40, sacks: 0, interceptionsCaught: 0 },
+      OL:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
+      DL:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 10.0, interceptionsCaught: 4.0 },
+      LB:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks:  8.0, interceptionsCaught: 6.0 },
+      CB:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks:  3.0, interceptionsCaught: 12.0 },
+      SAF: { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks:  4.0, interceptionsCaught: 10.0 },
+      ST:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks:  0,   interceptionsCaught: 0 },
+    },
+    /** Minimum score (inclusive) for each tier label. */
+    tierThresholds: {
+      outside_shot:  30,
+      building:      55,
+      strong:        80,
+      likely:       100,
+      hall_of_famer: 120,
+    },
+  },
+
+  // ── Ring of Honor / Team Legacy (Phase 34) ───────────────────────────────
+  ringOfHonor: {
+    /** Minimum team-legacy score to enter a team's Ring of Honor. */
+    inductionThreshold:        45,
+    /** Score to trigger jersey retirement (above inductionThreshold). */
+    jerseyRetirementThreshold: 80,
+    /** Points per season played with the team. */
+    longevityPerYear:           2,
+    /**
+     * Loyalty bonus: extra points per season spent with the team
+     * beyond loyaltyThreshold.  Rewards franchise cornerstones.
+     */
+    loyaltyThreshold: 3,
+    loyaltyBonus:     4,
+    /** Points added per championship won while on this specific team. */
+    championshipBonus: 15,
+    /** Award point values — mirrors HoF but slightly scaled down. */
+    awardPoints: {
+      MVP:             25,
+      OPOY:            15,
+      DPOY:            15,
+      OROY:             8,
+      DROY:             8,
+      AllPro1:         12,
+      AllPro2:          5,
+      Comeback_Player:  8,
+    },
+    // Stat weights are shared with TUNING.hof.statWeights — same multipliers,
+    // only applied to team-filtered seasons instead of full career.
+  },
+
+  // ── News / storyline generation (Phase 29) ────────────────────────────────
+  news: {
+    // Milestone thresholds — must be crossed for a news item to be generated.
+    // Each value is triggered exactly once per player per season.
+    milestones: {
+      passingYards:        [1000, 2000, 3000, 4000] as const,
+      passingTDs:          [10, 20, 30, 40]          as const,
+      rushingYards:        [500, 1000, 1500]          as const,
+      rushingTDs:          [5, 10, 15]                as const,
+      receivingYards:      [500, 1000, 1500]          as const,
+      receivingTDs:        [5, 10, 15]                as const,
+      sacks:               [5, 10, 15]                as const,
+      interceptionsCaught: [3, 5, 7]                  as const,
+    },
+    // Stat-race headlines: earliest week they can appear (to avoid week-1 noise)
+    // and max per-week cap across all race items.
+    statRace: {
+      firstEligibleWeek: 5,   // don't generate stat-race items before week 5
+      maxPerWeek:        2,   // cap at 2 stat-race items per simulated week
+    },
+    // Streak detection
+    streak: {
+      minLength: 3,    // at least this many consecutive W or L to generate an item
+    },
+    // Feed balancing per simulated week
+    feedBalance: {
+      maxRecapPerWeek:      1,
+      maxMilestonesPerWeek: 3,
+    },
   },
 } as const;

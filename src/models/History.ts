@@ -116,6 +116,47 @@ export interface RetiredPlayerRecord {
   finalOverall:   number;
 }
 
+// ── Ring of Honor ─────────────────────────────────────────────────────────────
+
+/** A durable snapshot of a player's franchise legacy — stored per team. */
+export interface RingOfHonorEntry {
+  playerId:              string;
+  name:                  string;
+  position:              string;
+  inductedYear:          number;
+  yearsWithTeam:         number;
+  teamLegacyScore:       number;
+  awardsWithTeam:        Record<string, number>;
+  championshipsWithTeam: number;
+  /** True if the player cleared the higher jersey-retirement threshold. */
+  jerseyRetired:         boolean;
+}
+
+// ── Hall of Fame ──────────────────────────────────────────────────────────────
+
+export type LegacyTier =
+  | 'none'
+  | 'outside_shot'
+  | 'building'
+  | 'strong'
+  | 'likely'
+  | 'hall_of_famer';
+
+export interface HallOfFameEntry {
+  playerId:      string;
+  name:          string;
+  position:      string;
+  inductionYear: number;
+  yearsPlayed:   number;
+  legacyScore:   number;
+  legacyTier:    LegacyTier;
+  careerStats:   PlayerCareerStats;
+  awardsCount:   Record<string, number>;  // award type → count
+  championships: number;
+  teamIds:       string[];
+  teamNames:     string[];
+}
+
 export interface LeagueHistory {
   seasonAwards:    SeasonAwards[];
   championsByYear: Record<number, { teamId: string; teamName: string }>;
@@ -127,6 +168,10 @@ export interface LeagueHistory {
   coachHistory:    Record<string, CoachSeasonRecord[]>;
   /** Players who have retired, in order of retirement. Stat history is in playerHistory. */
   retiredPlayers:  RetiredPlayerRecord[];
+  /** Hall of Fame members, in order of induction. */
+  hallOfFame:      HallOfFameEntry[];
+  /** Ring of Honor — per team, in order of induction. */
+  ringOfHonor:     Record<string, RingOfHonorEntry[]>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -139,6 +184,8 @@ export function emptyLeagueHistory(): LeagueHistory {
     teamHistory:     {},
     coachHistory:    {},
     retiredPlayers:  [],
+    hallOfFame:      [],
+    ringOfHonor:     {},
   };
 }
 

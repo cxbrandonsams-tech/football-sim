@@ -4,6 +4,7 @@ import { type League, type Draft, type DraftSlot } from '../models/League';
 import { calcStandings } from '../models/Standings';
 import { buildDepthChart } from '../models/DepthChart';
 import { getTeamDirection, posGroup, WANT_COUNTS } from './teamDirection';
+import { convertProspectToPlayer } from './scoutingEngine';
 
 // ── Name / position pools ─────────────────────────────────────────────────────
 
@@ -252,17 +253,22 @@ export function startDraft(league: League): League {
     }
   }
 
-  const prospects = generateTieredDraftClass(league.currentSeason.year + 1);
+  // Use scouted draft class if available; fall back to legacy generation.
+  const prospects  = league.draftClass && league.draftClass.year === draftYear
+    ? league.draftClass.prospects.map(convertProspectToPlayer)
+    : generateTieredDraftClass(draftYear);
   const draft: Draft = {
-    year:           league.currentSeason.year + 1,
+    year:           draftYear,
     players:        prospects,
     slots,
     currentSlotIdx: 0,
     complete:       false,
   };
 
-  const withDraft: League = { ...league, phase: 'draft', draft };
-  return runAIPicks(withDraft);
+  // Keep draftClass available during the draft so the UI can reference scouting notes.
+  // NOTE: CPU picks are NOT auto-advanced here — caller (doAdvance in server.ts) is responsible
+  // for calling advanceToUserPick so the flow is explicit and testable.
+  return { ...league, phase: 'draft', draft };
 }
 
 function applyPick(league: League, playerId: string, teamId: string): League {
@@ -304,7 +310,8 @@ function applyPick(league: League, playerId: string, teamId: string): League {
   return { ...league, teams: updatedTeams, draft: updatedDraft };
 }
 
-function runAIPicks(league: League): League {
+/** Advance all CPU picks until the next user turn (or draft complete). */
+export function advanceToUserPick(league: League): League {
   let cur = league;
   while (true) {
     const draft = cur.draft!;
@@ -316,6 +323,21 @@ function runAIPicks(league: League): League {
     cur = applyPick(cur, prospect.id, slot.teamId);
   }
   return cur;
+}
+
+/** Advance exactly one CPU pick. Returns an error if it is the user's turn. */
+export function advanceOneCpuPick(league: League): { league: League; error?: string } {
+  const draft = league.draft;
+  if (!draft)         return { league, error: 'No active draft.' };
+  if (draft.complete) return { league, error: 'Draft is already complete.' };
+
+  const slot = draft.slots[draft.currentSlotIdx]!;
+  if (slot.teamId === league.userTeamId)
+    return { league, error: 'It is your turn to pick.' };
+
+  const team    = league.teams.find(t => t.id === slot.teamId)!;
+  const prospect = aiPickProspect(draft.players, team, league);
+  return { league: applyPick(league, prospect.id, slot.teamId) };
 }
 
 export function makeDraftPick(league: League, playerId: string): { league: League; error?: string } {
@@ -331,7 +353,9 @@ export function makeDraftPick(league: League, playerId: string): { league: Leagu
     return { league, error: 'Player not available in draft pool.' };
 
   const afterUser = applyPick(league, playerId, league.userTeamId);
-  return { league: runAIPicks(afterUser) };
+  // CPU picks are NOT auto-advanced — the client drives advancement via advance-draft-pick
+  // or advance-to-user-pick endpoints so each CPU pick can be observed.
+  return { league: afterUser };
 }
 
 export function simRemainingDraft(league: League): League {

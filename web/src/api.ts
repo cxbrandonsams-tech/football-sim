@@ -104,6 +104,24 @@ export const draftPick = (id: string, playerId: string) =>
   request<League>(`/league/${id}/draft-pick`, 'POST', { playerId });
 export const simDraft = (id: string) =>
   request<League>(`/league/${id}/sim-draft`, 'POST');
+export const scoutProspect = (id: string, prospectId: string) =>
+  request<League>(`/league/${id}/scout-prospect`, 'POST', { prospectId });
+export const updateDraftBoard = (id: string, board: string[]) =>
+  request<League>(`/league/${id}/draft-board`, 'POST', { board });
+export const advanceDraftPick = (id: string) =>
+  request<League>(`/league/${id}/advance-draft-pick`, 'POST');
+export const advanceToUserPick = (id: string) =>
+  request<League>(`/league/${id}/advance-to-user-pick`, 'POST');
+export const offerContract = (id: string, playerId: string, salary: number, years: number) =>
+  request<{ league: League; accepted: boolean; message: string }>(`/league/${id}/offer-contract`, 'POST', { playerId, salary, years });
+export const shopPlayer = (id: string, playerId: string) =>
+  request<{ league: League; count: number }>(`/league/${id}/shop-player`, 'POST', { playerId });
+export const fireCoach = (id: string, role: 'OC' | 'DC') =>
+  request<League>(`/league/${id}/fire-coach`, 'POST', { role });
+export const hireCoach = (id: string, coachId: string, role: 'HC' | 'OC' | 'DC') =>
+  request<League>(`/league/${id}/hire-coach`, 'POST', { coachId, role });
+export const promoteWithin = (id: string, role: 'OC' | 'DC') =>
+  request<League>(`/league/${id}/promote-within`, 'POST', { role });
 
 // ── Commissioner ──────────────────────────────────────────────────────────────
 

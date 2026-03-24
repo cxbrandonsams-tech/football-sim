@@ -2,6 +2,8 @@ import { type Player } from './Player';
 import { type Coach, type CoachingStaff } from './Coach';
 import { type DepthChart, buildDepthChart, getStarters } from './DepthChart';
 import { type PlaycallingWeights, DEFAULT_PLAYCALLING, clampWeights } from './Playcalling';
+import { type HeadScout } from './Scout';
+import { type ProspectScoutingState } from './Prospect';
 
 // ── Gameplan types ─────────────────────────────────────────────────────────────
 
@@ -78,6 +80,18 @@ export interface Team {
   conference?:  string;
   /** Division within the conference (e.g. 'East', 'West', 'North', 'South') */
   division?:    string;
+
+  // ── Scouting ──────────────────────────────────────────────────────────────
+  /** Head Scout — affects scouting report quality/reliability */
+  scout?:            HeadScout;
+  /** Budget tier (1–10); multiplied by TUNING.scouting.pointsPerBudgetUnit → scoutingPoints */
+  scoutingBudget?:   number;
+  /** Remaining scouting points for the current draft cycle */
+  scoutingPoints?:   number;
+  /** Per-prospect scouting progress for this team; keyed by prospectId */
+  scoutingData?:     Record<string, ProspectScoutingState>;
+  /** Ordered list of prospect IDs this team wants to target */
+  draftBoard?:       string[];
 }
 
 export function createTeam(
@@ -86,7 +100,14 @@ export function createTeam(
   abbreviation: string,
   roster:       Player[],
   coaches:      CoachingStaff,
-  opts: { conference?: string; division?: string; playcalling?: PlaycallingWeights; gameplan?: GameplanSettings } = {},
+  opts: {
+    conference?:    string;
+    division?:      string;
+    playcalling?:   PlaycallingWeights;
+    gameplan?:      GameplanSettings;
+    scout?:         HeadScout;
+    scoutingBudget?: number;
+  } = {},
 ): Team {
   const gameplan = opts.gameplan ?? DEFAULT_GAMEPLAN;
   return {
@@ -98,8 +119,15 @@ export function createTeam(
     coaches,
     playcalling: opts.playcalling ?? derivePlaycalling(gameplan),
     gameplan,
-    ...(opts.conference !== undefined && { conference: opts.conference }),
-    ...(opts.division   !== undefined && { division:   opts.division   }),
+    ...(opts.conference    !== undefined && { conference:    opts.conference }),
+    ...(opts.division      !== undefined && { division:      opts.division   }),
+    ...(opts.scout         !== undefined && { scout:         opts.scout }),
+    ...(opts.scoutingBudget !== undefined && {
+      scoutingBudget:  opts.scoutingBudget,
+      scoutingPoints:  opts.scoutingBudget * 30,  // initial allocation
+      scoutingData:    {} as Record<string, ProspectScoutingState>,
+      draftBoard:      [] as string[],
+    }),
   };
 }
 
@@ -115,5 +143,5 @@ export function getTeamOverall(team: Team): number {
 /** Convenience: find a coach on any team by id. */
 export function findCoach(team: Team, coachId: string): Coach | undefined {
   const { hc, oc, dc } = team.coaches;
-  return [hc, oc, dc].find(c => c.id === coachId);
+  return [hc, oc, dc].filter((c): c is Coach => c !== null).find(c => c.id === coachId);
 }

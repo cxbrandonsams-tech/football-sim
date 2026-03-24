@@ -23,8 +23,12 @@ import { computeDivisionStandings, extractDivFinish } from './standings';
 import { createSeason }                           from '../models/Season';
 import { progressLeague }                         from './progression';
 import { processRetirements }                     from './retirement';
+import { inductHallOfFame }                       from './hallOfFame';
+import { inductRingOfHonor }                      from './ringOfHonor';
 import { aiExtendPlayers }                        from './contracts';
 import { aiSignFreeAgents, enforceRosterLimits }  from './rosterManagement';
+import { runAICoachCarousel, autoFillUserVacancies } from './coachCarousel';
+import { TUNING }                                  from './config';
 
 // ── Playoff depth helper ───────────────────────────────────────────────────────
 
@@ -123,7 +127,7 @@ export function rollupSeasonHistory(league: League): League {
     const madePlayoffs = playoffTeams.has(team.id);
     const isChampion   = team.id === championId;
 
-    for (const coach of [team.coaches.hc, team.coaches.oc, team.coaches.dc]) {
+    for (const coach of [team.coaches.hc, team.coaches.oc, team.coaches.dc].filter((c): c is NonNullable<typeof c> => c !== null)) {
       const record: CoachSeasonRecord = {
         year,
         teamId:          team.id,
@@ -180,7 +184,13 @@ export function runOffseasonProgression(league: League): League {
   const { league: progressed } = progressLeague(league);
   // 2. Retire eligible players (uses post-progression ages)
   const { league: afterRetirements } = processRetirements(progressed);
-  return afterRetirements;
+  // 3. Induct Hall of Fame (evaluates all newly retired + previously eligible players)
+  const afterHoF = inductHallOfFame(afterRetirements);
+  // 4. Ring of Honor induction (team-specific legacy, independent of HoF)
+  const afterRoH = inductRingOfHonor(afterHoF);
+  // 5. AI coach carousel — evaluate HCs, fire/hire, replenish pool
+  const afterCarousel = runAICoachCarousel(afterRoH);
+  return afterCarousel;
 }
 
 /**
@@ -197,8 +207,25 @@ export function runOffseasonProgression(league: League): League {
  * calling this.  Preserves teams, coaches, history, and all long-term state.
  */
 export function startNextSeason(league: League): League {
+  // ── Ensure no vacancies remain before the season starts ───────────────────
+  const afterVacancies = autoFillUserVacancies(league);
+
+  // ── Apply Talent Evaluator scouting bonus ─────────────────────────────────
+  const withScoutingBonuses = {
+    ...afterVacancies,
+    teams: afterVacancies.teams.map(team => {
+      const coaches = [team.coaches.hc, team.coaches.oc, team.coaches.dc];
+      const hasTalentEvaluator = coaches.some(c => c?.trait === 'talent_evaluator');
+      if (!hasTalentEvaluator) return team;
+      return {
+        ...team,
+        scoutingBudget: (team.scoutingBudget ?? 5) + (TUNING.coaching.traits.talentEvaluatorScoutingBonus ?? 0),
+      };
+    }),
+  };
+
   // ── AI handles their contracts and roster gaps ─────────────────────────────
-  const { league: afterExtensions } = aiExtendPlayers(league);
+  const { league: afterExtensions } = aiExtendPlayers(withScoutingBonuses);
   const { league: afterSignings    } = aiSignFreeAgents(afterExtensions);
   const afterEnforcement             = enforceRosterLimits(afterSignings);
 

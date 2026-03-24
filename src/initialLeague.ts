@@ -10,8 +10,10 @@
 
 import { createPlayer, clamp, type AnyRatings } from './models/Player';
 import { createTeam }                            from './models/Team';
-import { createCoach }                           from './models/Coach';
+import { createCoach, type CoachPersonality, type CoachTrait } from './models/Coach';
 import { createLeague, type LeagueOptions, type Division, type ConferenceName, type DivisionName } from './models/League';
+import { type HeadScout } from './models/Scout';
+import { replenishCoachPool } from './engine/coachCarousel';
 
 // ── Seeded pseudo-random (deterministic generation) ───────────────────────────
 
@@ -300,6 +302,47 @@ const DC_NAMES  = ['Ray Sellers','James Oliver','Carl Bishop','Frank Malone','Gu
 const OFF_SCHEMES = ['balanced','short_passing','deep_passing','run_inside','run_outside'] as const;
 const DEF_SCHEMES = ['balanced','run_focus','speed_defense','stop_short_pass','stop_deep_pass','aggressive'] as const;
 
+// Head Scout budget tiers by team tier (0–3)
+const SCOUT_BUDGETS = [4, 5, 6, 8] as const;
+
+const SCOUT_NAMES = [
+  'Gil Brady','Norm Hess','Al Fowler','Bart Stone','Dale Kwan','Ed Simms',
+  'Frank Dunn','Gus Owen','Hal Vance','Ira Kerr','Jack Foley','Ken Marsh',
+  'Leo Nash','Max Pruett','Ned Olson','Otto Park','Pete Crane','Quinn Roy',
+  'Russ Flint','Sam Teel','Ted Moody','Vin Salas','Walt Ream','Xan Britt',
+  'Yuri Moss','Zeb Duffy','Andy Coles','Bo Dennis','Cal Rider','Dirk Hume',
+  'Earl Stoat','Finn Quade',
+];
+
+function buildScout(teamIndex: number, tier: number): HeadScout {
+  const rand   = seededRng(teamIndex * 9999 + 42);
+  const baseOvr = 52 + tier * 7;   // tier 0: 52 | tier 1: 59 | tier 2: 66 | tier 3: 73
+  const overall = clamp(Math.round(baseOvr + (rand() - 0.5) * 2 * 8));
+  return {
+    id:      `scout_${teamIndex}`,
+    name:    SCOUT_NAMES[teamIndex % SCOUT_NAMES.length]!,
+    overall,
+  };
+}
+
+const PERSONALITIES: CoachPersonality[] = ['conservative', 'balanced', 'aggressive'];
+
+const HC_TRAITS: CoachTrait[] = [
+  'talent_evaluator', 'contract_negotiator', 'offensive_pioneer', 'quarterback_guru',
+  'run_game_specialist', 'defensive_architect', 'pass_rush_specialist',
+  'turnover_machine', 'player_developer',
+];
+const OC_TRAITS: CoachTrait[] = [
+  'offensive_pioneer', 'quarterback_guru', 'run_game_specialist', 'player_developer', 'youth_developer',
+];
+const DC_TRAITS: CoachTrait[] = [
+  'defensive_architect', 'pass_rush_specialist', 'turnover_machine', 'player_developer', 'veteran_stabilizer',
+];
+
+function pickTrait(rand: () => number, pool: CoachTrait[], chance: number): CoachTrait | undefined {
+  return rand() < chance ? pool[Math.floor(rand() * pool.length)] : undefined;
+}
+
 function buildCoaches(teamIndex: number, tier: number) {
   const rand   = seededRng(teamIndex * 1234 + 77);
   const cRng   = (c: number) => clamp(Math.round(c + (rand() - 0.5) * 2 * 8));
@@ -311,14 +354,25 @@ function buildCoaches(teamIndex: number, tier: number) {
   // HC scheme preferences — 60% chance of matching OC/DC (alignment is a coaching hire decision)
   const hcOffSch = rand() < 0.60 ? offSch : OFF_SCHEMES[Math.floor(rand() * OFF_SCHEMES.length)]!;
   const hcDefSch = rand() < 0.60 ? defSch : DEF_SCHEMES[Math.floor(rand() * DEF_SCHEMES.length)]!;
+
+  const hcPersonality = PERSONALITIES[Math.floor(rand() * PERSONALITIES.length)]!;
+  const ocPersonality = PERSONALITIES[Math.floor(rand() * PERSONALITIES.length)]!;
+  const dcPersonality = PERSONALITIES[Math.floor(rand() * PERSONALITIES.length)]!;
+  const hcTrait = pickTrait(rand, HC_TRAITS, 0.35);
+  const ocTrait = pickTrait(rand, OC_TRAITS, 0.25);
+  const dcTrait = pickTrait(rand, DC_TRAITS, 0.25);
+
   return {
     hc: createCoach(`c${teamIndex}_hc`, HC_NAMES[teamIndex % HC_NAMES.length]!, 'HC', hcOv,
       { leadership: cRng(hcOv), gameManagement: cRng(hcOv - 2),
-        offensiveScheme: hcOffSch, defensiveScheme: hcDefSch }),
+        offensiveScheme: hcOffSch, defensiveScheme: hcDefSch,
+        personality: hcPersonality, ...(hcTrait ? { trait: hcTrait } : {}) }),
     oc: createCoach(`c${teamIndex}_oc`, OC_NAMES[teamIndex % OC_NAMES.length]!, 'OC', ocOv,
-      { offensiveScheme: offSch, passing: cRng(ocOv + 2), rushing: cRng(ocOv - 2) }),
+      { offensiveScheme: offSch, passing: cRng(ocOv + 2), rushing: cRng(ocOv - 2),
+        personality: ocPersonality, ...(ocTrait ? { trait: ocTrait } : {}) }),
     dc: createCoach(`c${teamIndex}_dc`, DC_NAMES[teamIndex % DC_NAMES.length]!, 'DC', dcOv,
-      { defensiveScheme: defSch, coverage: cRng(dcOv), runDefense: cRng(dcOv) }),
+      { defensiveScheme: defSch, coverage: cRng(dcOv), runDefense: cRng(dcOv),
+        personality: dcPersonality, ...(dcTrait ? { trait: dcTrait } : {}) }),
   };
 }
 
@@ -398,17 +452,22 @@ export function createInitialLeague(id: string, options: LeagueOptions = {}) {
   const teams = TEAM_DEFS.map((td, i) => {
     const roster  = buildRoster(i, td.tier);
     const coaches = buildCoaches(i, td.tier);
+    const scout   = buildScout(i, td.tier);
+    const scoutingBudget = SCOUT_BUDGETS[td.tier] ?? 5;
     return createTeam(td.id, td.name, td.abbr, roster, coaches,
-      { conference: td.conf, division: td.div });
+      { conference: td.conf, division: td.div, scout, scoutingBudget });
   });
 
   // User team is Pittsburgh Ironmen (ic_pit) — top-tier, IC North
   const userTeamId = 'ic_pit';
 
-  const league = createLeague(id, 'Gridiron Sim League', teams, userTeamId, 2025, {
+  const baseLeague = createLeague(id, 'Gridiron Sim League', teams, userTeamId, 2025, {
     ...options,
     divisions,
   });
+
+  // Seed the initial unemployed coach pool
+  const league = replenishCoachPool(baseLeague);
 
   return league;
 }

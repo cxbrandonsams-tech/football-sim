@@ -1,11 +1,13 @@
 import {
   type Player,
   type AnyRatings,
+  type DevTrait,
   calcOverall,
   calcSalary,
   clamp,
   refreshScouting,
 } from '../models/Player';
+import { type Coach } from '../models/Coach';
 import { type Team } from '../models/Team';
 import { type League } from '../models/League';
 import { buildDepthChart } from '../models/DepthChart';
@@ -101,6 +103,31 @@ function applyWorkEthic(
   return { improveChance, declineChance };
 }
 
+// ── Dev trait modifier ────────────────────────────────────────────────────────
+
+const DT = TUNING.devTraits;
+
+function applyDevTrait(
+  devTrait: DevTrait,
+  yearsPro: number,
+  improveChance: number,
+  declineChance: number,
+): { improveChance: number; declineChance: number } {
+  let mod: { improveBonus: number; declineSave: number };
+
+  if (devTrait === 'lateBloomer' && yearsPro >= DT.lateBloomerPeakYears) {
+    // Late bloomers hit their stride after a few pro seasons
+    mod = { improveBonus: DT.lateBloomerPeakImproveBonus, declineSave: DT.lateBloomerPeakDeclineSave };
+  } else {
+    mod = DT[devTrait] as { improveBonus: number; declineSave: number };
+  }
+
+  const newImprove = Math.min(0.95, Math.max(0.01, improveChance + mod.improveBonus));
+  // declineSave: positive saves from decline, negative adds to decline
+  const newDecline = Math.min(0.95, Math.max(0.01, declineChance - mod.declineSave));
+  return { improveChance: newImprove, declineChance: newDecline };
+}
+
 // ── Outcome type ──────────────────────────────────────────────────────────────
 
 type Outcome = 'improve' | 'stable' | 'decline';
@@ -119,19 +146,58 @@ export interface LeagueProgressionSummary {
   declined: ProgressionResult[];
 }
 
+// ── Coaching trait progression modifier ───────────────────────────────────────
+
+interface CoachingProgBonus { improveBonus: number; declineSave: number; }
+
+function computeCoachingProgBonus(player: Player, coaches: (Coach | null)[]): CoachingProgBonus {
+  let improveBonus = 0;
+  let declineSave  = 0;
+  const tr = TUNING.coaching.traits;
+
+  for (const coach of coaches) {
+    if (!coach) continue;
+    if (coach.trait === 'player_developer') {
+      improveBonus += tr.playerDeveloperImproveBonus ?? 0;
+      declineSave  += tr.playerDeveloperDeclineSave  ?? 0;
+    }
+    if (coach.trait === 'youth_developer' && (player.yearsPro ?? 0) <= 3) {
+      improveBonus += tr.youthDeveloperImproveBonus ?? 0;
+    }
+    if (coach.trait === 'veteran_stabilizer' && player.age >= 30) {
+      declineSave += tr.veteranStabilizerDeclineSave ?? 0;
+    }
+  }
+
+  return { improveBonus, declineSave };
+}
+
 // ── Single player progression ─────────────────────────────────────────────────
 
-export function progressPlayer(player: Player): ProgressionResult {
+export function progressPlayer(
+  player: Player,
+  coachingBonus?: CoachingProgBonus,
+): ProgressionResult {
   const band = getAgeBand(player.age);
   const we   = getWorkEthic(player);
-  const { improveChance, declineChance } = applyWorkEthic(band, we);
+  const afterWE = applyWorkEthic(band, we);
+  const { improveChance, declineChance } = applyDevTrait(
+    player.devTrait ?? 'normal',
+    player.yearsPro ?? 0,
+    afterWE.improveChance,
+    afterWE.declineChance,
+  );
+
+  // Apply coaching trait bonuses
+  const finalImprove = Math.min(0.95, improveChance + (coachingBonus?.improveBonus ?? 0));
+  const finalDecline = Math.max(0.01, declineChance - (coachingBonus?.declineSave  ?? 0));
 
   // Determine outcome
   const roll = Math.random();
   let outcome: Outcome;
-  if      (roll < improveChance)            outcome = 'improve';
-  else if (roll < 1.0 - declineChance)      outcome = 'stable';
-  else                                       outcome = 'decline';
+  if      (roll < finalImprove)            outcome = 'improve';
+  else if (roll < 1.0 - finalDecline)      outcome = 'stable';
+  else                                     outcome = 'decline';
 
   // Apply rating changes
   const fields  = getProgressableFields(player.trueRatings);
@@ -169,6 +235,7 @@ export function progressPlayer(player: Player): ProgressionResult {
   const updatedPlayer = refreshScouting({
     ...player,
     age:                  player.age + 1,
+    yearsPro:             (player.yearsPro ?? 0) + 1,
     stamina:              newStamina,
     trueRatings:          ratings,
     overall:              calcOverall(ratings),
@@ -185,8 +252,11 @@ export function progressPlayer(player: Player): ProgressionResult {
 
 // ── League-wide progression ───────────────────────────────────────────────────
 
-function progressRoster(roster: Player[]): { roster: Player[]; results: ProgressionResult[] } {
-  const results   = roster.map(p => progressPlayer(p));
+function progressRoster(
+  roster:  Player[],
+  coaches: (Coach | null)[],
+): { roster: Player[]; results: ProgressionResult[] } {
+  const results   = roster.map(p => progressPlayer(p, computeCoachingProgBonus(p, coaches)));
   const newRoster = results.map(r => r.player);
   return { roster: newRoster, results };
 }
@@ -198,7 +268,8 @@ export function progressLeague(league: League): { league: League; summary: Leagu
 
   const updatedTeams: Team[] = league.teams.map(team => {
     const isUserTeam = team.id === league.userTeamId;
-    const { roster, results } = progressRoster(team.roster);
+    const coaches: (Coach | null)[] = [team.coaches.hc, team.coaches.oc, team.coaches.dc];
+    const { roster, results } = progressRoster(team.roster, coaches);
 
     for (const r of results) {
       if (r.delta > 0) improved.push(r);
