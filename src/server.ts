@@ -212,18 +212,26 @@ function isOriginAllowed(origin: string): boolean {
   return false;
 }
 
-app.use(cors({
+const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);           // server-to-server / health checks
+    if (!origin) return callback(null, true);              // server-to-server / health checks
     if (allowedOrigins.length === 0) return callback(null, true); // local dev: no list = open
-    if (isOriginAllowed(origin)) return callback(null, true);
+    if (isOriginAllowed(origin)) return callback(null, origin);   // reflect exact origin
     console.warn(`[CORS] Rejected origin: ${origin}`);
-    return callback(new Error(`CORS: origin not allowed`));
+    callback(null, false);  // deny — do NOT pass an Error; that skips headers in error handler
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: false,
-}));
+};
+
+// Explicit preflight handler — must come before app.use(cors()) so that
+// OPTIONS /league/:id (parametric routes) is handled before Express tries
+// to match a GET/POST handler and returns 404/405.
+app.options('*', cors(corsOptions));
+
+// Apply CORS headers to every non-OPTIONS response.
+app.use(cors(corsOptions));
 
 app.use(express.json());
 
