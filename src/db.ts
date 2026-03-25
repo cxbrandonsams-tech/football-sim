@@ -48,7 +48,22 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS game_logs (
     leagueId   TEXT NOT NULL,
     gameId     TEXT NOT NULL,
+    season     INTEGER NOT NULL DEFAULT 0,
     eventsJson TEXT NOT NULL,
+    PRIMARY KEY (leagueId, gameId)
+  );
+
+  CREATE TABLE IF NOT EXISTS game_results (
+    leagueId     TEXT NOT NULL,
+    gameId       TEXT NOT NULL,
+    season       INTEGER NOT NULL,
+    week         INTEGER NOT NULL,
+    homeTeamId   TEXT NOT NULL,
+    awayTeamId   TEXT NOT NULL,
+    homeScore    INTEGER NOT NULL,
+    awayScore    INTEGER NOT NULL,
+    winnerTeamId TEXT,
+    tie          INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (leagueId, gameId)
   );
 `);
@@ -56,6 +71,7 @@ db.exec(`
 // Migrations — these are no-ops if columns already exist
 try { db.exec(`ALTER TABLE leagues ADD COLUMN commissionerId TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE leagues ADD COLUMN inviteCode TEXT`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE game_logs ADD COLUMN season INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
 
 // ── Phase 37 in-memory rating migration ───────────────────────────────────────
 // Remaps old legacy rating field names to GDD-aligned names for saved leagues.
@@ -253,12 +269,14 @@ export function getLeague(id: string): League | null {
 
     // One-time migration: if this is an old league with events embedded in
     // final games, extract them to game_logs and re-save a stripped blob.
+    const season = state.currentSeason.year;
     let hadEmbeddedEvents = false;
     const migratedGames = state.currentSeason.games.map(game => {
       if (game.status === 'final' && Array.isArray(game.events) && game.events.length > 0) {
         hadEmbeddedEvents = true;
-        db.prepare(`INSERT OR REPLACE INTO game_logs (leagueId, gameId, eventsJson) VALUES (?, ?, ?)`)
-          .run(id, game.id, JSON.stringify(game.events));
+        db.prepare(`INSERT OR REPLACE INTO game_logs (leagueId, gameId, season, eventsJson) VALUES (?, ?, ?, ?)`)
+          .run(id, game.id, season, JSON.stringify(game.events));
+        writeGameResult(id, game, season);
         return { ...game, events: [] };
       }
       return game;
@@ -285,10 +303,12 @@ export function saveLeague(league: League): void {
   // Strip play events from final games before serialising the league blob.
   // Events are persisted separately in game_logs, keyed by (leagueId, gameId).
   const saveWithStrip = db.transaction(() => {
+    const season = league.currentSeason.year;
     const games = league.currentSeason.games.map(game => {
       if (game.status === 'final' && Array.isArray(game.events) && game.events.length > 0) {
-        db.prepare(`INSERT OR REPLACE INTO game_logs (leagueId, gameId, eventsJson) VALUES (?, ?, ?)`)
-          .run(league.id, game.id, JSON.stringify(game.events));
+        db.prepare(`INSERT OR REPLACE INTO game_logs (leagueId, gameId, season, eventsJson) VALUES (?, ?, ?, ?)`)
+          .run(league.id, game.id, season, JSON.stringify(game.events));
+        writeGameResult(league.id, game, season);
         return { ...game, events: [] };
       }
       return game;
@@ -407,7 +427,24 @@ export function updateLeaguePasswordHash(leagueId: string, passwordHash: string 
 
 // ── Game log helpers ──────────────────────────────────────────────────────────
 
-/** Fetch the play-by-play event log for a completed game. Returns null if not found. */
+/** Internal: write one lightweight game result row. INSERT OR IGNORE so final results are immutable. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function writeGameResult(leagueId: string, game: any, season: number): void {
+  const tie = game.homeScore === game.awayScore ? 1 : 0;
+  const winnerTeamId = tie
+    ? null
+    : (game.homeScore > game.awayScore ? game.homeTeam.id : game.awayTeam.id);
+  db.prepare(`
+    INSERT OR IGNORE INTO game_results
+      (leagueId, gameId, season, week, homeTeamId, awayTeamId, homeScore, awayScore, winnerTeamId, tie)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(leagueId, game.id, season, game.week,
+         game.homeTeam.id, game.awayTeam.id,
+         game.homeScore, game.awayScore,
+         winnerTeamId, tie);
+}
+
+/** Fetch the play-by-play event log for a completed game. Returns null if not found or already purged. */
 export function getGameLog(leagueId: string, gameId: string): PlayEvent[] | null {
   const row = db.prepare('SELECT eventsJson FROM game_logs WHERE leagueId = ? AND gameId = ?')
     .get(leagueId, gameId) as { eventsJson: string } | undefined;
@@ -417,4 +454,31 @@ export function getGameLog(leagueId: string, gameId: string): PlayEvent[] | null
   } catch {
     return null;
   }
+}
+
+/** Delete all play-by-play logs for a completed season. Called at season rollover. */
+export function purgeSeasonGameLogs(leagueId: string, season: number): void {
+  const { changes } = db.prepare('DELETE FROM game_logs WHERE leagueId = ? AND season = ?')
+    .run(leagueId, season) as { changes: number };
+  console.log(`[db] Purged ${changes} game_log entries for league ${leagueId} season ${season}`);
+}
+
+export interface GameResult {
+  leagueId:     string;
+  gameId:       string;
+  season:       number;
+  week:         number;
+  homeTeamId:   string;
+  awayTeamId:   string;
+  homeScore:    number;
+  awayScore:    number;
+  winnerTeamId: string | null;
+  tie:          number; // 1 = tie, 0 = not
+}
+
+/** Fetch lightweight per-game results for a given season. Persisted forever. */
+export function getGameResults(leagueId: string, season: number): GameResult[] {
+  return db.prepare(
+    'SELECT * FROM game_results WHERE leagueId = ? AND season = ? ORDER BY week'
+  ).all(leagueId, season) as GameResult[];
 }

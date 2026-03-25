@@ -38,6 +38,8 @@ import {
   removeMembership,
   updateLeaguePasswordHash,
   getGameLog,
+  purgeSeasonGameLogs,
+  getGameResults,
 } from './db';
 import { signToken, requireAuth, type AuthRequest } from './auth';
 
@@ -422,14 +424,23 @@ app.get('/league/:id', (req: Request, res: Response) => {
 });
 
 // GET /league/:id/game/:gameId/events — fetch play-by-play log for a completed game.
+// Returns 404 if the game is from a prior season (logs purged at rollover).
 app.get('/league/:id/game/:gameId/events', (req: Request, res: Response) => {
   const { id, gameId } = req.params as { id: string; gameId: string };
   const events = getGameLog(id, gameId);
   if (!events) {
-    res.status(404).json({ error: 'Play log not found for this game.' });
+    res.status(404).json({ error: 'Play-by-play detail is not available for this game. Detailed logs are only retained for the current season.' });
     return;
   }
   res.json(events);
+});
+
+// GET /league/:id/results/:season — permanent lightweight game results for any past season.
+app.get('/league/:id/results/:season', (req: Request, res: Response) => {
+  const { id, season } = req.params as { id: string; season: string };
+  const year = parseInt(season, 10);
+  if (isNaN(year)) { res.status(400).json({ error: 'season must be a number.' }); return; }
+  res.json(getGameResults(id, year));
 });
 
 // POST /league/:id/claim-team — assign a GM to an unclaimed team. requireAuth.
@@ -666,8 +677,16 @@ app.post('/league/:id/advance-week', requireAuth, (req: Request, res: Response) 
     return;
   }
   try {
+    // Detect season rollover: draft complete → regular_season transition.
+    const isSeasonRollover = league.phase === 'draft' && !!league.draft?.complete;
+    const oldSeasonYear    = league.currentSeason.year;
+
     const updated = doAdvance(league);
     dbSaveLeague(updated);
+
+    // Purge prior-season play logs after the new season is safely saved.
+    if (isSeasonRollover) purgeSeasonGameLogs(league.id, oldSeasonYear);
+
     sendLeague(res, updated);
   } catch (e) {
     res.status(400).json({ error: errMsg(e) });
@@ -1111,8 +1130,14 @@ function runScheduler(): void {
           }
         }
 
+        const isSeasonRollover = league.phase === 'draft' && !!league.draft?.complete;
+        const oldSeasonYear    = league.currentSeason.year;
+
         const advanced: League = { ...doAdvance(league), lastAdvanceTime: now };
         dbSaveLeague(advanced);
+
+        if (isSeasonRollover) purgeSeasonGameLogs(id, oldSeasonYear);
+
         console.log(`[scheduler] League ${id} advanced (phase: ${advanced.phase}, week: ${advanced.currentWeek})`);
       } catch (err) {
         console.error(`[scheduler] League ${id} advance failed:`, err);
