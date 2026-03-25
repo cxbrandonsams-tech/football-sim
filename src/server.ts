@@ -228,7 +228,7 @@ const corsOptions: cors.CorsOptions = {
 // Explicit preflight handler — must come before app.use(cors()) so that
 // OPTIONS /league/:id (parametric routes) is handled before Express tries
 // to match a GET/POST handler and returns 404/405.
-app.options('*', cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // Apply CORS headers to every non-OPTIONS response.
 app.use(cors(corsOptions));
