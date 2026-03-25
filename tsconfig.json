@@ -42,5 +42,5 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
   },
-  "exclude": ["web", "node_modules"]
+  "exclude": ["web", "scripts", "node_modules"]
 }

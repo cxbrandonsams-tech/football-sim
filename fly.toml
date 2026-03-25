@@ -2,27 +2,28 @@ app = "football-sim"
 primary_region = "iad"
 
 [build]
+  dockerfile = "Dockerfile"
 
 [env]
-  PORT = "3000"
   NODE_ENV = "production"
+  DATA_DIR  = "/data"
 
 [http_service]
   internal_port = 3000
-  force_https = true
-  auto_stop_machines = "stop"
+  force_https   = true
+  auto_stop_machines  = "stop"
   auto_start_machines = true
   min_machines_running = 0
 
   [http_service.concurrency]
-    type = "connections"
+    type       = "connections"
     hard_limit = 25
     soft_limit = 20
 
 [[vm]]
-  size = "shared-cpu-1x"
+  size   = "shared-cpu-1x"
   memory = "256mb"
 
 [[mounts]]
-  source = "football_sim_data"
+  source      = "football_sim_data"
   destination = "/data"

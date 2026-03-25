@@ -1,5 +1,4 @@
 import express from 'express';
-import path from 'path';
 import { type Request, type Response, type NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { type League, type TradeAsset, type TradeProposal, type LeagueNotification, type Activity, type SeasonRecord } from './models/League';
@@ -188,6 +187,26 @@ function errMsg(e: unknown): string {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 const app = express();
+
+// CORS — allow requests from the Vercel frontend (and localhost in dev).
+// ALLOWED_ORIGINS env var: comma-separated list of allowed origins.
+// Falls back to permissive '*' if unset so local dev works without config.
+const ALLOWED_ORIGINS = process.env['ALLOWED_ORIGINS']
+  ? new Set(process.env['ALLOWED_ORIGINS'].split(',').map(s => s.trim()))
+  : null;
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = req.headers.origin ?? '';
+  if (!ALLOWED_ORIGINS || ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
+  next();
+});
+
 app.use(express.json());
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -1049,18 +1068,10 @@ function runScheduler(): void {
   }, 10_000);
 }
 
-// ── Serve frontend ────────────────────────────────────────────────────────────
-
-const webDist = path.join(__dirname, '../web/dist');
-app.use(express.static(webDist));
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(webDist, 'index.html'));
-});
-
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 const PORT = process.env['PORT'] ?? 3000;
-app.listen(PORT, () => {
-  console.log(`Gridiron server running on http://localhost:${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`Gridiron server running on http://0.0.0.0:${PORT}`);
   runScheduler();
 });
