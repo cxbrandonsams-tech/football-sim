@@ -4,8 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx ts-node src/cli.ts",
-    "server": "npx ts-node src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc",
+    "dev": "npx ts-node src/server.ts",
+    "cli": "npx ts-node src/cli.ts",
     "simulate": "npx ts-node src/tools/simrun.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
