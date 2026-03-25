@@ -1,11 +1,8 @@
 import { type League, type TradeAsset, type GameplanSettings } from './types';
 
-// In dev, Vite proxies /league, /leagues, /auth, /my-leagues → localhost:3000
-// In production (Vercel), requests go directly to the Render backend.
-const BASE =
-  import.meta.env.DEV
-    ? ''
-    : 'https://football-sim-n7sl.onrender.com';
+// Vite proxies API routes in dev. In production (Fly.io), the Express server
+// serves both the frontend and API from the same origin, so BASE is always ''.
+const BASE = '';
 
 // ── Auth state storage ────────────────────────────────────────────────────────
 // All three values are persisted in localStorage so they survive a page refresh.

@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import { type Request, type Response, type NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { type League, type TradeAsset, type TradeProposal, type LeagueNotification, type Activity, type SeasonRecord } from './models/League';
@@ -1047,6 +1048,14 @@ function runScheduler(): void {
     }
   }, 10_000);
 }
+
+// ── Serve frontend ────────────────────────────────────────────────────────────
+
+const webDist = path.join(__dirname, '../web/dist');
+app.use(express.static(webDist));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(webDist, 'index.html'));
+});
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
