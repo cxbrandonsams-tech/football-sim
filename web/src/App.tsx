@@ -3792,7 +3792,7 @@ function formatGameLog(game: Game): string[] {
   const lines: string[] = [];
   const homeId = game.homeTeam.id;
   let q = 0, homeScore = 0, awayScore = 0;
-  for (const ev of game.events) {
+  for (const ev of (game.events ?? [])) {
     if (ev.quarter !== q) {
       if (q > 0) { lines.push(`  Score: ${game.awayTeam.abbreviation} ${awayScore} — ${game.homeTeam.abbreviation} ${homeScore}`); lines.push(''); }
       q = ev.quarter;

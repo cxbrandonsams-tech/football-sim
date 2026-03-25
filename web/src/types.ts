@@ -504,7 +504,8 @@ export interface Game {
   homeScore: number;
   awayScore: number;
   status:    'scheduled' | 'in_progress' | 'final';
-  events:    PlayEvent[];
+  /** Absent for completed games in the league blob; fetch via GET /league/:id/game/:gameId/events */
+  events?:   PlayEvent[];
   boxScore?: GameBoxScore;
 }
 

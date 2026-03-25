@@ -102,6 +102,8 @@ export const listLeagues  = () => request<LeagueSummary[]>('/leagues');
 export const createLeague = (params: CreateLeagueParams) => request<{ id: string }>('/league/create', 'POST', params);
 export const joinLeague   = (id: string, password?: string) => request<League>('/league/join', 'POST', { id, password });
 export const fetchLeague  = (id: string) => request<League>(`/league/${id}`);
+export const fetchGameEvents = (leagueId: string, gameId: string) =>
+  request<import('./types').PlayEvent[]>(`/league/${leagueId}/game/${gameId}/events`);
 export const advanceWeek  = (id: string) => request<League>(`/league/${id}/advance-week`, 'POST');
 export const claimTeam    = (id: string, teamId: string) => request<League>(`/league/${id}/claim-team`, 'POST', { teamId });
 export const proposeTrade = (

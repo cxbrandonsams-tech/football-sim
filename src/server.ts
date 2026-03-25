@@ -37,6 +37,7 @@ import {
   listLeagueMembers,
   removeMembership,
   updateLeaguePasswordHash,
+  getGameLog,
 } from './db';
 import { signToken, requireAuth, type AuthRequest } from './auth';
 
@@ -418,6 +419,17 @@ app.get('/league/:id', (req: Request, res: Response) => {
     console.error(`[league] GET /league/${id} crashed:`, err);
     res.status(500).json({ error: 'Failed to load league.' });
   }
+});
+
+// GET /league/:id/game/:gameId/events — fetch play-by-play log for a completed game.
+app.get('/league/:id/game/:gameId/events', (req: Request, res: Response) => {
+  const { id, gameId } = req.params as { id: string; gameId: string };
+  const events = getGameLog(id, gameId);
+  if (!events) {
+    res.status(404).json({ error: 'Play log not found for this game.' });
+    return;
+  }
+  res.json(events);
 });
 
 // POST /league/:id/claim-team — assign a GM to an unclaimed team. requireAuth.

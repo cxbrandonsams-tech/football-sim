@@ -1,4 +1,4 @@
-import { type Game } from './types';
+import { type Game, type GameBoxScore } from './types';
 
 export interface TeamBoxScore {
   teamId: string;
@@ -47,7 +47,42 @@ function emptyPlayer(name: string): PlayerStats {
   };
 }
 
+/**
+ * Convert a server-computed GameBoxScore into the local BoxScore shape.
+ * Players are re-keyed by last name to match the event-derived format so
+ * existing callers that do name-based lookups continue to work.
+ */
+function fromStoredBoxScore(bs: GameBoxScore): BoxScore {
+  const players: Record<string, PlayerStats> = {};
+  for (const p of Object.values(bs.players)) {
+    const lastName = p.name.split(' ').pop() ?? p.name;
+    players[lastName] = {
+      name:           p.name,
+      completions:    p.completions,
+      attempts:       p.attempts,
+      passingYards:   p.passingYards,
+      passingTDs:     p.passingTDs,
+      interceptions:  p.interceptions,
+      sacksTotal:     p.sacksAllowed,
+      carries:        p.carries,
+      rushingYards:   p.rushingYards,
+      rushingTDs:     p.rushingTDs,
+      targets:        p.targets,
+      receptions:     p.receptions,
+      receivingYards: p.receivingYards,
+      receivingTDs:   p.receivingTDs,
+    };
+  }
+  return { home: bs.home, away: bs.away, players };
+}
+
 export function deriveBoxScore(game: Game): BoxScore {
+  // Fast path: completed games no longer carry events in the league blob.
+  // Use the server-computed box score that was persisted with the game result.
+  if ((!game.events || game.events.length === 0) && game.boxScore) {
+    return fromStoredBoxScore(game.boxScore);
+  }
+
   const homeId = game.homeTeam.id;
 
   const mkTeam = (teamId: string, score: number): TeamBoxScore => ({
@@ -65,7 +100,7 @@ export function deriveBoxScore(game: Game): BoxScore {
   const player   = (name: string) => (players[name] ??= emptyPlayer(name));
   const qi       = (q: number) => (Math.min(q, 4) - 1) as 0 | 1 | 2 | 3;
 
-  for (const ev of game.events) {
+  for (const ev of (game.events ?? [])) {
     const off  = offTeam(ev.offenseTeamId);
     const q    = qi(ev.quarter);
     const isRun        = ev.type === 'inside_run' || ev.type === 'outside_run';

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import { type League } from './models/League';
+import { type PlayEvent } from './models/PlayEvent';
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,13 @@ db.exec(`
     teamId    TEXT NOT NULL DEFAULT '',
     teamName  TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (leagueId, userId)
+  );
+
+  CREATE TABLE IF NOT EXISTS game_logs (
+    leagueId   TEXT NOT NULL,
+    gameId     TEXT NOT NULL,
+    eventsJson TEXT NOT NULL,
+    PRIMARY KEY (leagueId, gameId)
   );
 `);
 
@@ -241,7 +249,30 @@ export function getLeague(id: string): League | null {
   const row = db.prepare('SELECT stateJson FROM leagues WHERE id = ?').get(id) as Pick<LeagueRow, 'stateJson'> | undefined;
   if (!row) return null;
   try {
-    return migrateLeagueState(JSON.parse(row.stateJson)) as League;
+    const state = migrateLeagueState(JSON.parse(row.stateJson)) as League;
+
+    // One-time migration: if this is an old league with events embedded in
+    // final games, extract them to game_logs and re-save a stripped blob.
+    let hadEmbeddedEvents = false;
+    const migratedGames = state.currentSeason.games.map(game => {
+      if (game.status === 'final' && Array.isArray(game.events) && game.events.length > 0) {
+        hadEmbeddedEvents = true;
+        db.prepare(`INSERT OR REPLACE INTO game_logs (leagueId, gameId, eventsJson) VALUES (?, ?, ?)`)
+          .run(id, game.id, JSON.stringify(game.events));
+        return { ...game, events: [] };
+      }
+      return game;
+    });
+
+    if (hadEmbeddedEvents) {
+      const slim = { ...state, currentSeason: { ...state.currentSeason, games: migratedGames } };
+      db.prepare(`UPDATE leagues SET stateJson = ?, updatedAt = ? WHERE id = ?`)
+        .run(JSON.stringify(slim), Date.now(), id);
+      console.log(`[db] Migrated league ${id}: moved play events to game_logs`);
+      return slim;
+    }
+
+    return state;
   } catch (err) {
     console.error(`[db] Failed to parse stateJson for league ${id}:`, err);
     return null;
@@ -250,18 +281,36 @@ export function getLeague(id: string): League | null {
 
 export function saveLeague(league: League): void {
   const now = Date.now();
-  db.prepare(`
-    UPDATE leagues
-    SET stateJson = ?, phase = ?, currentYear = ?, advanceSchedule = ?, updatedAt = ?
-    WHERE id = ?
-  `).run(
-    JSON.stringify(league),
-    league.phase,
-    league.currentSeason.year,
-    league.advanceSchedule ?? null,
-    now,
-    league.id,
-  );
+
+  // Strip play events from final games before serialising the league blob.
+  // Events are persisted separately in game_logs, keyed by (leagueId, gameId).
+  const saveWithStrip = db.transaction(() => {
+    const games = league.currentSeason.games.map(game => {
+      if (game.status === 'final' && Array.isArray(game.events) && game.events.length > 0) {
+        db.prepare(`INSERT OR REPLACE INTO game_logs (leagueId, gameId, eventsJson) VALUES (?, ?, ?)`)
+          .run(league.id, game.id, JSON.stringify(game.events));
+        return { ...game, events: [] };
+      }
+      return game;
+    });
+
+    const slim = { ...league, currentSeason: { ...league.currentSeason, games } };
+
+    db.prepare(`
+      UPDATE leagues
+      SET stateJson = ?, phase = ?, currentYear = ?, advanceSchedule = ?, updatedAt = ?
+      WHERE id = ?
+    `).run(
+      JSON.stringify(slim),
+      league.phase,
+      league.currentSeason.year,
+      league.advanceSchedule ?? null,
+      now,
+      league.id,
+    );
+  });
+
+  saveWithStrip();
 }
 
 export function createLeagueRow(league: League, passwordHash: string | null): void {
@@ -354,4 +403,18 @@ export function removeMembership(leagueId: string, userId: string): void {
 
 export function updateLeaguePasswordHash(leagueId: string, passwordHash: string | null): void {
   db.prepare('UPDATE leagues SET passwordHash = ? WHERE id = ?').run(passwordHash, leagueId);
+}
+
+// ── Game log helpers ──────────────────────────────────────────────────────────
+
+/** Fetch the play-by-play event log for a completed game. Returns null if not found. */
+export function getGameLog(leagueId: string, gameId: string): PlayEvent[] | null {
+  const row = db.prepare('SELECT eventsJson FROM game_logs WHERE leagueId = ? AND gameId = ?')
+    .get(leagueId, gameId) as { eventsJson: string } | undefined;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.eventsJson) as PlayEvent[];
+  } catch {
+    return null;
+  }
 }

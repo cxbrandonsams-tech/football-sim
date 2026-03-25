@@ -1,5 +1,4 @@
 import { type Game } from './types';
-import { deriveBoxScore } from './boxScore';
 
 export interface SeasonPlayerStats {
   playerId: string;
@@ -25,57 +24,44 @@ export interface SeasonPlayerStats {
 }
 
 /**
- * Build a name → { id, teamId, teamAbbreviation } lookup from both rosters in a game.
- * Used to map event name strings back to stable player IDs.
- */
-function buildRosterLookup(game: Game): Map<string, { id: string; teamId: string; teamAbbreviation: string }> {
-  const map = new Map<string, { id: string; teamId: string; teamAbbreviation: string }>();
-  for (const team of [game.homeTeam, game.awayTeam]) {
-    for (const player of team.roster) {
-      map.set(player.name, { id: player.id, teamId: team.id, teamAbbreviation: team.abbreviation });
-    }
-  }
-  return map;
-}
-
-/**
  * Aggregate stats across all completed games in a season.
- * Keyed by player.id — not by name — so duplicate names never collide.
+ * Uses the server-computed boxScore.players (keyed by player.id) so this
+ * works whether or not play events are present in the game object.
+ * Keyed by player.id in the returned record.
  */
 export function aggregateSeasonStats(games: Game[]): Record<string, SeasonPlayerStats> {
   const totals: Record<string, SeasonPlayerStats> = {};
 
   for (const game of games) {
-    if (game.status !== 'final') continue;
+    if (game.status !== 'final' || !game.boxScore) continue;
 
-    const bs     = deriveBoxScore(game);
-    const lookup = buildRosterLookup(game);
+    const teamAbbr: Record<string, string> = {
+      [game.homeTeam.id]: game.homeTeam.abbreviation,
+      [game.awayTeam.id]: game.awayTeam.abbreviation,
+    };
 
-    for (const [name, s] of Object.entries(bs.players)) {
-      const info = lookup.get(name);
-      // Use player.id as key; fall back to a name-prefixed key if somehow not in roster.
-      const key = info?.id ?? `name:${name}`;
-
-      const t = totals[key];
+    for (const [playerId, s] of Object.entries(game.boxScore.players)) {
+      const abbr = teamAbbr[s.teamId] ?? '?';
+      const t = totals[playerId];
       if (!t) {
-        totals[key] = {
-          playerId:         info?.id ?? key,
-          name,
-          teamId:           info?.teamId ?? '',
-          teamAbbreviation: info?.teamAbbreviation ?? '?',
-          completions:    s.completions,
-          attempts:       s.attempts,
-          passingYards:   s.passingYards,
-          passingTDs:     s.passingTDs,
-          interceptions:  s.interceptions,
-          sacksTotal:     s.sacksTotal,
-          carries:        s.carries,
-          rushingYards:   s.rushingYards,
-          rushingTDs:     s.rushingTDs,
-          targets:        s.targets,
-          receptions:     s.receptions,
-          receivingYards: s.receivingYards,
-          receivingTDs:   s.receivingTDs,
+        totals[playerId] = {
+          playerId,
+          name:             s.name,
+          teamId:           s.teamId,
+          teamAbbreviation: abbr,
+          completions:      s.completions,
+          attempts:         s.attempts,
+          passingYards:     s.passingYards,
+          passingTDs:       s.passingTDs,
+          interceptions:    s.interceptions,
+          sacksTotal:       s.sacksAllowed,
+          carries:          s.carries,
+          rushingYards:     s.rushingYards,
+          rushingTDs:       s.rushingTDs,
+          targets:          s.targets,
+          receptions:       s.receptions,
+          receivingYards:   s.receivingYards,
+          receivingTDs:     s.receivingTDs,
         };
       } else {
         t.completions    += s.completions;
@@ -83,7 +69,7 @@ export function aggregateSeasonStats(games: Game[]): Record<string, SeasonPlayer
         t.passingYards   += s.passingYards;
         t.passingTDs     += s.passingTDs;
         t.interceptions  += s.interceptions;
-        t.sacksTotal     += s.sacksTotal;
+        t.sacksTotal     += s.sacksAllowed;
         t.carries        += s.carries;
         t.rushingYards   += s.rushingYards;
         t.rushingTDs     += s.rushingTDs;

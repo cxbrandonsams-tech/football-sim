@@ -82,7 +82,7 @@ export function formatGameLog(game: Game): string[] {
   let homeScore = 0;
   let awayScore = 0;
 
-  for (const ev of game.events) {
+  for (const ev of (game.events ?? [])) {
     if (ev.quarter !== currentQuarter) {
       if (currentQuarter > 0) {
         lines.push(`  Score: ${game.awayTeam.abbreviation} ${awayScore} — ${game.homeTeam.abbreviation} ${homeScore}`);
