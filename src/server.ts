@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import { type Request, type Response, type NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { type League, type TradeAsset, type TradeProposal, type LeagueNotification, type Activity, type SeasonRecord } from './models/League';
@@ -188,23 +189,25 @@ function errMsg(e: unknown): string {
 
 const app = express();
 
-// CORS — allow requests from the Vercel frontend (and localhost in dev).
-// ALLOWED_ORIGINS env var: comma-separated list of allowed origins.
-// Falls back to permissive '*' if unset so local dev works without config.
-const ALLOWED_ORIGINS = process.env['ALLOWED_ORIGINS']
-  ? new Set(process.env['ALLOWED_ORIGINS'].split(',').map(s => s.trim()))
-  : null;
+// CORS — ALLOWED_ORIGINS env var: comma-separated list.
+// If unset, all origins are allowed (safe for dev; set it in production).
+const allowedOrigins = process.env['ALLOWED_ORIGINS']
+  ? process.env['ALLOWED_ORIGINS'].split(',').map(s => s.trim())
+  : [];
 
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const origin = req.headers.origin ?? '';
-  if (!ALLOWED_ORIGINS || ALLOWED_ORIGINS.has(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-  if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
-  next();
-});
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow non-browser requests (curl, Fly health checks) and same-origin
+    if (!origin) return callback(null, true);
+    // Allow all when no list is configured (local dev)
+    if (allowedOrigins.length === 0) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false,
+}));
 
 app.use(express.json());
 
