@@ -31,7 +31,7 @@ body {
 }
 
 .app-content {
-  max-width: 1100px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 1rem 1.25rem;
   width: 100%;
@@ -47,7 +47,7 @@ body {
 }
 
 .top-nav-inner {
-  max-width: 1100px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 0 1.25rem;
   display: flex;
@@ -98,13 +98,13 @@ body {
 .top-nav-tabs::-webkit-scrollbar { display: none; }
 
 .top-nav-tabs button {
-  padding: 0.35rem 0.85rem;
+  padding: 0.3rem 0.6rem;
   background: transparent;
   border: none;
   border-radius: 5px;
   color: #64748b;
   cursor: pointer;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 500;
   white-space: nowrap;
   transition: color 0.15s, background 0.15s;
@@ -140,7 +140,7 @@ body {
 }
 
 .sub-nav-inner {
-  max-width: 1100px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 0 1.25rem;
   display: flex;
@@ -981,7 +981,7 @@ tr:hover td { background: #232c3d; }
 }
 
 /* Clickable player name in leaderboards */
-.pd-trigger {
+.pd-trigger, .link-btn {
   background: none;
   border: none;
   padding: 0;
@@ -994,7 +994,7 @@ tr:hover td { background: #232c3d; }
   text-decoration-color: transparent;
   transition: text-decoration-color 0.1s, color 0.1s;
 }
-.pd-trigger:hover {
+.pd-trigger:hover, .link-btn:hover {
   color: #bfdbfe;
   text-decoration-color: #60a5fa;
 }
@@ -1228,6 +1228,14 @@ tr:hover td { background: #232c3d; }
   border-radius: 6px;
   border: 1px solid #1a2132;
   background: #0f1520;
+}
+
+.sched-clickable {
+  cursor: pointer;
+}
+.sched-clickable:hover {
+  border-color: #2563eb;
+  background: #0f1a2e;
 }
 
 /* Status variants */
@@ -2469,7 +2477,7 @@ tr:hover td { background: #232c3d; }
 /* ── New dashboard body: feed (left) + sidebar (right) ──────────────────────── */
 .dash-body {
   display: grid;
-  grid-template-columns: 1fr 300px;
+  grid-template-columns: 260px 1fr;
   gap: 1rem;
   align-items: start;
 }
@@ -2486,6 +2494,8 @@ tr:hover td { background: #232c3d; }
   border: 1px solid #1e293b;
   border-radius: 10px;
   overflow: hidden;
+  max-height: 600px;
+  overflow-y: auto;
 }
 
 .dash-feed-header {
@@ -2504,7 +2514,7 @@ tr:hover td { background: #232c3d; }
 
 /* Tweet-style feed item */
 .feed-item {
-  padding: 0.85rem 1rem;
+  padding: 0.55rem 0.75rem;
   border-bottom: 1px solid #0f172a;
   transition: background 0.1s;
 }
@@ -2516,48 +2526,52 @@ tr:hover td { background: #232c3d; }
 .feed-header {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.4rem;
+  gap: 0.3rem;
+  margin-bottom: 0.25rem;
   flex-wrap: wrap;
 }
 
-.feed-avatar { font-size: 1rem; }
-.feed-name   { font-size: 0.82rem; font-weight: 600; color: #cbd5e1; }
-.feed-handle { font-size: 0.75rem; }
-.feed-dot    { font-size: 0.75rem; }
-.feed-time   { font-size: 0.75rem; margin-left: auto; }
+.feed-avatar { font-size: 0.85rem; }
+.feed-name   { font-size: 0.75rem; font-weight: 600; color: #cbd5e1; }
+.feed-handle { font-size: 0.7rem; display: none; }
+.feed-dot    { font-size: 0.7rem; display: none; }
+.feed-time   { font-size: 0.7rem; margin-left: auto; }
 
 .feed-mine-tag {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   background: #1d4ed8;
   color: #bfdbfe;
-  padding: 0.1rem 0.35rem;
+  padding: 0.08rem 0.28rem;
   border-radius: 4px;
   font-weight: 600;
 }
 
 .feed-headline {
-  font-size: 0.88rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #e2e8f0;
-  line-height: 1.4;
-  margin-bottom: 0.3rem;
+  line-height: 1.35;
+  margin-bottom: 0.2rem;
 }
 
 .feed-body {
-  font-size: 0.8rem;
-  line-height: 1.5;
-  margin-bottom: 0.4rem;
+  font-size: 0.73rem;
+  line-height: 1.4;
+  margin-bottom: 0.25rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .feed-footer {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .feed-week-tag {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
 }
 
 .dash-sidebar {
@@ -3325,6 +3339,20 @@ tr:hover td { background: #232c3d; }
   gap: 0.5rem;
   flex-wrap: wrap;
   margin-top: 0.25rem;
+}
+
+.coach-profile-panel {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  background: #0f172a;
+  border-radius: 6px;
+  border: 1px solid #1e293b;
+  font-size: 0.78rem;
+}
+
+.coach-profile-row {
+  padding: 0.15rem 0;
+  color: #cbd5e1;
 }
 
 .coach-scheme {

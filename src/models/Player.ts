@@ -275,10 +275,11 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
         armStrength:    clamp(trueRatings.armStrength    + n()),
         pocketPresence: clamp(trueRatings.pocketPresence + n()),
         mobility:       clamp(trueRatings.mobility       + n()),
-        // Hidden — sentinel value, UI must not display these from scoutedRatings
-        shortAccuracy:  50,
-        mediumAccuracy: 50,
-        deepAccuracy:   50,
+        // Accuracy is now visible (GDD: QB Accuracy is the primary visible category)
+        shortAccuracy:  clamp(trueRatings.shortAccuracy  + n()),
+        mediumAccuracy: clamp(trueRatings.mediumAccuracy + n()),
+        deepAccuracy:   clamp(trueRatings.deepAccuracy   + n()),
+        // Still hidden engine internals
         processing:     50,
         decisionMaking: 50,
       };

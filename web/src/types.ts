@@ -13,7 +13,7 @@ export interface QBRatings {
   armStrength:    number;
   pocketPresence: number;
   mobility:       number;
-  // Hidden fields are set to 50 in scoutedRatings; do not display to user
+  // Accuracy sub-ratings — visible to GM (GDD: Accuracy is the primary QB visible category)
   shortAccuracy:  number;
   mediumAccuracy: number;
   deepAccuracy:   number;
@@ -129,9 +129,12 @@ export function getVisibleRatings(ratings: AnyRatings): Record<string, number> {
   switch (ratings.position) {
     case 'QB':
       return {
-        'Arm Str':    ratings.armStrength,
-        'Pocket':     ratings.pocketPresence,
-        'Mobility':   ratings.mobility,
+        'Arm Str':   ratings.armStrength,
+        'Pocket':    ratings.pocketPresence,
+        'Mobility':  ratings.mobility,
+        'Acc (Sh)':  ratings.shortAccuracy,
+        'Acc (Med)': ratings.mediumAccuracy,
+        'Acc (Dp)':  ratings.deepAccuracy,
       };
     case 'RB':
       return {

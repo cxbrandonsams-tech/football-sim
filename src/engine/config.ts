@@ -62,7 +62,7 @@ export const TUNING = {
     // route distance with no after-catch gain. 2 yards reflects realistic average YAC.
     // Rating differences then modify this baseline: elite YAC + poor tackling → more;
     // average YAC + elite tackling → less (floors at 0 via Math.max).
-    baseYACYards:          2,       // yards after catch at neutral (50 vs 50) ratings
+    baseYACYards:          1,       // yards after catch at neutral ratings; differential from WR YAC vs def tackling shifts up/down
     yacNetScale:           0.05,    // per point of net WR YAC advantage above/below neutral
 
     // Interception (on incompletions only)
@@ -187,13 +187,14 @@ export const TUNING = {
   },
 
   // ── Pass yards by depth ───────────────────────────────────────────────────
+  // Calibrated so yards/attempt ≈ 7.0 and yards/completion ≈ 11-12 at average ratings.
   passYards: {
     shortMin:   4,
-    shortMax:   9,
-    mediumMin:  9,
-    mediumMax: 19,
-    deepMin:   14,
-    deepMax:   28,
+    shortMax:   8,
+    mediumMin:  8,
+    mediumMax: 16,
+    deepMin:   12,
+    deepMax:   22,
   },
 
   // ── Defensive gameplan modifiers ──────────────────────────────────────────
@@ -419,7 +420,7 @@ export const TUNING = {
 
   // ── Game structure ────────────────────────────────────────────────────────
   game: {
-    playsPerQuarter: 40,
+    playsPerQuarter: 32,
     /**
      * Global offense success-probability bonus.
      * Reflects the offense's inherent play-calling advantage (they know the

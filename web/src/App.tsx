@@ -596,12 +596,10 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
     finally { setBusy(false); }
   }
 
-  async function handleWatchGame(gameId: string) {
+  function handleWatchGame(gameId: string) {
     setWatchedGameId(gameId);
-    setBusy(true); setError(null);
-    try { setLeague(await advanceWeek(leagueId)); setTab('game-center'); }
-    catch (e) { setError(friendlyError(e)); }
-    finally { setBusy(false); }
+    setError(null);
+    setTab('game-center');
   }
 
   function handleSimGame() { action(advanceWeek); }
@@ -761,13 +759,15 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
 
           <div className="top-nav-actions">
             <span className="top-nav-user">{username}</span>
-            <button
-              className="advance-btn"
-              disabled={busy || advanceBtnLabel() === 'Season Complete' || advanceBtnLabel() === 'Draft In Progress'}
-              onClick={() => action(advanceWeek)}
-            >
-              {busy ? 'Simulating…' : advanceBtnLabel()}
-            </button>
+            {isCommissioner && (
+              <button
+                className="advance-btn"
+                disabled={busy || advanceBtnLabel() === 'Season Complete' || advanceBtnLabel() === 'Draft In Progress'}
+                onClick={() => action(advanceWeek)}
+              >
+                {busy ? 'Simulating…' : advanceBtnLabel()}
+              </button>
+            )}
             <button className="btn-sm" onClick={onMyLeagues}>My Leagues</button>
           </div>
         </div>
@@ -811,13 +811,14 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           myTeamId={myTeamId}
           standings={standings}
           busy={busy}
+          isCommissioner={isCommissioner}
           onNavTo={setTab as (t: string) => void}
           onWatchGame={handleWatchGame}
           onSimGame={handleSimGame}
         />
       )}
       {tab === 'standings' && (
-        <StandingsView standings={standings} userTeamId={myTeamId} divisions={league.divisions ?? []} />
+        <StandingsView standings={standings} userTeamId={myTeamId} divisions={league.divisions ?? []} onViewTeam={(teamId) => { setRosterTeamId(teamId); setTab('roster'); }} />
       )}
       {tab === 'playoffs' && !isRegularSeason && (
         <PlayoffView
@@ -1086,12 +1087,15 @@ function CoachCard({
     );
   }
 
+  const [expanded, setExpanded] = useState(false);
   const scheme = role === 'OC' ? coach.offensiveScheme : role === 'DC' ? coach.defensiveScheme : undefined;
+  const offScheme = role === 'HC' ? coach.offensiveScheme : undefined;
+  const defScheme = role === 'HC' ? coach.defensiveScheme : undefined;
   return (
     <div className="coach-card">
       <div className="coach-card-header">
         <span className="coach-role-label">{roleLabel}</span>
-        <span className="coach-name">{coach.name}</span>
+        <button className="link-btn coach-name" onClick={() => setExpanded(v => !v)} title="View coach profile">{coach.name}</button>
         <span className="ovr-cell">{coach.overall}</span>
       </div>
       <div className="coach-card-details">
@@ -1107,6 +1111,17 @@ function CoachCard({
           </span>
         )}
       </div>
+      {expanded && (
+        <div className="coach-profile-panel">
+          <div className="coach-profile-row"><span className="muted">Role:</span> {roleLabel}</div>
+          <div className="coach-profile-row"><span className="muted">Overall:</span> {coach.overall}</div>
+          {offScheme && <div className="coach-profile-row"><span className="muted">Off. Scheme:</span> {offScheme.replace(/_/g, ' ')}</div>}
+          {defScheme && <div className="coach-profile-row"><span className="muted">Def. Scheme:</span> {defScheme.replace(/_/g, ' ')}</div>}
+          {scheme && <div className="coach-profile-row"><span className="muted">Scheme:</span> {scheme.replace(/_/g, ' ')}</div>}
+          {coach.personality && <div className="coach-profile-row"><span className="muted">Style:</span> {personalityLabel(coach.personality)}</div>}
+          {coach.trait && <div className="coach-profile-row"><span className="muted">Trait:</span> {traitLabel(coach.trait)} — {traitDesc(coach.trait)}</div>}
+        </div>
+      )}
       {isOffseason && role !== 'HC' && (
         <div className="coach-card-actions">
           <button className="btn-sm btn-danger" onClick={onFire}>Fire</button>
@@ -2539,11 +2554,12 @@ function fmtNewsAge(createdAt: number): string {
   return `${diffD}d`;
 }
 
-function DashboardView({ league, myTeamId, standings, busy, onNavTo, onWatchGame, onSimGame }: {
+function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNavTo, onWatchGame, onSimGame }: {
   league: League;
   myTeamId: string;
   standings: Standing[];
   busy: boolean;
+  isCommissioner: boolean;
   onNavTo: (t: string) => void;
   onWatchGame: (gameId: string) => void;
   onSimGame: () => void;
@@ -2611,9 +2627,9 @@ function DashboardView({ league, myTeamId, standings, busy, onNavTo, onWatchGame
   // News feed — my team first, then others, up to 20 items
   const allNews  = (league.news ?? []).slice().sort((a, b) => b.createdAt - a.createdAt);
   const feedNews = [
-    ...allNews.filter(n =>  n.teamIds.includes(myTeamId)).slice(0, 6),
-    ...allNews.filter(n => !n.teamIds.includes(myTeamId)).slice(0, 14),
-  ].slice(0, 20);
+    ...allNews.filter(n =>  n.teamIds.includes(myTeamId)).slice(0, 4),
+    ...allNews.filter(n => !n.teamIds.includes(myTeamId)).slice(0, 8),
+  ].slice(0, 12);
 
   return (
     <div className="dashboard">
@@ -2651,8 +2667,12 @@ function DashboardView({ league, myTeamId, standings, busy, onNavTo, onWatchGame
                   : <>@ <strong>{nextGame.homeTeam.name}</strong></>}
               </div>
               <div className="dash-next-actions">
-                <button className="btn-watch" disabled={busy} onClick={() => onWatchGame(nextGame.id)}>Watch Game</button>
-                <button className="btn-sim" disabled={busy} onClick={onSimGame}>Sim Game</button>
+                <button className="btn-watch" onClick={() => onWatchGame(nextGame.id)}>
+                  {nextGame.status === 'final' ? 'View Game' : 'Watch Game'}
+                </button>
+                {isCommissioner && (
+                  <button className="btn-sim" disabled={busy} onClick={onSimGame}>Sim Game</button>
+                )}
               </div>
             </div>
           )}
@@ -2718,7 +2738,7 @@ function DashboardView({ league, myTeamId, standings, busy, onNavTo, onWatchGame
       </div>
 
       {/* ── Schedule strip ──────────────────────────────────────── */}
-      <DashboardSchedule games={games} myTeamId={myTeamId} currentWeek={league.currentWeek} />
+      <DashboardSchedule games={games} myTeamId={myTeamId} currentWeek={league.currentWeek} onViewGame={onWatchGame} />
 
       {/* ── Body: news feed (left) + sidebar (right) ────────────── */}
       <div className="dash-body">
@@ -3004,7 +3024,11 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack }: {
 
         <div className="gc-play-area">
           {events.length === 0
-            ? <p className="muted gc-no-events">No play data available for this game.</p>
+            ? <p className="muted gc-no-events">
+                {focusGame.status === 'scheduled'
+                  ? 'Game not yet played. The commissioner can advance the week to simulate games.'
+                  : 'Play-by-play data not available for this game.'}
+              </p>
             : <PbpLine line={playText} game={focusGame} />}
         </div>
 
@@ -3114,10 +3138,11 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack }: {
 
 // ── Standings ──────────────────────────────────────────────────────────────────
 
-function StandingsView({ standings, userTeamId, divisions }: {
+function StandingsView({ standings, userTeamId, divisions, onViewTeam }: {
   standings: Standing[];
   userTeamId: string;
   divisions: Division[];
+  onViewTeam?: (teamId: string) => void;
 }) {
   const standingMap = new Map(standings.map(s => [s.team.id, s]));
 
@@ -3135,7 +3160,7 @@ function StandingsView({ standings, userTeamId, divisions }: {
             {rows.map(s => (
               <tr key={s.team.id} className={s.team.id === userTeamId ? 'user-row' : ''}>
                 <td>
-                  <span className="stand-team-name">{s.team.name}</span>
+                  <button className="link-btn stand-team-name" onClick={() => onViewTeam?.(s.team.id)}>{s.team.name}</button>
                   {s.team.id === userTeamId && <span className="you">YOU</span>}
                   {s.team.frontOffice && s.team.id !== userTeamId && (
                     <FoPersonalityBadge personality={s.team.frontOffice} size="sm" />
@@ -3162,7 +3187,10 @@ function StandingsView({ standings, userTeamId, divisions }: {
           <tbody>
             {standings.map(s => (
               <tr key={s.team.id} className={s.team.id === userTeamId ? 'user-row' : ''}>
-                <td>{s.team.name} {s.team.id === userTeamId && <span className="you">YOU</span>}</td>
+                <td>
+                  <button className="link-btn" onClick={() => onViewTeam?.(s.team.id)}>{s.team.name}</button>
+                  {s.team.id === userTeamId && <span className="you">YOU</span>}
+                </td>
                 <td>{s.w}</td><td>{s.l}</td><td>{s.t}</td>
                 <td>{s.pf}</td><td>{s.pa}</td>
                 <td className={s.pf - s.pa >= 0 ? 'pos' : 'neg'}>{s.pf - s.pa > 0 ? '+' : ''}{s.pf - s.pa}</td>
