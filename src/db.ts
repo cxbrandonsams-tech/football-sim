@@ -240,7 +240,12 @@ interface UserLeagueRow {
 export function getLeague(id: string): League | null {
   const row = db.prepare('SELECT stateJson FROM leagues WHERE id = ?').get(id) as Pick<LeagueRow, 'stateJson'> | undefined;
   if (!row) return null;
-  return migrateLeagueState(JSON.parse(row.stateJson)) as League;
+  try {
+    return migrateLeagueState(JSON.parse(row.stateJson)) as League;
+  } catch (err) {
+    console.error(`[db] Failed to parse stateJson for league ${id}:`, err);
+    return null;
+  }
 }
 
 export function saveLeague(league: League): void {

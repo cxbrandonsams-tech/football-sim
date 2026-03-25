@@ -63,7 +63,7 @@ function addNotification(league: League, teamId: string, message: string): Leagu
  * from draftClass before sending League to the client.
  */
 function sanitizeLeagueForClient(league: League): League {
-  if (!league.draftClass) return league;
+  if (!league.draftClass || !Array.isArray(league.draftClass.prospects)) return league;
   const sanitizedProspects = league.draftClass.prospects.map(
     ({ trueOverall: _1, trueRatings: _2, truePotential: _3, trueRound: _4, ...safe }) =>
       safe as Prospect,
@@ -401,9 +401,23 @@ app.post('/league/join', (req: Request, res: Response) => {
 
 // GET /league/:id — return league state.
 app.get('/league/:id', (req: Request, res: Response) => {
-  const league = getLeagueOrFail(req, res);
-  if (!league) return;
-  sendLeague(res, league);
+  const id = req.params['id'] as string;
+  const userId = (req as AuthRequest).user?.userId ?? '(unauthenticated)';
+  console.log(`[league] GET /league/${id} user=${userId}`);
+  try {
+    const league = dbGetLeague(id);
+    console.log(`[league] DB lookup result: ${league ? `found phase=${league.phase}` : 'not found'}`);
+    if (!league) {
+      res.status(404).json({ error: `League '${id}' not found.` });
+      return;
+    }
+    const membership = userId !== '(unauthenticated)' ? getMembership(id, userId) : null;
+    console.log(`[league] Membership: ${membership ? `teamId=${membership.teamId}` : 'none'}`);
+    sendLeague(res, league);
+  } catch (err) {
+    console.error(`[league] GET /league/${id} crashed:`, err);
+    res.status(500).json({ error: 'Failed to load league.' });
+  }
 });
 
 // POST /league/:id/claim-team — assign a GM to an unclaimed team. requireAuth.
@@ -1064,34 +1078,49 @@ function runScheduler(): void {
     const scheduledIds = getScheduledLeagueIds();
 
     for (const id of scheduledIds) {
-      const league = dbGetLeague(id);
-      if (!league) continue;
-
-      const interval = SCHEDULE_INTERVALS[league.advanceSchedule ?? ''];
-      if (!interval) continue;
-      if (now - (league.lastAdvanceTime ?? 0) < interval) continue;
-      // Skip offseason — the next-season rollover is a deliberate user action.
-      if (league.phase === 'offseason') continue;
-
-      // During regular season, only advance if there are scheduled games this week
-      if (league.phase === 'regular_season') {
-        const totalWeeks = Math.max(...league.currentSeason.games.map(g => g.week));
-        if (league.currentWeek <= totalWeeks) {
-          const scheduledGames = league.currentSeason.games.filter(
-            g => g.week === league.currentWeek && g.status === 'scheduled'
-          );
-          if (scheduledGames.length === 0) continue;
-        }
-      }
-
       try {
+        const league = dbGetLeague(id);
+        if (!league) continue;
+
+        const interval = SCHEDULE_INTERVALS[league.advanceSchedule ?? ''];
+        if (!interval) continue;
+        if (now - (league.lastAdvanceTime ?? 0) < interval) continue;
+        // Skip offseason — the next-season rollover is a deliberate user action.
+        if (league.phase === 'offseason') continue;
+
+        // During regular season, only advance if there are scheduled games this week
+        if (league.phase === 'regular_season') {
+          const totalWeeks = Math.max(...league.currentSeason.games.map(g => g.week));
+          if (league.currentWeek <= totalWeeks) {
+            const scheduledGames = league.currentSeason.games.filter(
+              g => g.week === league.currentWeek && g.status === 'scheduled'
+            );
+            if (scheduledGames.length === 0) continue;
+          }
+        }
+
         const advanced: League = { ...doAdvance(league), lastAdvanceTime: now };
         dbSaveLeague(advanced);
         console.log(`[scheduler] League ${id} advanced (phase: ${advanced.phase}, week: ${advanced.currentWeek})`);
-      } catch { continue; }
+      } catch (err) {
+        console.error(`[scheduler] League ${id} advance failed:`, err);
+        continue;
+      }
     }
   }, 10_000);
 }
+
+// ── Global error handler ──────────────────────────────────────────────────────
+// Must be registered after all routes. Catches any error passed to next(err)
+// by Express (e.g. synchronous throws in route handlers). Returns JSON so the
+// browser can read the error body; CORS headers are already set by the cors
+// middleware that ran earlier in the request pipeline.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[error] Unhandled route error:', err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: 'Internal server error.' });
+});
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
