@@ -1,8 +1,9 @@
 import { type League, type TradeAsset, type GameplanSettings } from './types';
 
-// In dev, Vite proxies /league, /leagues, /auth, /my-leagues → localhost:3000
-// so BASE is ''. In production (Vercel), set VITE_API_URL to the Fly.io backend URL.
-const BASE = import.meta.env.VITE_API_URL ?? '';
+// API base URL — set VITE_API_URL in Vercel environment variables.
+// In local dev this is empty ('') and Vite proxies API routes to localhost:3000.
+// Never hardcode a URL here.
+const BASE: string = import.meta.env.VITE_API_URL ?? '';
 
 // ── Auth state storage ────────────────────────────────────────────────────────
 // All three values are persisted in localStorage so they survive a page refresh.

@@ -189,20 +189,36 @@ function errMsg(e: unknown): string {
 
 const app = express();
 
-// CORS — ALLOWED_ORIGINS env var: comma-separated list.
-// If unset, all origins are allowed (safe for dev; set it in production).
-const allowedOrigins = process.env['ALLOWED_ORIGINS']
-  ? process.env['ALLOWED_ORIGINS'].split(',').map(s => s.trim())
-  : [];
+// ── CORS ──────────────────────────────────────────────────────────────────────
+//
+// ALLOWED_ORIGINS  — comma-separated exact origins, e.g.:
+//                    https://your-app.vercel.app,https://custom-domain.com
+// ALLOW_VERCEL_PREVIEWS — set to "true" to additionally allow any
+//                         *.vercel.app origin (safe; only Vercel accounts
+//                         can deploy there). Useful during active development.
+//
+// In local dev (no ALLOWED_ORIGINS set) all origins are allowed.
+
+const allowedOrigins = (process.env['ALLOWED_ORIGINS'] ?? '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const allowVercelPreviews = process.env['ALLOW_VERCEL_PREVIEWS'] === 'true';
+
+function isOriginAllowed(origin: string): boolean {
+  if (allowedOrigins.includes(origin)) return true;
+  if (allowVercelPreviews && /^https:\/\/[^.]+\.vercel\.app$/.test(origin)) return true;
+  return false;
+}
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow non-browser requests (curl, Fly health checks) and same-origin
-    if (!origin) return callback(null, true);
-    // Allow all when no list is configured (local dev)
-    if (allowedOrigins.length === 0) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error(`CORS: origin ${origin} not allowed`));
+    if (!origin) return callback(null, true);           // server-to-server / health checks
+    if (allowedOrigins.length === 0) return callback(null, true); // local dev: no list = open
+    if (isOriginAllowed(origin)) return callback(null, true);
+    console.warn(`[CORS] Rejected origin: ${origin}`);
+    return callback(new Error(`CORS: origin not allowed`));
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -282,9 +298,16 @@ app.get('/', (_req: Request, res: Response) => {
   res.json({ message: 'Football Sim backend is running.' });
 });
 
-// GET /health — deployment sanity check
+// GET /health — deployment sanity check (safe to expose publicly)
 app.get('/health', (_req: Request, res: Response) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    env: process.env['NODE_ENV'] ?? 'development',
+    cors: {
+      originsConfigured: allowedOrigins.length,
+      vercelPreviewsAllowed: allowVercelPreviews,
+    },
+  });
 });
 
 // GET /leagues — list public leagues (summary only, no rosters/events).
@@ -1066,6 +1089,12 @@ function runScheduler(): void {
 
 const PORT = process.env['PORT'] ?? 3000;
 app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Gridiron server running on http://0.0.0.0:${PORT}`);
+  console.log(`[server] Gridiron running on http://0.0.0.0:${PORT} (${process.env['NODE_ENV'] ?? 'development'})`);
+  if (allowedOrigins.length > 0) {
+    console.log(`[cors]   Allowed origins (${allowedOrigins.length}): ${allowedOrigins.join(', ')}`);
+  } else {
+    console.log(`[cors]   No ALLOWED_ORIGINS set — all origins permitted (dev mode)`);
+  }
+  if (allowVercelPreviews) console.log(`[cors]   Vercel preview domains (*.vercel.app) allowed`);
   runScheduler();
 });

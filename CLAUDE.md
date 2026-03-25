@@ -2,6 +2,55 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Deployment
+
+**Frontend → Vercel. Backend → Fly.io. They are completely separate services.**
+
+### Architecture
+- `web/` is deployed to Vercel (static React SPA, no server)
+- `src/` is deployed to Fly.io (Express API + SQLite)
+- The frontend talks to the backend via `VITE_API_URL` — never via a relative path in production
+
+### Environment variables
+
+**Vercel** (set in Project → Settings → Environment Variables):
+| Variable | Value |
+|---|---|
+| `VITE_API_URL` | `https://football-sim.fly.dev` |
+
+**Fly.io** (set with `fly secrets set KEY=value --app football-sim`):
+| Variable | Notes |
+|---|---|
+| `JWT_SECRET` | Random hex string — `openssl rand -hex 32` |
+| `ALLOWED_ORIGINS` | Comma-separated exact origins, e.g. `https://your-app.vercel.app` |
+| `ALLOW_VERCEL_PREVIEWS` | Set to `"true"` to allow any `*.vercel.app` origin (useful during dev) |
+
+`NODE_ENV`, `PORT`, and `DATA_DIR` are set in `fly.toml [env]` — not as secrets.
+
+### CORS rules
+- CORS is handled by the `cors` npm package in `src/server.ts` — **never add manual `res.setHeader('Access-Control-*')` calls**
+- Allowed origins come exclusively from `ALLOWED_ORIGINS` env var
+- Auth uses JWT Bearer tokens, not cookies — `credentials: false`
+- To add a new frontend domain: add it to `ALLOWED_ORIGINS` on Fly, redeploy
+- For Vercel preview branches: set `ALLOW_VERCEL_PREVIEWS=true` on Fly instead of listing each preview URL
+
+### Adding a new allowed frontend domain
+```bash
+fly secrets set ALLOWED_ORIGINS="https://your-app.vercel.app,https://new-domain.com" --app football-sim
+fly deploy --app football-sim
+```
+
+### Verify CORS and health on deploy
+```bash
+curl https://football-sim.fly.dev/health
+# Returns: { ok, env, cors: { originsConfigured, vercelPreviewsAllowed } }
+```
+
+### Local dev
+- Backend: `npm run dev` (ts-node, port 3000, no ALLOWED_ORIGINS = all origins open)
+- Frontend: `cd web && npm run dev` (Vite proxy → localhost:3000, no VITE_API_URL needed)
+- See `web/.env.example` and `.env.example` for all variables
+
 ## Commands
 
 ### Backend (root)
