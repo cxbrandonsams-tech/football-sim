@@ -455,6 +455,22 @@ export interface PlayerGameStats {
   receivingTDs:       number;
   sacks:              number;
   interceptionsCaught: number;
+  tackles:            number;
+}
+
+export interface ScoringPlay {
+  quarter:    number;
+  teamId:     string;
+  type:       'touchdown_run' | 'touchdown_pass' | 'touchdown_return' | 'field_goal';
+  /** playerId of the ball carrier (RB/QB on runs; receiver on passing TDs; kicker on FGs) */
+  scorerId:   string;
+  /** playerId of the QB on passing TDs */
+  assistId?:  string;
+  yards:      number;
+  homeScore:  number;
+  awayScore:  number;
+  /** Index of the source PlayEvent in the game's events[] array */
+  eventIndex: number;
 }
 
 export interface TeamGameStats {
@@ -470,9 +486,10 @@ export interface TeamGameStats {
 }
 
 export interface GameBoxScore {
-  home:    TeamGameStats;
-  away:    TeamGameStats;
-  players: Record<string, PlayerGameStats>; // keyed by player.id
+  home:         TeamGameStats;
+  away:         TeamGameStats;
+  players:      Record<string, PlayerGameStats>; // keyed by player.id
+  scoringPlays: ScoringPlay[];
 }
 
 // ── Season stats ───────────────────────────────────────────────────────────────
@@ -497,6 +514,7 @@ export interface PlayerSeasonStats {
   receivingTDs:      number;
   sacks:             number;
   interceptionsCaught: number;
+  tackles:           number;
 }
 
 export interface Game {
@@ -585,6 +603,7 @@ export interface PlayerSeasonHistoryLine {
   receptions:       number;
   sacks:            number;
   interceptionsCaught: number;
+  tackles:          number;
 }
 
 export interface RetiredPlayerRecord {

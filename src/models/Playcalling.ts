@@ -6,18 +6,21 @@
  * insideRunPct    — % of runs that go inside (rest go outside)
  * shortPassPct    — % of passes that are short
  * mediumPassPct   — % of passes that are medium (rest are deep)
+ * aggressiveness  — how strongly the team responds to game-script situations (0–100, default 50)
+ *                   0 = barely deviates from base tendencies; 100 = maximum situational swings
  *
  * deepPassPct is implicit: 100 - shortPassPct - mediumPassPct
  */
 export interface PlaycallingWeights {
-  runPct:       number;
-  insideRunPct: number;
-  shortPassPct: number;
-  mediumPassPct: number;
+  runPct:         number;
+  insideRunPct:   number;
+  shortPassPct:   number;
+  mediumPassPct:  number;
+  aggressiveness?: number;
 }
 
 export const DEFAULT_PLAYCALLING: PlaycallingWeights = {
-  runPct:        42,
+  runPct:        50,
   insideRunPct:  55,
   shortPassPct:  40,
   mediumPassPct: 35,

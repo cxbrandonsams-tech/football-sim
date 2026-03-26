@@ -478,6 +478,22 @@ const TEAM_FRONT_OFFICES: FrontOfficePersonality[] = [
   'development',  // sc_ari  (ARI) — youth movement
 ];
 
+// ── Aggressiveness assignment (deterministic, one value per team by index) ────
+//
+// Cycles through three tiers so every third team shares the same tier:
+//   index % 3 === 0 → aggressive   (65–85)
+//   index % 3 === 1 → balanced     (42–60)
+//   index % 3 === 2 → conservative (20–35)
+//
+// Values within each tier vary across the pool of 5 to give spread.
+// 32 teams → 11 aggressive, 11 balanced, 10 conservative.
+const TEAM_AGGRESSIVENESS: number[] = [
+//  0   1   2    3   4   5    6   7   8    9  10  11   12  13  14
+   65, 42, 20,  70, 48, 25,  75, 52, 28,  80, 56, 32,  85, 60, 35,
+// 15  16  17   18  19  20   21  22  23   24  25  26   27  28  29   30  31
+   65, 42, 20,  70, 48, 25,  75, 52, 28,  80, 56, 32,  85, 60, 35,  65, 42,
+];
+
 // ── Division structure ────────────────────────────────────────────────────────
 
 function buildDivisions(): Division[] {
@@ -498,13 +514,15 @@ export function createInitialLeague(id: string, options: LeagueOptions = {}) {
   const divisions = buildDivisions();
 
   const teams = TEAM_DEFS.map((td, i) => {
-    const roster       = buildRoster(i, td.tier);
-    const coaches      = buildCoaches(i, td.tier);
-    const scout        = buildScout(i, td.tier);
+    const roster         = buildRoster(i, td.tier);
+    const coaches        = buildCoaches(i, td.tier);
+    const scout          = buildScout(i, td.tier);
     const scoutingBudget = SCOUT_BUDGETS[td.tier] ?? 5;
-    const frontOffice  = TEAM_FRONT_OFFICES[i] ?? 'balanced';
-    return createTeam(td.id, td.name, td.abbr, roster, coaches,
+    const frontOffice    = TEAM_FRONT_OFFICES[i] ?? 'balanced';
+    const team = createTeam(td.id, td.name, td.abbr, roster, coaches,
       { conference: td.conf, division: td.div, scout, scoutingBudget, frontOffice });
+    // Assign deterministic aggressiveness so game-script responsiveness varies by team.
+    return { ...team, playcalling: { ...team.playcalling, aggressiveness: TEAM_AGGRESSIVENESS[i] ?? 50 } };
   });
 
   // User team is Pittsburgh Ironmen (ic_pit) — top-tier, IC North

@@ -26,7 +26,7 @@ export interface PlayerGameStats {
   // Defense
   sacks:              number;   // sacks recorded
   interceptionsCaught: number;  // INTs recorded
-  // TODO Phase 3: forcedFumbles, passesDefended, tackles
+  tackles:            number;   // solo tackles (run stops, non-TD)
 }
 
 // ── Per-team game stat line ───────────────────────────────────────────────────
@@ -43,13 +43,32 @@ export interface TeamGameStats {
   sacksAllowed:    number;
 }
 
+// ── Scoring summary ───────────────────────────────────────────────────────────
+
+export interface ScoringPlay {
+  quarter:    number;
+  teamId:     string;
+  type:       'touchdown_run' | 'touchdown_pass' | 'touchdown_return' | 'field_goal';
+  /** playerId of the ball carrier (RB/QB on runs; receiver on passing TDs; kicker on FGs) */
+  scorerId:   string;
+  /** playerId of the QB on passing TDs */
+  assistId?:  string;
+  yards:      number;
+  /** Running score after this play */
+  homeScore:  number;
+  awayScore:  number;
+  /** Index of the source PlayEvent in the game's events[] array */
+  eventIndex: number;
+}
+
 // ── Box score ─────────────────────────────────────────────────────────────────
 
 export interface GameBoxScore {
-  home:    TeamGameStats;
-  away:    TeamGameStats;
+  home:         TeamGameStats;
+  away:         TeamGameStats;
   /** Keyed by player.id */
-  players: Record<string, PlayerGameStats>;
+  players:      Record<string, PlayerGameStats>;
+  scoringPlays: ScoringPlay[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -62,6 +81,7 @@ function emptyPlayerStats(playerId: string, name: string, teamId: string): Playe
     carries: 0, rushingYards: 0, rushingTDs: 0,
     targets: 0, receptions: 0, receivingYards: 0, receivingTDs: 0,
     sacks: 0, interceptionsCaught: 0,
+    tackles: 0,
   };
 }
 
@@ -107,6 +127,45 @@ function resolveByLastName(
   return undefined;
 }
 
+// ── Tackle attribution helpers ────────────────────────────────────────────────
+
+type DefGroup = 'LB' | 'DL' | 'DB';
+
+interface DefenderEntry { id: string; group: DefGroup }
+
+/**
+ * Build a pool of defensive starters eligible for tackle credit.
+ * Uses depth chart starters only (DE, DT, LB, CB, S).
+ */
+function buildDefPool(team: Team): DefenderEntry[] {
+  const pool: DefenderEntry[] = [];
+  const dc = team.depthChart;
+  if (!dc) return pool;
+  for (const p of [...(dc.LB ?? [])]) {
+    if (p) pool.push({ id: p.id, group: 'LB' });
+  }
+  for (const p of [...(dc.DE ?? []), ...(dc.DT ?? [])]) {
+    if (p) pool.push({ id: p.id, group: 'DL' });
+  }
+  for (const p of [...(dc.CB ?? []), ...(dc.S ?? [])]) {
+    if (p) pool.push({ id: p.id, group: 'DB' });
+  }
+  return pool;
+}
+
+/**
+ * Select one defender from the pool using weighted position groups:
+ * LB 50%, DL 30%, DB 20%. Falls back to any defender if the rolled group is empty.
+ */
+function pickDefender(pool: DefenderEntry[]): string | undefined {
+  if (pool.length === 0) return undefined;
+  const r = Math.random();
+  const targetGroup: DefGroup = r < 0.50 ? 'LB' : r < 0.80 ? 'DL' : 'DB';
+  const group = pool.filter(p => p.group === targetGroup);
+  const candidates = group.length > 0 ? group : pool;
+  return candidates[Math.floor(Math.random() * candidates.length)]!.id;
+}
+
 // ── Core builder ──────────────────────────────────────────────────────────────
 
 /**
@@ -119,6 +178,17 @@ export function buildBoxScore(home: Team, away: Team, events: PlayEvent[]): Game
   const awayStats = emptyTeamStats(away.id, 0);
   const players: Record<string, PlayerGameStats> = {};
   const lookup = buildPlayerLookup(home, away);
+  const scoringPlays: ScoringPlay[] = [];
+
+  // Running score totals used to stamp each scoring play
+  let homeRunning = 0;
+  let awayRunning = 0;
+
+  // Defensive starter pools for tackle attribution (keyed by teamId)
+  const defPools: Record<string, DefenderEntry[]> = {
+    [home.id]: buildDefPool(home),
+    [away.id]: buildDefPool(away),
+  };
 
   const teamStats = (teamId: string) => teamId === home.id ? homeStats : awayStats;
 
@@ -149,7 +219,8 @@ export function buildBoxScore(home: Team, away: Team, events: PlayEvent[]): Game
   const qi = (q: number): 0 | 1 | 2 | 3 =>
     (Math.min(q, 4) - 1) as 0 | 1 | 2 | 3;
 
-  for (const ev of events) {
+  for (let evIdx = 0; evIdx < events.length; evIdx++) {
+    const ev  = events[evIdx]!;
     const off = teamStats(ev.offenseTeamId);
     const q   = qi(ev.quarter);
 
@@ -162,8 +233,61 @@ export function buildBoxScore(home: Team, away: Team, events: PlayEvent[]): Game
     const isTD          = ev.result === 'touchdown';
 
     // ── Scoring ──────────────────────────────────────────────────────────
-    if (isTD)                       off.pointsByQuarter[q] += 7;
-    if (ev.result === 'field_goal_good') off.pointsByQuarter[q] += 3;
+    if (isTD) {
+      off.pointsByQuarter[q] += 7;
+      if (ev.offenseTeamId === home.id) homeRunning += 7;
+      else                              awayRunning += 7;
+
+      let spType: ScoringPlay['type'];
+      let scorerId: string | undefined;
+      let assistId: string | undefined;
+
+      if (isRun || isScramble) {
+        spType   = 'touchdown_run';
+        scorerId = resolveBallCarrier(ev);
+      } else if (isPassType) {
+        spType   = 'touchdown_pass';
+        scorerId = resolveTarget(ev);
+        assistId = resolveBallCarrier(ev);
+      } else {
+        spType   = 'touchdown_run';  // fumble return or other edge case
+        scorerId = resolveBallCarrier(ev);
+      }
+
+      if (scorerId) {
+        scoringPlays.push({
+          quarter: ev.quarter,
+          teamId:  ev.offenseTeamId,
+          type:    spType,
+          scorerId,
+          ...(assistId !== undefined ? { assistId } : {}),
+          yards:      ev.yards,
+          homeScore:  homeRunning,
+          awayScore:  awayRunning,
+          eventIndex: evIdx,
+        });
+      }
+    }
+
+    if (ev.result === 'field_goal_good') {
+      off.pointsByQuarter[q] += 3;
+      if (ev.offenseTeamId === home.id) homeRunning += 3;
+      else                              awayRunning += 3;
+
+      const kId = resolveBallCarrier(ev);
+      if (kId) {
+        scoringPlays.push({
+          quarter:    ev.quarter,
+          teamId:     ev.offenseTeamId,
+          type:       'field_goal',
+          scorerId:   kId,
+          yards:      (100 - ev.yardLine) + 17,  // actual kick distance
+          homeScore:  homeRunning,
+          awayScore:  awayRunning,
+          eventIndex: evIdx,
+        });
+      }
+    }
 
     // ── Rush ─────────────────────────────────────────────────────────────
     if (isRun) {
@@ -177,6 +301,13 @@ export function buildBoxScore(home: Team, away: Team, events: PlayEvent[]): Game
         p.carries++;
         p.rushingYards += ev.yards;
         if (isTD) p.rushingTDs++;
+      }
+
+      // Tackle credit: non-TD runs only; credited to defending team's starters
+      if (!isTD) {
+        const defPool = defPools[ev.defenseTeamId] ?? [];
+        const tackler = pickDefender(defPool);
+        if (tackler) pStats(tackler).tackles++;
       }
     }
 
@@ -193,6 +324,12 @@ export function buildBoxScore(home: Team, away: Team, events: PlayEvent[]): Game
         p.carries++;
         p.rushingYards += ev.yards;
         if (isTD) p.rushingTDs++;
+      }
+
+      if (!isTD) {
+        const defPool = defPools[ev.defenseTeamId] ?? [];
+        const tackler = pickDefender(defPool);
+        if (tackler) pStats(tackler).tackles++;
       }
     }
 
@@ -248,7 +385,7 @@ export function buildBoxScore(home: Team, away: Team, events: PlayEvent[]): Game
 
   // Scores are on the game object — pass them in via a post-build step.
   // The caller fills in score from game.homeScore / game.awayScore.
-  return { home: homeStats, away: awayStats, players };
+  return { home: homeStats, away: awayStats, players, scoringPlays };
 }
 
 /**

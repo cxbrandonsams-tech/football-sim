@@ -58,6 +58,18 @@ function rb(team: Team): RBRatings | null {
   return p?.trueRatings.position === 'RB' ? (p.trueRatings as RBRatings) : null;
 }
 
+/**
+ * Pick the RB who will carry the ball on a run play.
+ * When two healthy RBs are available, splits roughly 65/35 (starter/backup)
+ * so each team's carries are distributed realistically across the backfield.
+ */
+function pickRunBack(team: Team): Player | undefined {
+  const healthy = team.depthChart['RB'].filter((p): p is Player => p !== null && p.injuryWeeksRemaining === 0);
+  if (healthy.length === 0) return undefined;
+  if (healthy.length === 1) return healthy[0];
+  return Math.random() < 0.65 ? healthy[0]! : healthy[1]!;
+}
+
 function wr(team: Team): WRRatings | null {
   const p = firstHealthy(team, 'WR');
   return p?.trueRatings.position === 'WR' ? (p.trueRatings as WRRatings) : null;
@@ -175,36 +187,124 @@ function rollInjury(player: Player, fatigue: number): number | null {
 // ── Play selection ────────────────────────────────────────────────────────────
 
 /**
- * Select a play type from the offense team's playcalling weights,
- * then apply small down-and-distance nudges.
- *
- * Weights drive the base distribution; D&D only adjusts within ±15pp.
+ * Snapshot of in-game situation passed into play selection.
+ * All fields are from the offense's perspective.
  */
-function selectPlayType(off: Team, down: number, distance: number): PlayType {
-  const w      = off.playcalling ?? DEFAULT_PLAYCALLING;
-  const clamp  = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+export interface GameSituation {
+  down:         number;
+  distance:     number;
+  yardLine:     number;
+  quarter:      number;
+  clockSeconds: number;  // seconds remaining in current quarter
+  scoreDiff:    number;  // offensive team score − defensive team score
+}
 
-  // Base run/pass split from user weights
+/**
+ * Select a play type from the offense team's playcalling weights,
+ * then apply down/distance nudges and situational adjustments.
+ *
+ * Weights drive the base distribution. D&D and game-state only tilt within
+ * the additive clamp — they never fully override the team's base tendencies.
+ */
+function selectPlayType(off: Team, sit: GameSituation): PlayType {
+  const w     = off.playcalling ?? DEFAULT_PLAYCALLING;
+  const s     = cfg.situational;
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+  // If no healthy QB is available, force a run play.
+  // Without this guard, pass plays generate events with no ballCarrierId,
+  // which causes WRs to accumulate receiving yards with no corresponding
+  // QB passing yards — inflating WR season stats and creating QB/WR mismatch.
+  if (!firstHealthy(off, 'QB')) {
+    return Math.random() < (w.insideRunPct / 100) ? 'inside_run' : 'outside_run';
+  }
+
+  // ── Base run/pass split ───────────────────────────────────────────────────
   let runPct = w.runPct / 100;
 
-  // Down & distance nudges (small, never swing > 15pp)
-  if (distance <= 2)       runPct = clamp(runPct + 0.15, 0.10, 0.90);
-  else if (distance >= 8)  runPct = clamp(runPct - 0.10, 0.10, 0.90);
+  // Down & distance nudges
+  if (sit.distance <= 2)       runPct = clamp(runPct + 0.15, 0.10, 0.90);
+  else if (sit.distance >= 8)  runPct = clamp(runPct - 0.07, 0.10, 0.90);
+  if (sit.down === 1)          runPct = clamp(runPct + 0.05, 0.10, 0.90);
+
+  // ── Aggressiveness scale: 1 + ((aggressiveness - 50) / 100) ─────────────
+  // 0→0.5×, 50→1.0× (default, no change), 100→1.5×
+  // Applied only to score/clock adjustments; D&D nudges and backedUpRunBoost are unscaled.
+  const agg      = w.aggressiveness ?? 50;
+  const aggScale = 1 + (agg - 50) / 100;
+
+  // ── Situational run% adjustment ───────────────────────────────────────────
+  let runAdj = 0;
+
+  // Field position: backed up in own territory — not scaled by aggressiveness
+  if (sit.yardLine < s.backedUpYardLine) {
+    runAdj += s.backedUpRunBoost / 100;
+  }
+
+  // Score + clock adjustments — all scaled by aggScale
+  const isLate      = sit.clockSeconds < s.lateGameSeconds;
+  const isTwoMinute = sit.clockSeconds < s.twoMinuteSeconds;
+  // Q2 gets the two-minute drill too (halftime urgency)
+  const q4Late      = sit.quarter === 4 && isLate;
+  const q4TwoMinute = (sit.quarter === 2 || sit.quarter === 4) && isTwoMinute;
+  const leading     = sit.scoreDiff > s.leadSmallDiff;
+  const leadingBig  = sit.scoreDiff > s.leadLargeDiff;
+  const trailing    = sit.scoreDiff < -s.trailSmallDiff;
+  const garbage     = sit.scoreDiff > s.garbageDiff && q4Late;
+
+  if (garbage) {
+    runAdj += (s.garbageRunBoost / 100) * aggScale;
+  } else if (q4TwoMinute && trailing) {
+    runAdj -= (s.twoMinuteRunCut / 100) * aggScale;
+  } else if (q4Late && trailing) {
+    runAdj -= (s.urgentTrailRunCut / 100) * aggScale;
+  } else if (q4Late && leading) {
+    runAdj += (s.clockKillRunBoost / 100) * aggScale;
+  } else if (leadingBig) {
+    runAdj += (s.comfortLeadRunBoost / 100) * aggScale;
+  } else if (leading) {
+    runAdj += (s.leadSmallRunBoost / 100) * aggScale;
+  } else if (trailing) {
+    runAdj -= (s.trailRunCut / 100) * aggScale;
+  }
+
+  runPct = clamp(runPct + runAdj, 0.10, 0.90);
 
   if (Math.random() < runPct) {
-    // Run play — inside vs outside
     const insideFrac = w.insideRunPct / 100;
     return Math.random() < insideFrac ? 'inside_run' : 'outside_run';
   }
 
-  // Pass play — short / medium / deep
-  const shortFrac  = w.shortPassPct  / 100;
-  const medFrac    = w.mediumPassPct / 100;
-  const deepFrac   = Math.max(0, 1 - shortFrac - medFrac);
-  const total      = shortFrac + medFrac + deepFrac;
-  const r          = Math.random() * total;
-  if (r < shortFrac)              return 'short_pass';
-  if (r < shortFrac + medFrac)    return 'medium_pass';
+  // ── Pass depth distribution with situational adjustments ─────────────────
+  let shortPct = w.shortPassPct  / 100;
+  let medPct   = w.mediumPassPct / 100;
+  let deepPct  = Math.max(0, 1 - shortPct - medPct);
+
+  if (q4TwoMinute && trailing) {
+    shortPct += (s.twoMinuteShortBoost / 100) * aggScale;
+    deepPct  -= (s.twoMinuteDeepCut    / 100) * aggScale;
+  } else if (q4Late && trailing) {
+    shortPct -= (s.urgentTrailShortCut    / 100) * aggScale;
+    medPct   += (s.urgentTrailMediumBoost / 100) * aggScale;
+    deepPct  += (s.urgentTrailDeepBoost   / 100) * aggScale;
+  } else if (q4Late && leading) {
+    shortPct += (s.clockKillShortBoost / 100) * aggScale;
+    deepPct  -= (s.clockKillDeepCut    / 100) * aggScale;
+  } else if (garbage) {
+    shortPct += (s.garbageShortBoost / 100) * aggScale;
+    deepPct  -= (s.garbageDeepCut    / 100) * aggScale;
+  }
+
+  // Renormalize depth fractions (clamp negatives to 0 before normalizing)
+  shortPct = Math.max(0, shortPct);
+  medPct   = Math.max(0, medPct);
+  deepPct  = Math.max(0, deepPct);
+  const depthTotal = shortPct + medPct + deepPct;
+  if (depthTotal > 0) { shortPct /= depthTotal; medPct /= depthTotal; deepPct /= depthTotal; }
+
+  const r = Math.random();
+  if (r < shortPct)              return 'short_pass';
+  if (r < shortPct + medPct)     return 'medium_pass';
   return 'deep_pass';
 }
 
@@ -311,6 +411,62 @@ function defRating(def: Team, type: PlayType): number {
   }
 }
 
+// ── Pass target selection ─────────────────────────────────────────────────────
+
+interface ReceiverStats {
+  playerId:     string | undefined;
+  name:         string;
+  routeRunning: number;
+  speed:        number;
+  hands:        number;
+  size:         number;
+  yac:          number;
+}
+
+function getReceiverStats(p: Player | null | undefined): ReceiverStats | null {
+  if (!p || p.injuryWeeksRemaining > 0) return null;
+  const r  = p.trueRatings;
+  const nm = p.name.split(' ').pop() ?? p.name;
+  if (r.position === 'WR') return { playerId: p.id, name: nm, routeRunning: r.routeRunning, speed: r.speed, hands: r.hands, size: r.size, yac: r.yac };
+  if (r.position === 'TE') return { playerId: p.id, name: nm, routeRunning: r.routeRunning, speed: r.speed, hands: r.hands, size: r.size, yac: r.yac };
+  if (r.position === 'RB') return { playerId: p.id, name: nm, routeRunning: r.elusiveness, speed: r.speed, hands: Math.min(r.ballSecurity + 10, 85), size: 55, yac: r.speed };
+  return null;
+}
+
+/**
+ * Select a pass target from WR1, WR2, TE, RB using depth-based target-share weights.
+ * Deep passes heavily favour WR1/WR2; short passes include TE/RB screen targets.
+ */
+function selectPassTarget(off: Team, depth: 'short' | 'medium' | 'deep'): ReceiverStats {
+  const wr1 = off.depthChart['WR'][0] ?? null;
+  const wr2 = off.depthChart['WR'][1] ?? null;
+  const te  = off.depthChart['TE'][0] ?? null;
+  const rb  = off.depthChart['RB'][0] ?? null;
+
+  // Target share weights: [WR1, WR2, TE, RB]
+  const w =
+    depth === 'short'  ? [22, 16, 22, 20] :
+    depth === 'medium' ? [28, 22, 20, 12] :
+                         [42, 30, 16,  4] ;
+
+  const players = [wr1, wr2, te, rb];
+  const available: { stats: ReceiverStats; weight: number }[] = [];
+  for (let i = 0; i < players.length; i++) {
+    const s = getReceiverStats(players[i]);
+    if (s) available.push({ stats: s, weight: w[i]! });
+  }
+  if (available.length === 0) {
+    return { playerId: undefined, name: '', routeRunning: 50, speed: 50, hands: 50, size: 50, yac: 50 };
+  }
+  const total = available.reduce((s, c) => s + c.weight, 0);
+  let roll = Math.random() * total;
+  for (const c of available) {
+    roll -= c.weight;
+    if (roll <= 0) return c.stats;
+  }
+  return available[0]!.stats;
+}
+
 // ── Pass phase helpers ────────────────────────────────────────────────────────
 
 /**
@@ -330,14 +486,14 @@ function resolveSeparation(
   def: Team,
   pressureLevel: number,
   playActionBonus: number,
+  recvStats: ReceiverStats,
 ): number {
-  const wrR  = wr(off);
   const cbR  = cb(def);
   const lbR  = lb(def);
   const sfR  = safety(def);
 
-  const wrRoute = wrR?.routeRunning ?? 50;
-  const wrSpeed = wrR?.speed        ?? 50;
+  const wrRoute = recvStats.routeRunning;
+  const wrSpeed = recvStats.speed;
 
   let wrScore: number;
   let defScore: number;
@@ -477,21 +633,62 @@ function resolveThrowaway(
 function yardsOnSuccess(type: PlayType, speedRating: number): number {
   let base: number;
   switch (type) {
-    case 'inside_run':  base = randInt(cfg.run.insideRunMin,  cfg.run.insideRunMax);  break;
-    case 'outside_run': base = randInt(cfg.run.outsideRunMin, cfg.run.outsideRunMax); break;
-    case 'short_pass':  base = randInt(cfg.passYards.shortMin,  cfg.passYards.shortMax);  break;
-    case 'medium_pass': base = randInt(cfg.passYards.mediumMin, cfg.passYards.mediumMax); break;
-    case 'deep_pass':   base = randInt(cfg.passYards.deepMin,   cfg.passYards.deepMax);   break;
+    case 'inside_run':
+      // Two-tier: short gain (typical) or breakthrough (RB into second level).
+      base = Math.random() < cfg.run.insideLongChance
+        ? randInt(cfg.run.insideLongMin,  cfg.run.insideLongMax)
+        : randInt(cfg.run.insideRunMin,   cfg.run.insideRunMax);
+      break;
+    case 'outside_run':
+      base = Math.random() < cfg.run.outsideLongChance
+        ? randInt(cfg.run.outsideLongMin, cfg.run.outsideLongMax)
+        : randInt(cfg.run.outsideRunMin,  cfg.run.outsideRunMax);
+      break;
+    case 'short_pass': {
+      // YAC breakaway: receiver beats pursuit into open field after a short catch.
+      // Speed-scaled: faster WRs more likely to turn routine catches into big gains.
+      const yaBreakChance = cfg.passYards.yacBreakawayBaseChance
+        + Math.max(0, speedRating - 50) * cfg.passYards.yacBreakawaySpeedScale;
+      base = Math.random() < yaBreakChance
+        ? randInt(cfg.passYards.yacBreakawayMin, cfg.passYards.yacBreakawayMax)
+        : randInt(cfg.passYards.shortMin, cfg.passYards.shortMax);
+      break;
+    }
+    case 'medium_pass': {
+      // Bomb → YAC breakaway → normal; each check is independent.
+      const yaBreakChanceM = cfg.passYards.yacBreakawayBaseChance
+        + Math.max(0, speedRating - 50) * cfg.passYards.yacBreakawaySpeedScale;
+      if (Math.random() < cfg.passYards.mediumBombChance) {
+        base = randInt(cfg.passYards.mediumBombMin, cfg.passYards.mediumBombMax);
+      } else if (Math.random() < yaBreakChanceM) {
+        base = randInt(cfg.passYards.yacBreakawayMin, cfg.passYards.yacBreakawayMax);
+      } else {
+        base = randInt(cfg.passYards.mediumMin, cfg.passYards.mediumMax);
+      }
+      break;
+    }
+    case 'deep_pass':
+      // 16% of deep completions become long bombs (30-55 yd); the rest use the
+      // normal range. Average catch yardage stays ~16 yds but the distribution
+      // now has a realistic tail for explosive/non-RZ scores.
+      base = Math.random() < cfg.passYards.deepBombChance
+        ? randInt(cfg.passYards.deepBombMin, cfg.passYards.deepBombMax)
+        : randInt(cfg.passYards.deepMin,     cfg.passYards.deepMax);
+      break;
     default:            base = 5;
   }
   // Big-play burst for fast skill players
   // GDD: Inside = lower breakaway chance, Outside = higher breakaway chance (runs only)
-  // Pass plays retain the original burstChance
+  // Pass plays retain the original burstChance and bigPlay.speedThreshold
+  // Run plays use cfg.run.breakawaySpeedThreshold (lower, reachable by starter/elite RBs)
   const breakawayChance =
     type === 'inside_run'  ? cfg.run.insideBreakawayChance  :
     type === 'outside_run' ? cfg.run.outsideBreakawayChance :
     cfg.bigPlay.burstChance;
-  if (speedRating > cfg.bigPlay.speedThreshold && Math.random() < breakawayChance) {
+  const speedThreshold = (type === 'inside_run' || type === 'outside_run')
+    ? cfg.run.breakawaySpeedThreshold
+    : cfg.bigPlay.speedThreshold;
+  if (speedRating > speedThreshold && Math.random() < breakawayChance) {
     base += randInt(cfg.bigPlay.burstBonusMin, cfg.bigPlay.burstBonusMax);
   }
   return base;
@@ -499,6 +696,12 @@ function yardsOnSuccess(type: PlayType, speedRating: number): number {
 
 function yardsOnFail(type: PlayType): number {
   if (type === 'inside_run' || type === 'outside_run') {
+    if (Math.random() < cfg.run.tflChance) {
+      if (Math.random() < cfg.run.tflBigChance) {
+        return randInt(cfg.run.tflBigMin, cfg.run.tflBigMax);      // -7 to -4
+      }
+      return randInt(cfg.run.tflTypicalMin, cfg.run.tflTypicalMax); // -3 to -1
+    }
     return randInt(cfg.run.failYardsMin, cfg.run.failYardsMax);
   }
   return 0; // incomplete pass
@@ -558,7 +761,9 @@ function simulatePlay(
     // GDD: Mobility affects sacks/scramble — mobile QB escapes pressure more often
     const qbMobility         = qb(off)?.mobility ?? 50;
     const mobilityBonus      = Math.max(0, (qbMobility - 50) * cfg.pass.mobilityReductionScale);
-    const adjustedSackChance = Math.max(0, rawSackChance - mobilityBonus);
+    const rzSackBonus        = yardLine >= cfg.redZone.yardLine ? cfg.redZone.sackBonus : 0;
+    const d3SackBonus        = down === 3 ? cfg.longYardage.d3SackBonus : 0;
+    const adjustedSackChance = Math.max(0, rawSackChance - mobilityBonus + rzSackBonus + d3SackBonus);
     const sackRoll           = Math.random();
 
     // pressureLevel: how much pocket pressure affects QB throws (0=clean, 1=heavy)
@@ -601,22 +806,28 @@ function simulatePlay(
     }
   }
 
+  // Select run carrier (distributes carries between starter and backup RB)
+  const runCarrier = isRun ? pickRunBack(off) : undefined;
+  const runCarrierRb = runCarrier?.trueRatings.position === 'RB'
+    ? (runCarrier.trueRatings as RBRatings) : null;
+  const runCarrierLastName = runCarrier
+    ? (runCarrier.name.split(' ').pop() ?? runCarrier.name) : '';
+
   // Fumble check
   if (isRun) {
-    const ballSec   = rb(off)?.ballSecurity ?? 60;
+    const ballSec   = runCarrierRb?.ballSecurity ?? rb(off)?.ballSecurity ?? 60;
     const fumbleChance = Math.max(
       0,
       cfg.run.baseFumbleChance - (ballSec - 50) * cfg.run.ballSecurityFumbleReduction,
     );
     if (Math.random() < fumbleChance) {
-      const rbId = pid(off, 'RB');
       return {
         ...base,
         type:        'fumble',
         result:      'turnover',
         yards:       0,
-        ballCarrier: lastName(off, 'RB'),
-        ...(rbId !== undefined ? { ballCarrierId: rbId } : {}),
+        ballCarrier: runCarrierLastName,
+        ...(runCarrier !== undefined ? { ballCarrierId: runCarrier.id } : {}),
       };
     }
   }
@@ -633,10 +844,12 @@ function simulatePlay(
     const depth: 'short' | 'medium' | 'deep' =
       type === 'short_pass'  ? 'short'  :
       type === 'medium_pass' ? 'medium' : 'deep';
+    // Select target receiver before separation — their ratings drive route/separation
+    const tgt     = selectPassTarget(off, depth);
     // Play-action bonus from offensive gameplan
     const paLevel    = (off.gameplan?.playAction ?? 'low') as keyof typeof cfg.gameplan.playAction;
     const paBonus    = cfg.gameplan.playAction[paLevel] ?? 0;
-    const separation = resolveSeparation(depth, off, def, pressureLevel, paBonus);
+    const separation = resolveSeparation(depth, off, def, pressureLevel, paBonus, tgt);
 
     // Phase 2b: Window state — discrete football-state derived from separation score.
     // Adds categorical behavior (throwaway, ball-skills contest, accuracy reliance)
@@ -647,16 +860,15 @@ function simulatePlay(
 
     // QB Decision: may throw away a covered window instead of forcing it
     if (resolveThrowaway(windowState, qbDM, pressureLevel)) {
-      const qbId  = pid(off, 'QB');
-      const wrId  = pid(off, 'WR');
+      const qbId = pid(off, 'QB');
       return {
         ...base,
         result:      'fail',
         yards:       0,
         ballCarrier: lastName(off, 'QB'),
-        target:      lastName(off, 'WR'),
-        ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
-        ...(wrId !== undefined ? { targetId:      wrId } : {}),
+        target:      tgt.name,
+        ...(qbId          !== undefined ? { ballCarrierId: qbId } : {}),
+        ...(tgt.playerId  !== undefined ? { targetId: tgt.playerId } : {}),
       };
     }
 
@@ -675,17 +887,17 @@ function simulatePlay(
 
     // Contested: WR hands vs CB ball skills — winner takes the catch
     if (windowState === 'contested') {
-      const wrHands      = wr(off)?.hands      ?? 50;
-      const cbBallSkills = cb(def)?.ballSkills  ?? 50;
-      windowSuccessMod += (wrHands - cbBallSkills) * w.contestedBallSkillsScale;
+      const cbBallSkills = cb(def)?.ballSkills ?? 50;
+      windowSuccessMod += (tgt.hands - cbBallSkills) * w.contestedBallSkillsScale;
     }
 
     // Phase 4: Success probability — throw quality is the primary driver
     // GDD: WR Size vs DB Size — small situational modifier on contested passes
-    const sizeAdj = ((wr(off)?.size ?? 50) - (cb(def)?.size ?? 50)) * cfg.pass.sizeAdvantageScale;
+    const sizeAdj = (tgt.size - (cb(def)?.size ?? 50)) * cfg.pass.sizeAdvantageScale;
+    const rzPassPenalty = yardLine >= cfg.redZone.yardLine ? cfg.redZone.passSuccessPenalty : 0;
     successProb = Math.max(0.05, Math.min(0.95,
       throwQuality + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj + sizeAdj
-      + windowSuccessMod));
+      + windowSuccessMod - rzPassPenalty));
 
     const success = Math.random() < successProb;
 
@@ -719,54 +931,55 @@ function simulatePlay(
           + throwQualityBonus + pressureBonus + windowIntMod + badDMIntMod),
       );
       if (Math.random() < intChance) {
-        const qbId  = pid(off, 'QB');
-        const wrId  = pid(off, 'WR');
-        const cbId  = pid(def, 'CB');
+        const qbId = pid(off, 'QB');
+        const cbId = pid(def, 'CB');
         return {
           ...base,
           type:        'interception',
           result:      'turnover',
           yards:       0,
           ballCarrier: lastName(off, 'QB'),
-          target:      lastName(off, 'WR'),
-          ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
-          ...(wrId !== undefined ? { targetId:      wrId } : {}),
-          ...(cbId !== undefined ? { defPlayerId:   cbId } : {}),
+          target:      tgt.name,
+          ...(qbId         !== undefined ? { ballCarrierId: qbId } : {}),
+          ...(tgt.playerId !== undefined ? { targetId: tgt.playerId } : {}),
+          ...(cbId         !== undefined ? { defPlayerId:   cbId } : {}),
         };
       }
     }
 
     // Phase 6: YAC on successful catch
     // Soft-open windows give a YAC bonus — receiver has open field after the catch
-    const speedRating = wr(off)?.speed ?? 50;
-    let yards = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
+    let yards = success ? yardsOnSuccess(type, tgt.speed) : yardsOnFail(type);
     if (success) {
-      const wrYAC    = wr(off)?.yac         ?? 50;
       const cbTackle = cb(def)?.tackling    ?? 50;
       const sfTackle = safety(def)?.tackling ?? 50;
       const lbPursue = lb(def)?.pursuit     ?? 50;
       const defYAC   = avg(cbTackle, sfTackle, lbPursue);
       const yacWindowBonus = windowState === 'soft_open' ? w.softOpenYACBonus : 0;
-      // baseYACYards = baseline every catch earns; differential shifts it up or down
       yards = Math.max(0, Math.round(
-        yards + cfg.pass.baseYACYards + (wrYAC - defYAC) * cfg.pass.yacNetScale + yacWindowBonus,
+        yards + cfg.pass.baseYACYards + (tgt.yac - defYAC) * cfg.pass.yacNetScale + yacWindowBonus,
       ));
+      // Breakaway upgrade: short/medium only; excluded if already a big play (yards >= 20)
+      // Fires after YAC so it never stacks with bomb or YAC-breakaway outcomes.
+      if ((type === 'short_pass' || type === 'medium_pass') && yards < 20
+          && Math.random() < cfg.bigPlay.breakawayUpgradeChancePass) {
+        yards = randInt(cfg.bigPlay.breakawayUpgradeMin, cfg.bigPlay.breakawayUpgradeMax);
+      }
     }
     const newYardLine = yardLine + yards;
     const isTD       = newYardLine >= 100;
     const result: PlayResult = isTD ? 'touchdown' : success ? 'success' : 'fail';
     const firstDown = !isTD && success && yards >= distance;
-    const qbId  = pid(off, 'QB');
-    const recvId = pid(off, 'WR');
+    const qbId = pid(off, 'QB');
     return {
       ...base,
       result,
       yards:       isTD ? 100 - yardLine : yards,
       ...(firstDown ? { firstDown: true as const } : {}),
       ballCarrier: lastName(off, 'QB'),
-      target:      lastName(off, 'WR'),
-      ...(qbId   !== undefined ? { ballCarrierId: qbId   } : {}),
-      ...(recvId !== undefined ? { targetId:      recvId } : {}),
+      target:      tgt.name,
+      ...(qbId         !== undefined ? { ballCarrierId: qbId } : {}),
+      ...(tgt.playerId !== undefined ? { targetId: tgt.playerId } : {}),
     };
   }
 
@@ -774,38 +987,134 @@ function simulatePlay(
   const oRating = offRating(off, type);
   const dRating = defRating(def, type);
   const baseProb = oRating / (oRating + dRating);
+  const rzRushPenalty = yardLine >= cfg.redZone.goalLineYardLine ? cfg.redZone.rushSuccessPenalty : 0;
   successProb = Math.max(0.05, Math.min(0.95,
-    baseProb + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj));
+    baseProb + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj - rzRushPenalty));
   const success = Math.random() < successProb;
 
   // ── Run: yards + result ───────────────────────────────────────────────────
-  const speedRating = rb(off)?.speed ?? 50;
-  const yards       = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
+  const speedRating = runCarrierRb?.speed ?? rb(off)?.speed ?? 50;
+  let yards         = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
+  // Breakaway upgrade: only on successful carries, only if not already a burst run (yards < 20)
+  if (success && yards < 20 && Math.random() < cfg.bigPlay.breakawayUpgradeChanceRun) {
+    yards = randInt(cfg.bigPlay.breakawayUpgradeMin, cfg.bigPlay.breakawayUpgradeMax);
+  }
   const newYardLine = yardLine + yards;
   const isTD        = newYardLine >= 100;
   const result: PlayResult = isTD ? 'touchdown' : success ? 'success' : 'fail';
   const firstDown   = !isTD && success && yards >= distance;
-  const rbId        = pid(off, 'RB');
   return {
     ...base,
     result,
     yards:       isTD ? 100 - yardLine : yards,
     ...(firstDown ? { firstDown: true as const } : {}),
-    ballCarrier: lastName(off, 'RB'),
-    ...(rbId !== undefined ? { ballCarrierId: rbId } : {}),
+    ballCarrier: runCarrierLastName,
+    ...(runCarrier !== undefined ? { ballCarrierId: runCarrier.id } : {}),
   };
 }
 
 // ── Game loop ─────────────────────────────────────────────────────────────────
 
+// ── Special teams: returner composites ───────────────────────────────────────
+
+function kickoffReturnerScore(team: Team): number {
+  const r = cfg.returner;
+  let best = 50;
+  for (const p of team.depthChart['WR']) {
+    if (!p || p.injuryWeeksRemaining > 0 || p.trueRatings.position !== 'WR') continue;
+    const s = p.trueRatings.speed * r.krSpeedWeight + p.trueRatings.yac * r.krElusivenessWeight;
+    if (s > best) best = s;
+  }
+  for (const p of team.depthChart['RB']) {
+    if (!p || p.injuryWeeksRemaining > 0 || p.trueRatings.position !== 'RB') continue;
+    const s = p.trueRatings.speed * r.krSpeedWeight + p.trueRatings.elusiveness * r.krElusivenessWeight;
+    if (s > best) best = s;
+  }
+  return best;
+}
+
+function puntReturnerScore(team: Team): number {
+  const r = cfg.returner;
+  let best = 50;
+  for (const p of team.depthChart['WR']) {
+    if (!p || p.injuryWeeksRemaining > 0 || p.trueRatings.position !== 'WR') continue;
+    const s = p.trueRatings.speed * r.prSpeedWeight
+            + p.trueRatings.hands * r.prHandsWeight
+            + p.trueRatings.yac   * r.prYacWeight;
+    if (s > best) best = s;
+  }
+  return best;
+}
+
+function resolveKickoffStart(receivingTeam: Team): number {
+  const c = cfg.kickoffReturn;
+  if (Math.random() < c.touchbackRate) return c.touchbackYardLine;
+  const score  = kickoffReturnerScore(receivingTeam);
+  const bonus  = Math.min(c.returnerBonusCap, Math.max(-c.returnerBonusCap, (score - 50) * c.returnerBonusScale));
+  if (Math.random() < c.bigReturnChance) {
+    return Math.min(95, c.catchYardLine + randInt(c.bigReturnMin, c.bigReturnMax) + Math.round(bonus));
+  }
+  return Math.min(50, c.catchYardLine + randInt(c.returnBaseMin, c.returnBaseMax) + Math.round(bonus));
+}
+
+function resolvePuntReturn(receivingTeam: Team, landSpot: number): number {
+  const c = cfg.puntReturn;
+  if (Math.random() < c.fairCatchRate) return landSpot;
+  const score = puntReturnerScore(receivingTeam);
+  const bonus = Math.min(c.returnerBonusCap, Math.max(-c.returnerBonusCap, (score - 50) * c.returnerBonusScale));
+  if (Math.random() < c.bigReturnChance) {
+    return Math.min(95, landSpot + randInt(c.bigReturnMin, c.bigReturnMax) + Math.round(bonus));
+  }
+  return Math.min(95, landSpot + randInt(c.returnBaseMin, c.returnBaseMax) + Math.round(bonus));
+}
+
+// ── Clock runoff ─────────────────────────────────────────────────────────────
+
+function computeClockRunoff(ev: PlayEvent, off: Team, quarter: number, clockSecs: number, scoreDiff: number): number {
+  const c    = cfg.clock;
+  const rand = (min: number, max: number) => min + Math.random() * (max - min);
+  // A2: end-of-half squeeze — Q2/Q4 trailing with <2 min → hurry-up clock burn
+  const situationalHurryUp =
+    (quarter === 2 || quarter === 4) &&
+    clockSecs < cfg.situational.twoMinuteSeconds &&
+    scoreDiff < 0;
+  const tempo    = situationalHurryUp ? 'hurry_up' : ((off.gameplan?.tempo ?? 'normal') as string);
+  const tempoMod = c.tempoModifier[tempo] ?? 0;
+
+  // Special teams — no tempo effect; clock stops after the play
+  if (ev.type === 'punt')       return rand(c.runoff.puntMin,  c.runoff.puntMax);
+  if (ev.type === 'field_goal') return rand(c.runoff.fgMin,    c.runoff.fgMax);
+
+  // Scoring — brief stop for PAT/kickoff setup; no tempo effect
+  if (ev.result === 'touchdown') return rand(c.runoff.tdMin, c.runoff.tdMax);
+
+  // Run plays, sacks, scrambles — full play clock; tempo applies
+  const isRun = ev.type === 'inside_run' || ev.type === 'outside_run'
+             || ev.type === 'sack'        || ev.type === 'scramble';
+  if (isRun) return Math.max(1, rand(c.runoff.runMin, c.runoff.runMax) + tempoMod);
+
+  // Pass plays
+  const isIncomplete = ev.result === 'fail' || ev.type === 'interception';
+  if (isIncomplete) return rand(c.runoff.incompleteMin, c.runoff.incompleteMax);
+
+  // Completed pass — some go out of bounds (clock stops)
+  if (Math.random() < c.sidelinePassChance) {
+    return rand(c.runoff.sidelineMin, c.runoff.sidelineMax);
+  }
+  return Math.max(1, rand(c.runoff.completeMin, c.runoff.completeMax) + tempoMod);
+}
+
 // ── 4th-down decision ────────────────────────────────────────────────────────
 
 function shouldGoForIt(
-  distance: number,
-  yardLine: number,
-  personality: string,
+  distance:      number,
+  yardLine:      number,
+  personality:   string,
+  sit:           GameSituation,
+  aggressiveness: number,
 ): boolean {
-  const cfg4 = TUNING.coaching.fourthDown;
+  const cfg4  = TUNING.coaching.fourthDown;
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
   // Base probability by yards to gain
   let base: number;
@@ -815,11 +1124,25 @@ function shouldGoForIt(
   else if (distance <= 5) base = cfg4.baseProb.dist5;
   else                    base = cfg4.baseProb.distLong;
 
-  // Near goal line: more aggressive
+  // Near goal line: more aggressive (unscaled)
   if (100 - yardLine <= 10) base += cfg4.goalLineBump;
 
+  // Situational adjustments — Q4 score-based, scaled by aggressiveness
+  const aggScale = 1 + (aggressiveness - 50) / 100;
+  if (sit.quarter === 4) {
+    if      (sit.scoreDiff < -cfg4.trailBigDiff)   base += cfg4.trailingBigBoost   * aggScale;
+    else if (sit.scoreDiff < -cfg4.trailSmallDiff)  base += cfg4.trailingSmallBoost * aggScale;
+    else if (sit.scoreDiff >  cfg4.leadBigDiff)     base -= cfg4.leadingBigCut      * aggScale;
+  }
+
+  // Own half of field: unscaled cut (field position cost)
+  if (sit.yardLine < 50) base -= cfg4.ownHalfCut;
+
+  // Cap before personality multiplier
+  base = clamp(base, 0.02, 0.95);
+
   const mult = cfg4.personalityMultiplier[personality] ?? 1.0;
-  return Math.random() < Math.min(0.95, base * mult);
+  return Math.random() < clamp(base * mult, 0.02, 0.95);
 }
 
 export function simulateGame(game: Game): GameResult {
@@ -836,10 +1159,11 @@ export function simulateGame(game: Game): GameResult {
 
   let quarter      = 1;
   let quarterPlays = 0;
+  let clockSeconds = cfg.clock.secondsPerQuarter;
   let possession: 'home' | 'away' = Math.random() < 0.5 ? 'home' : 'away';
   let down     = 1;
   let distance = 10;
-  let yardLine = 25;
+  let yardLine = resolveKickoffStart(possession === 'home' ? home : away);
   let homeScore = 0;
   let awayScore = 0;
 
@@ -850,7 +1174,7 @@ export function simulateGame(game: Game): GameResult {
 
   const changePoss = () => {
     possession = possession === 'home' ? 'away' : 'home';
-    down = 1; distance = 10; yardLine = 25;
+    down = 1; distance = 10; yardLine = 25; // default; overridden by kickoff/punt logic below
   };
 
   /** Accumulate fatigue for a player after they participate in a play. */
@@ -882,22 +1206,43 @@ export function simulateGame(game: Game): GameResult {
     const off = withInGameInjuries(offRaw, offInjured);
     const def = withInGameInjuries(defRaw, defInjured);
 
+    // Compute situation struct — needed for 4th-down decision and play selection
+    const offScore = possession === 'home' ? homeScore : awayScore;
+    const defScore = possession === 'home' ? awayScore : homeScore;
+    const sit: GameSituation = {
+      down, distance, yardLine, quarter,
+      clockSeconds,
+      scoreDiff: offScore - defScore,
+    };
+
     // 4th-down decision: FG attempt, go-for-it, or punt
     const offPersonality = getPersonality(off.coaches.hc);
+    const aggressiveness = off.playcalling?.aggressiveness ?? 50;
     const goForIt = down === 4
       && yardLine < cfg.fieldGoal.attemptYardLine
-      && shouldGoForIt(distance, yardLine, offPersonality);
+      && shouldGoForIt(distance, yardLine, offPersonality, sit, aggressiveness);
+
+    // Desperation FG: trailing 2+ scores, Q4 late, just beyond normal FG range
+    const desperationFG = down === 4
+      && !goForIt
+      && sit.quarter === 4
+      && sit.clockSeconds < cfg.coaching.fourthDown.desperateFGSecondsLeft
+      && sit.scoreDiff < -cfg.coaching.fourthDown.trailBigDiff
+      && yardLine >= cfg.fieldGoal.desperationYardLine
+      && yardLine < cfg.fieldGoal.attemptYardLine;
 
     if (down === 4 && !goForIt) {
-      if (yardLine >= cfg.fieldGoal.attemptYardLine) {
+      if (yardLine >= cfg.fieldGoal.attemptYardLine || desperationFG) {
         const ev = simulatePlay(off, def, 'field_goal', quarter, down, distance, yardLine);
         events.push(ev);
         if (ev.result === 'field_goal_good') score(3);
         changePoss();
+        yardLine = resolveKickoffStart(possession === 'home' ? home : away);
       } else {
         const puntYards = randInt(cfg.punt.minYards, cfg.punt.maxYards);
         const landingYL = yardLine + puntYards;
-        const newYL     = landingYL >= 100
+        const puntReceiver = def; // receiver before possession flips
+        const landSpot    = landingYL >= 100
           ? cfg.punt.touchbackYardLine
           : Math.max(5, 100 - landingYL);
         events.push({
@@ -905,10 +1250,12 @@ export function simulateGame(game: Game): GameResult {
           result: 'success', yards: puntYards, quarter, down, distance, yardLine,
         });
         changePoss();
-        yardLine = newYL;
+        yardLine = landingYL >= 100
+          ? cfg.punt.touchbackYardLine
+          : resolvePuntReturn(puntReceiver, landSpot);
       }
     } else {
-      const type  = selectPlayType(off, down, distance);
+      const type  = selectPlayType(off, sit);
       const isRun = type === 'inside_run' || type === 'outside_run';
 
       // Identify primary skill players for fatigue/injury tracking
@@ -918,9 +1265,30 @@ export function simulateGame(game: Game): GameResult {
       // Fatigue adjustment: tired offense = penalty; tired defense = bonus for offense
       const offFatigue = fatigueMap.get(offPrimary?.id ?? '') ?? 0;
       const defFatigue = fatigueMap.get(defPrimary?.id ?? '') ?? 0;
-      const fatigueAdj = (defFatigue - offFatigue) * cfg.fatigue.effectivenessPenalty;
+      let playAdj = (defFatigue - offFatigue) * cfg.fatigue.effectivenessPenalty;
 
-      const ev = simulatePlay(off, def, type, quarter, down, distance, yardLine, fatigueAdj);
+      // Down-and-distance difficulty penalties.
+      // Pass penalties excluded inside the red zone — that system has its own pass penalty
+      // and stacking both causes scoring to drop too far.
+      if (yardLine < cfg.redZone.yardLine) {
+        const ly = cfg.longYardage;
+        if (down === 3) {
+          if (isRun) {
+            // Run: flat penalty on all 3rd downs (defense keys up stops)
+            playAdj -= ly.d3RunPenalty;
+          } else {
+            // Pass: tiered by distance
+            if      (distance >= ly.d3VeryThreshold) playAdj -= ly.d3VeryPenalty;
+            else if (distance >= ly.d3LongThreshold) playAdj -= ly.d3LongPenalty;
+            else if (distance >= ly.d3MedThreshold)  playAdj -= ly.d3MedPenalty;
+            else                                     playAdj -= ly.d3ShortPenalty;
+          }
+        } else if (down === 2 && !isRun && distance >= ly.d2LongThreshold) {
+          playAdj -= ly.d2LongPenalty;
+        }
+      }
+
+      const ev = simulatePlay(off, def, type, quarter, down, distance, yardLine, playAdj);
       events.push(ev);
 
       // Build fatigue after the play
@@ -934,6 +1302,7 @@ export function simulateGame(game: Game): GameResult {
       if (ev.result === 'touchdown') {
         score(7);
         changePoss();
+        yardLine = resolveKickoffStart(possession === 'home' ? home : away);
       } else if (ev.result === 'turnover') {
         yardLine = Math.max(5, Math.min(95, 100 - yardLine));
         changePoss();
@@ -953,13 +1322,16 @@ export function simulateGame(game: Game): GameResult {
     }
 
     quarterPlays++;
-    // Tempo: offensive team's setting shifts plays per quarter up or down
-    const offTempo   = (offRaw.gameplan?.tempo ?? 'normal') as keyof typeof cfg.gameplan.tempo;
-    const playsThisQ = cfg.game.playsPerQuarter + cfg.gameplan.tempo[offTempo];
-    if (quarterPlays >= playsThisQ) {
+    // Deduct clock — primary quarter-ender
+    clockSeconds -= computeClockRunoff(events[events.length - 1]!, offRaw, quarter, clockSeconds, offScore - defScore);
+    if (clockSeconds <= 0 || quarterPlays >= cfg.clock.maxPlaysPerQuarter) {
       quarter++;
       quarterPlays = 0;
-      if (quarter === 3) changePoss(); // halftime flip
+      clockSeconds = cfg.clock.secondsPerQuarter;
+      if (quarter === 3) {
+        changePoss(); // halftime flip
+        yardLine = resolveKickoffStart(possession === 'home' ? home : away);
+      }
     }
   }
 

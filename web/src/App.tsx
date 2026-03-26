@@ -896,6 +896,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           myTeamId={myTeamId}
           watchedGameId={watchedGameId}
           onBack={() => setTab('dashboard')}
+          onViewPlayer={handleViewPlayer}
         />
       )}
       {tab === 'depth' && (
@@ -1563,6 +1564,10 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
     .filter(([, p]) => p.interceptionsCaught > 0)
     .sort(([, a], [, b]) => b.interceptionsCaught - a.interceptionsCaught).slice(0, 10)
     .map(([id, p]) => ({ id, abbr: p.teamAbbreviation, val: p.interceptionsCaught, name: nameMap.get(id)?.name ?? '?' }));
+  const tackleLeaders = cssEntries
+    .filter(([, p]) => p.tackles > 0)
+    .sort(([, a], [, b]) => b.tackles - a.tackles).slice(0, 10)
+    .map(([id, p]) => ({ id, abbr: p.teamAbbreviation, val: p.tackles, name: nameMap.get(id)?.name ?? '?' }));
 
   function handleClick(id: string) {
     if (onViewPlayer) onViewPlayer(id);
@@ -1731,6 +1736,29 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                   </tr></thead>
                   <tbody>
                     {intLeaders.map((p, i) => (
+                      <tr key={p.id} className={i === 0 ? 'lc-top' : ''}>
+                        <td className="col-rank">{i + 1}</td>
+                        <td className="col-player">{pBtn(p.id, p.name)}</td>
+                        <td className="col-team">{p.abbr}</td>
+                        <td className="col-num col-primary">{p.val}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Tackles */}
+            {tackleLeaders.length > 0 && (
+              <div className="leaders-card">
+                <div className="lc-header"><span className="lc-category">TACKLES</span><span className="lc-stat-label">TKL</span></div>
+                <table className="leaders-table">
+                  <thead><tr>
+                    <th className="col-rank"></th><th className="col-player">Player</th><th className="col-team">Team</th>
+                    <th className="col-num col-primary">TKL</th>
+                  </tr></thead>
+                  <tbody>
+                    {tackleLeaders.map((p, i) => (
                       <tr key={p.id} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
                         <td className="col-player">{pBtn(p.id, p.name)}</td>
@@ -1938,45 +1966,64 @@ interface GameLogRow {
   completions: number; attempts: number; passingYards: number; passingTDs: number; interceptions: number;
   carries: number; rushingYards: number; rushingTDs: number;
   targets: number; receptions: number; receivingYards: number; receivingTDs: number;
+  sacks: number; interceptionsCaught: number; tackles: number;
 }
 
 function buildGameLog(player: { playerId: string; name: string }, games: Game[]): GameLogRow[] {
   const rows: GameLogRow[] = [];
   for (const game of games) {
     if (game.status !== 'final') continue;
-    // Identify which side the player was on for this specific game (handles trades correctly)
     const onHome = game.homeTeam.roster.some(p => p.id === player.playerId);
     const onAway = !onHome && game.awayTeam.roster.some(p => p.id === player.playerId);
     if (!onHome && !onAway) continue;
 
-    const bs = deriveBoxScore(game);
+    const isHome    = onHome;
+    const teamScore = isHome ? game.homeScore : game.awayScore;
+    const oppScore  = isHome ? game.awayScore : game.homeScore;
+    const meta = {
+      week:         game.week,
+      opponentAbbr: isHome ? game.awayTeam.abbreviation : game.homeTeam.abbreviation,
+      homeAway:     (isHome ? 'H' : 'A') as 'H' | 'A',
+      result:       (teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'T') as 'W' | 'L' | 'T',
+      teamScore,    oppScore,
+    };
 
-    // Build name → playerId map from this game's rosters, then find the box
-    // score entry whose name resolves to our target player.playerId.
-    // This prevents a name collision from returning the wrong player's stats.
+    // Prefer direct ID lookup in server box score (reliable, includes defense)
+    const bsEntry = game.boxScore?.players[player.playerId];
+    if (bsEntry) {
+      rows.push({
+        ...meta,
+        completions: bsEntry.completions, attempts: bsEntry.attempts,
+        passingYards: bsEntry.passingYards, passingTDs: bsEntry.passingTDs,
+        interceptions: bsEntry.interceptions,
+        carries: bsEntry.carries, rushingYards: bsEntry.rushingYards,
+        rushingTDs: bsEntry.rushingTDs, targets: bsEntry.targets,
+        receptions: bsEntry.receptions, receivingYards: bsEntry.receivingYards,
+        receivingTDs: bsEntry.receivingTDs,
+        sacks: bsEntry.sacks, interceptionsCaught: bsEntry.interceptionsCaught,
+        tackles: bsEntry.tackles,
+      });
+      continue;
+    }
+
+    // Legacy fallback: name-based lookup in derived box score (no defense stats)
+    const bs = deriveBoxScore(game);
     const nameToId = new Map<string, string>();
     for (const p of [...game.homeTeam.roster, ...game.awayTeam.roster]) {
       nameToId.set(p.name, p.id);
     }
     const pStats = Object.values(bs.players).find(s => nameToId.get(s.name) === player.playerId);
-    if (!pStats) continue; // Player dressed but had no recorded plays
-
-    const isHome    = onHome;
-    const teamScore = isHome ? game.homeScore : game.awayScore;
-    const oppScore  = isHome ? game.awayScore : game.homeScore;
+    if (!pStats) continue;
     rows.push({
-      week:         game.week,
-      opponentAbbr: isHome ? game.awayTeam.abbreviation : game.homeTeam.abbreviation,
-      homeAway:     isHome ? 'H' : 'A',
-      result:       teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'T',
-      teamScore,    oppScore,
-      completions:    pStats.completions,   attempts:      pStats.attempts,
-      passingYards:   pStats.passingYards,  passingTDs:    pStats.passingTDs,
-      interceptions:  pStats.interceptions,
-      carries:        pStats.carries,       rushingYards:  pStats.rushingYards,
-      rushingTDs:     pStats.rushingTDs,    targets:       pStats.targets,
-      receptions:     pStats.receptions,    receivingYards: pStats.receivingYards,
-      receivingTDs:   pStats.receivingTDs,
+      ...meta,
+      completions: pStats.completions, attempts: pStats.attempts,
+      passingYards: pStats.passingYards, passingTDs: pStats.passingTDs,
+      interceptions: pStats.interceptions,
+      carries: pStats.carries, rushingYards: pStats.rushingYards,
+      rushingTDs: pStats.rushingTDs, targets: pStats.targets,
+      receptions: pStats.receptions, receivingYards: pStats.receivingYards,
+      receivingTDs: pStats.receivingTDs,
+      sacks: 0, interceptionsCaught: 0, tackles: 0,
     });
   }
   return rows.sort((a, b) => a.week - b.week);
@@ -2007,6 +2054,10 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
   const hasPassing   = player.attempts  > 0;
   const hasRushing   = player.carries   > 0;
   const hasReceiving = player.targets   > 0;
+  const hasSacks     = player.sacks     > 0;
+  const hasDefINTs   = player.interceptionsCaught > 0;
+  const hasTackles   = player.tackles   > 0;
+  const hasDefense   = hasSacks || hasDefINTs || hasTackles;
 
   const totalTDs = player.passingTDs + player.rushingTDs + player.receivingTDs;
 
@@ -2034,6 +2085,11 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
       { label: 'R.YDS', value: r => r.receivingYards, primary: !hasPassing && !hasRushing },
       { label: 'TD',    value: r => r.receivingTDs },
     );
+  }
+  if (hasDefense) {
+    if (hasTackles) glCols.push({ label: 'TKL', value: r => r.tackles });
+    if (hasSacks)   glCols.push({ label: 'SCK', value: r => r.sacks, primary: !hasPassing && !hasRushing && !hasReceiving });
+    if (hasDefINTs) glCols.push({ label: 'INT', value: r => r.interceptionsCaught });
   }
 
   return (
@@ -2141,6 +2197,13 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
           )}
           {totalTDs > 0 && (
             <div className="pd-stat pd-stat-total"><span className="pd-stat-val">{totalTDs}</span><span className="pd-stat-lbl">Total TD</span></div>
+          )}
+          {hasDefense && (
+            <>
+              {hasTackles && <div className="pd-stat"><span className="pd-stat-val">{player.tackles}</span><span className="pd-stat-lbl">Tackles</span></div>}
+              {hasSacks   && <div className="pd-stat"><span className="pd-stat-val">{player.sacks}</span><span className="pd-stat-lbl">Sacks</span></div>}
+              {hasDefINTs && <div className="pd-stat"><span className="pd-stat-val">{player.interceptionsCaught}</span><span className="pd-stat-lbl">INTs</span></div>}
+            </>
           )}
         </div>
 
@@ -2889,11 +2952,12 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
 
 // ── Game Center ────────────────────────────────────────────────────────────────
 
-function GameCenterView({ league, myTeamId, watchedGameId, onBack }: {
+function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer }: {
   league: League;
   myTeamId: string;
   watchedGameId: string | null;
   onBack: () => void;
+  onViewPlayer?: (id: string) => void;
 }) {
   const allGames = league.currentSeason.games;
   const focusGame = watchedGameId ? allGames.find(g => g.id === watchedGameId) ?? null : null;
@@ -2928,6 +2992,18 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack }: {
   }
 
   const homeId = focusGame.homeTeam.id;
+
+  // Name → playerId lookup for clickable gc-right player names (last-name keyed)
+  const gcNameToId = new Map<string, string>();
+  for (const p of [...focusGame.homeTeam.roster, ...focusGame.awayTeam.roster]) {
+    gcNameToId.set(p.name.split(' ').pop() ?? p.name, p.id);
+  }
+  function gcPBtn(name: string) {
+    const pid = gcNameToId.get(name);
+    return pid && onViewPlayer
+      ? <button className="pd-trigger" onClick={() => onViewPlayer(pid)}>{name}</button>
+      : <span className="gc-bs-player-name">{name}</span>;
+  }
 
   // Running score up to current play
   let homeScore = 0, awayScore = 0;
@@ -3096,7 +3172,7 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack }: {
             <div className="gc-bs-section-title">Passing</div>
             {showPassers.map(p => (
               <div key={p.name} className="gc-bs-player-row">
-                <span className="gc-bs-player-name">{p.name}</span>
+                {gcPBtn(p.name)}
                 <span className="gc-bs-player-stat">{p.completions}/{p.attempts} · {p.passingYards}y · {p.passingTDs}TD</span>
               </div>
             ))}
@@ -3108,7 +3184,7 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack }: {
             <div className="gc-bs-section-title">Rushing</div>
             {showRushers.map(p => (
               <div key={p.name} className="gc-bs-player-row">
-                <span className="gc-bs-player-name">{p.name}</span>
+                {gcPBtn(p.name)}
                 <span className="gc-bs-player-stat">{p.carries} car · {p.rushingYards}y · {p.rushingTDs}TD</span>
               </div>
             ))}
@@ -3120,7 +3196,7 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack }: {
             <div className="gc-bs-section-title">Receiving</div>
             {showReceivers.map(p => (
               <div key={p.name} className="gc-bs-player-row">
-                <span className="gc-bs-player-name">{p.name}</span>
+                {gcPBtn(p.name)}
                 <span className="gc-bs-player-stat">{p.receptions}/{p.targets} · {p.receivingYards}y · {p.receivingTDs}TD</span>
               </div>
             ))}
@@ -3543,7 +3619,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, myTeamId, busy, a
               <button className="pd-close" onClick={() => setSelectedGame(null)}>✕</button>
             </div>
             <div style={{ padding: '0 1rem 1rem' }}>
-              <GameDetail game={selectedGame} />
+              <GameDetail game={selectedGame} onViewPlayer={onViewPlayer} />
             </div>
           </div>
         </div>
@@ -3554,7 +3630,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, myTeamId, busy, a
 
 // ── Game Detail ────────────────────────────────────────────────────────────────
 
-function GameDetail({ game }: { game: Game }) {
+function GameDetail({ game, onViewPlayer }: { game: Game; onViewPlayer?: (id: string) => void }) {
   const isFinal = game.status === 'final';
   const [tab, setTab] = useState<'pbp' | 'box' | 'watch'>('pbp');
   const lines = isFinal ? formatGameLog(game) : null;
@@ -3588,7 +3664,7 @@ function GameDetail({ game }: { game: Game }) {
             : <p className="pbp-empty">This game has not been played yet.</p>}
         </div>
       )}
-      {isFinal && tab === 'box'   && <BoxScoreView game={game} />}
+      {isFinal && tab === 'box'   && <BoxScoreView game={game} onViewPlayer={onViewPlayer} />}
       {isFinal && tab === 'watch' && <GameViewer game={game} />}
     </section>
   );
@@ -3615,18 +3691,20 @@ function PbpLine({ line, game }: { line: string; game: Game }) {
 
 // ── Box Score ──────────────────────────────────────────────────────────────────
 
-function BoxScoreView({ game }: { game: Game }) {
-  const bs = deriveBoxScore(game);
+function BoxScoreView({ game, onViewPlayer }: { game: Game; onViewPlayer?: (id: string) => void }) {
+  const bs = game.boxScore;
 
-  const passers  = Object.values(bs.players).filter(p => p.attempts > 0);
-  const rushers  = Object.values(bs.players).filter(p => p.carries > 0);
-  const receivers = Object.values(bs.players).filter(p => p.targets > 0);
+  function pBtn(id: string, name: string) {
+    return onViewPlayer
+      ? <button className="pd-trigger" onClick={() => onViewPlayer(id)}>{name}</button>
+      : <span>{name}</span>;
+  }
 
-  function TeamRow({ ts }: { ts: typeof bs.home }) {
-    const name = ts.teamId === game.homeTeam.id ? game.homeTeam.abbreviation : game.awayTeam.abbreviation;
+  function TeamRow({ ts }: { ts: { teamId: string; score: number; pointsByQuarter: [number, number, number, number]; totalYards: number; rushingYards: number; passingYards: number; firstDowns: number; turnovers: number; sacksAllowed: number } }) {
+    const abbr = ts.teamId === game.homeTeam.id ? game.homeTeam.abbreviation : game.awayTeam.abbreviation;
     return (
       <tr>
-        <td>{name}</td>
+        <td>{abbr}</td>
         {ts.pointsByQuarter.map((q, i) => <td key={i}>{q}</td>)}
         <td><strong>{ts.score}</strong></td>
         <td>{ts.totalYards}</td>
@@ -3639,8 +3717,108 @@ function BoxScoreView({ game }: { game: Game }) {
     );
   }
 
+  if (!bs) {
+    // Legacy fallback: no player IDs, no scoring summary, no defense section
+    const legacy    = deriveBoxScore(game);
+    const passers   = Object.values(legacy.players).filter(p => p.attempts > 0).sort((a, b) => b.passingYards - a.passingYards);
+    const rushers   = Object.values(legacy.players).filter(p => p.carries  > 0).sort((a, b) => b.rushingYards - a.rushingYards);
+    const receivers = Object.values(legacy.players).filter(p => p.targets  > 0).sort((a, b) => b.receivingYards - a.receivingYards);
+    return (
+      <div className="box-score">
+        <table>
+          <thead><tr><th>Team</th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th><th>Total</th><th>Yds</th><th>Rush</th><th>Pass</th><th>1D</th><th>TO</th><th>Sks</th></tr></thead>
+          <tbody><TeamRow ts={legacy.away} /><TeamRow ts={legacy.home} /></tbody>
+        </table>
+        {passers.length > 0 && (<><h4>Passing</h4><table>
+          <thead><tr><th>Player</th><th>C/ATT</th><th>YDS</th><th>TD</th><th>INT</th><th>SCK</th></tr></thead>
+          <tbody>{passers.map(p => <tr key={p.name}><td>{p.name}</td><td>{p.completions}/{p.attempts}</td><td>{p.passingYards}</td><td>{p.passingTDs}</td><td>{p.interceptions}</td><td>{p.sacksTotal}</td></tr>)}</tbody>
+        </table></>)}
+        {rushers.length > 0 && (<><h4>Rushing</h4><table>
+          <thead><tr><th>Player</th><th>CAR</th><th>YDS</th><th>TD</th></tr></thead>
+          <tbody>{rushers.map(p => <tr key={p.name}><td>{p.name}</td><td>{p.carries}</td><td>{p.rushingYards}</td><td>{p.rushingTDs}</td></tr>)}</tbody>
+        </table></>)}
+        {receivers.length > 0 && (<><h4>Receiving</h4><table>
+          <thead><tr><th>Player</th><th>TGT</th><th>REC</th><th>YDS</th><th>TD</th></tr></thead>
+          <tbody>{receivers.map(p => <tr key={p.name}><td>{p.name}</td><td>{p.targets}</td><td>{p.receptions}</td><td>{p.receivingYards}</td><td>{p.receivingTDs}</td></tr>)}</tbody>
+        </table></>)}
+      </div>
+    );
+  }
+
+  // Primary path: game.boxScore present — has player IDs, tackles, scoring summary
+  const players       = Object.values(bs.players);
+  const homePlayers   = players.filter(p => p.teamId === game.homeTeam.id);
+  const awayPlayers   = players.filter(p => p.teamId === game.awayTeam.id);
+  const passers       = players.filter(p => p.attempts > 0).sort((a, b) => b.passingYards   - a.passingYards);
+  const rushers       = players.filter(p => p.carries  > 0).sort((a, b) => b.rushingYards   - a.rushingYards);
+  const receivers     = players.filter(p => p.targets  > 0).sort((a, b) => b.receivingYards - a.receivingYards);
+  const defFilter = (pp: typeof players) =>
+    pp.filter(p => p.tackles > 0 || p.sacks > 0 || p.interceptionsCaught > 0)
+      .sort((a, b) => b.tackles - a.tackles || b.sacks - a.sacks);
+  const homeDefenders = defFilter(homePlayers);
+  const awayDefenders = defFilter(awayPlayers);
+  const homeAbbr      = game.homeTeam.abbreviation;
+  const awayAbbr      = game.awayTeam.abbreviation;
+
+  function DefTable({ defenders, teamAbbr }: { defenders: typeof homeDefenders; teamAbbr: string }) {
+    if (defenders.length === 0) return null;
+    return (
+      <>
+        <h5 className="bs-defense-team">{teamAbbr}</h5>
+        <table>
+          <thead><tr><th>Player</th><th>TKL</th><th>SCK</th><th>INT</th></tr></thead>
+          <tbody>
+            {defenders.map(p => (
+              <tr key={p.playerId}>
+                <td>{pBtn(p.playerId, p.name)}</td>
+                <td>{p.tackles}</td>
+                <td>{p.sacks}</td>
+                <td>{p.interceptionsCaught}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </>
+    );
+  }
+
   return (
     <div className="box-score">
+
+      {/* Scoring summary */}
+      {bs.scoringPlays && bs.scoringPlays.length > 0 && (
+        <>
+          <h4>Scoring</h4>
+          <table className="scoring-summary">
+            <tbody>
+              {bs.scoringPlays.map(sp => {
+                const scorerName = bs.players[sp.scorerId]?.name ?? '?';
+                const teamAbbr   = sp.teamId === game.homeTeam.id ? homeAbbr : awayAbbr;
+                const scoreStr   = `${sp.homeScore}–${sp.awayScore}`;
+                const assistId   = sp.assistId;
+                const assistName = assistId ? (bs.players[assistId]?.name ?? '?') : null;
+                return (
+                  <tr key={sp.eventIndex}>
+                    <td className="sp-q">Q{sp.quarter}</td>
+                    <td className="sp-team">{teamAbbr}</td>
+                    <td className="sp-scorer">{pBtn(sp.scorerId, scorerName)}</td>
+                    <td className="sp-desc">
+                      {sp.type === 'touchdown_pass' && assistId && assistName
+                        ? <>{sp.yards}-yd pass from {pBtn(assistId, assistName)}</>
+                        : sp.type === 'field_goal'
+                        ? `${sp.yards}-yd field goal`
+                        : `${sp.yards}-yd run`}
+                    </td>
+                    <td className="sp-score">{scoreStr}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {/* Team totals */}
       <table>
         <thead>
           <tr><th>Team</th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th><th>Total</th><th>Yds</th><th>Rush</th><th>Pass</th><th>1D</th><th>TO</th><th>Sks</th></tr>
@@ -3657,14 +3835,14 @@ function BoxScoreView({ game }: { game: Game }) {
           <table>
             <thead><tr><th>Player</th><th>C/ATT</th><th>YDS</th><th>TD</th><th>INT</th><th>SCK</th></tr></thead>
             <tbody>
-              {passers.sort((a, b) => b.passingYards - a.passingYards).map(p => (
-                <tr key={p.name}>
-                  <td>{p.name}</td>
+              {passers.map(p => (
+                <tr key={p.playerId}>
+                  <td>{pBtn(p.playerId, p.name)}</td>
                   <td>{p.completions}/{p.attempts}</td>
                   <td>{p.passingYards}</td>
                   <td>{p.passingTDs}</td>
                   <td>{p.interceptions}</td>
-                  <td>{p.sacksTotal}</td>
+                  <td>{p.sacksAllowed}</td>
                 </tr>
               ))}
             </tbody>
@@ -3678,9 +3856,9 @@ function BoxScoreView({ game }: { game: Game }) {
           <table>
             <thead><tr><th>Player</th><th>CAR</th><th>YDS</th><th>TD</th></tr></thead>
             <tbody>
-              {rushers.sort((a, b) => b.rushingYards - a.rushingYards).map(p => (
-                <tr key={p.name}>
-                  <td>{p.name}</td>
+              {rushers.map(p => (
+                <tr key={p.playerId}>
+                  <td>{pBtn(p.playerId, p.name)}</td>
                   <td>{p.carries}</td>
                   <td>{p.rushingYards}</td>
                   <td>{p.rushingTDs}</td>
@@ -3697,9 +3875,9 @@ function BoxScoreView({ game }: { game: Game }) {
           <table>
             <thead><tr><th>Player</th><th>TGT</th><th>REC</th><th>YDS</th><th>TD</th></tr></thead>
             <tbody>
-              {receivers.sort((a, b) => b.receivingYards - a.receivingYards).map(p => (
-                <tr key={p.name}>
-                  <td>{p.name}</td>
+              {receivers.map(p => (
+                <tr key={p.playerId}>
+                  <td>{pBtn(p.playerId, p.name)}</td>
                   <td>{p.targets}</td>
                   <td>{p.receptions}</td>
                   <td>{p.receivingYards}</td>
@@ -3708,6 +3886,14 @@ function BoxScoreView({ game }: { game: Game }) {
               ))}
             </tbody>
           </table>
+        </>
+      )}
+
+      {(homeDefenders.length > 0 || awayDefenders.length > 0) && (
+        <>
+          <h4>Defense</h4>
+          <DefTable defenders={awayDefenders} teamAbbr={awayAbbr} />
+          <DefTable defenders={homeDefenders} teamAbbr={homeAbbr} />
         </>
       )}
     </div>

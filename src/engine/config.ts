@@ -6,7 +6,7 @@ export const TUNING = {
   // ── Pass engine ───────────────────────────────────────────────────────────
   pass: {
     // Protection phase
-    baseSackChance:        0.050,
+    baseSackChance:        0.062,   // calibrated, do not reduce
     minSackChance:         0.03,
     maxSackChance:         0.18,
     sackRatingScale:       0.002,   // per point of (passRush − passBlocking)
@@ -32,7 +32,7 @@ export const TUNING = {
     //   (higher base compensates for the lower separation contribution at the new resistance)
     shortAccuracyBase:     0.59,    // short  target: ~76% success at avg
     mediumAccuracyBase:    0.46,    // medium target: ~63% success at avg
-    deepAccuracyBase:      0.29,    // deep   target: ~46% success at avg
+    deepAccuracyBase:      0.25,    // deep   target: ~42% success at avg
     // Reduced from 0.004 → 0.003 so QB accuracy is still the dominant driver but
     // not so large (~6.75pp 50→80) that WR/CB matchups feel irrelevant.
     accuracyRatingScale:   0.003,   // per point above/below 70
@@ -66,14 +66,14 @@ export const TUNING = {
     yacNetScale:           0.05,    // per point of net WR YAC advantage above/below neutral
 
     // Interception (on incompletions only)
-    baseIntChance:         0.05,
+    baseIntChance:         0.047,
     minIntChance:          0.02,
-    maxIntChance:          0.12,
+    maxIntChance:          0.115,
     intCoverageScale:      0.001,   // per point (coverage − decisionMaking)
     // Low throw quality increases INT chance — wild/inaccurate balls are easier to pick
     intThrowQualityScale:  0.08,    // per unit (0.5 - throwQuality) above 0
     // Pressure increases INT chance — QB rushing his reads throws riskier balls
-    intPressureScale:      0.04,    // per unit of pressureLevel (0-1)
+    intPressureScale:      0.07,    // per unit of pressureLevel (0-1)
 
     // GDD: QB Mobility affects sacks/scramble only
     mobilityReductionScale:    0.0015, // per point of mobility above 50, reduces sack chance
@@ -160,26 +160,46 @@ export const TUNING = {
     tackleSpeedScale:             0.003,   // LB speed increases tackle chance
 
     // Breakaway phase
-    breakawaySpeedThreshold: 85,
-    breakawayBonusMin:       5,
-    breakawayBonusMax:       15,
+    breakawaySpeedThreshold: 70,   // separate from bigPlay.speedThreshold (passes); allows starter/elite RBs to burst
+    breakawayBonusMin:       8,    // was 5  — bigger minimum on breakaways
+    breakawayBonusMax:       28,   // was 15 — allows 12-44 yd outside runs
     // GDD: Inside = lower breakaway chance, Outside = higher breakaway chance
     // Replaces the single breakawayChance for run plays (passes still use bigPlay.burstChance)
-    insideBreakawayChance:   0.06,   // lower — inside runs are congested
-    outsideBreakawayChance:  0.18,   // higher — outside runs reach open field
+    insideBreakawayChance:   0.04,   // lower — inside runs are congested
+    outsideBreakawayChance:  0.16,   // higher — outside runs reach open field
 
     // GDD: TE acts as hybrid blocker — contributes to run blocking
     teBlockingWeight:        0.20,   // TE contributes 20% of run blocking composite
 
+    // Tackles for loss (TFL) — applied to failed run plays only
+    // At avg ratings (success ≈ 55%), ~12 failed runs/team/game.
+    // tflChance: 0.25 → ~4 TFLs/team/game.
+    tflChance:       0.25,   // fraction of failed runs that become TFLs
+    tflTypicalMin:  -2,      // typical TFL (stuffed at the line, -1 to -2 yd)
+    tflTypicalMax:  -1,
+    tflBigChance:    0.15,   // fraction of TFLs that are big losses (-3 to -5)
+    tflBigMin:      -5,
+    tflBigMax:      -3,
+
     // Fumble
-    baseFumbleChance:        0.012,
+    baseFumbleChance:        0.013,
     ballSecurityFumbleReduction: 0.0003, // per point of ballSecurity above 50
 
-    // Yards on success
-    insideRunMin:   2,
-    insideRunMax:  10,
-    outsideRunMin:  3,
-    outsideRunMax: 14,
+    // Yards on success — two-tier distribution (2026-03 reshape)
+    // Short tier (most carries): max ≤ 9 keeps this entirely below the 10+ bucket.
+    // Breakthrough tier (minority): RB gets into the second level for a moderate gain.
+    // Burst (+8–28 via speed) and the upgrade layer (breakawayUpgradeChanceRun) handle 20+.
+    insideRunMin:      3,    // short tier
+    insideRunMax:      7,    // short tier  (was 12 — capped to keep base below 10-yard tier)
+    outsideRunMin:     4,    // short tier
+    outsideRunMax:     9,    // short tier  (was 16 — capped to keep base below 10-yard tier)
+    // Breakthrough tier — fires with this probability on successful inside / outside carries
+    insideLongChance:  0.18, // 18% of inside successes reach the second level
+    insideLongMin:     8,    //   range: 8–15 yards (all in 10–19 bucket)
+    insideLongMax:    15,
+    outsideLongChance: 0.22, // 22% of outside successes reach the second level
+    outsideLongMin:    9,    //   range: 9–16 yards (9-yd just outside short tier)
+    outsideLongMax:   16,
 
     // Yards on failure (even failed runs typically gain a yard or two)
     failYardsMin: -1,
@@ -187,14 +207,31 @@ export const TUNING = {
   },
 
   // ── Pass yards by depth ───────────────────────────────────────────────────
-  // Calibrated so yards/attempt ≈ 7.0 and yards/completion ≈ 11-12 at average ratings.
+  // Normal ranges give calibrated per-depth averages. Bomb mechanisms and the
+  // YAC breakaway system add a fat tail without altering baseline efficiency.
   passYards: {
     shortMin:   4,
     shortMax:   8,
     mediumMin:  8,
-    mediumMax: 16,
-    deepMin:   12,
-    deepMax:   22,
+    mediumMax: 10,
+    // Medium bomb: 6% of medium completions travel 22–46 yards.
+    mediumBombChance: 0.06,
+    mediumBombMin:    22,
+    mediumBombMax:    46,
+    deepMin:   10,
+    deepMax:   12,
+    // Long bomb: 18% of deep catches travel 30-65 yards.
+    deepBombChance: 0.18,
+    deepBombMin:    30,
+    deepBombMax:    65,
+    // Short-pass / medium-pass YAC breakaway: receiver beats pursuit into open field.
+    // Applies AFTER bomb checks; adds explosive variance without altering base distributions.
+    // Chance scales with receiver speed — faster WRs break more tackles in space.
+    // Average receiver (speed 65): ~2.9%.  Elite (speed 85): ~3.9%.
+    yacBreakawayBaseChance: 0.029,   // base chance for all short/medium completions
+    yacBreakawaySpeedScale: 0.0005,  // per point of receiver speed above 50
+    yacBreakawayMin:        20,      // minimum yards on a breakaway
+    yacBreakawayMax:        60,      // maximum yards — occasional score from midfield
   },
 
   // ── Defensive gameplan modifiers ──────────────────────────────────────────
@@ -246,18 +283,28 @@ export const TUNING = {
     // 4th-down go-for-it base probabilities and personality multipliers
     fourthDown: {
       baseProb: {
-        dist1:    0.55,  // 4th and 1
-        dist2:    0.35,  // 4th and 2
+        dist1:    0.62,  // 4th and 1
+        dist2:    0.40,  // 4th and 2
         dist3:    0.20,  // 4th and 3
         dist5:    0.12,  // 4th and 4-5
         distLong: 0.04,  // 4th and 6+
       },
-      goalLineBump:          0.20,  // extra chance when inside opponent's 10
+      goalLineBump:          0.22,  // extra chance when inside opponent's 10
       personalityMultiplier: {
         conservative: 0.50,
         balanced:     1.00,
         aggressive:   1.70,
       } as Record<string, number>,
+
+      // Situational adjustments (additive, Q4 score-based; scaled by aggressiveness)
+      trailingBigBoost:    0.18,  // trailing 2+ scores (≥14) in Q4
+      trailingSmallBoost:  0.08,  // trailing 1 score (7–13) in Q4
+      leadingBigCut:       0.12,  // leading 2+ scores (≥14)
+      ownHalfCut:          0.10,  // own side of field, unscaled
+      trailBigDiff:        14,
+      trailSmallDiff:       7,
+      leadBigDiff:         14,
+      desperateFGSecondsLeft: 150,  // Q4 clock threshold for desperation FG (~2.5 min)
     },
 
     // Coach carousel & pool
@@ -395,11 +442,12 @@ export const TUNING = {
   // ── Field goal ────────────────────────────────────────────────────────────
   fieldGoal: {
     baseChance:          0.98,   // kickers are accurate close-in
-    distancePenalty:     0.012,  // per yard beyond 20
+    distancePenalty:     0.009,  // per yard beyond 20
     kickPowerBonus:      0.004,  // per point of kickPower above 70
     minChance:           0.25,
-    attemptYardLine:     70,     // attempt FG at or beyond this yard line on 4th
-                                 // = opponent's 30 yard line ≈ 47-yard FG
+    attemptYardLine:     67,     // attempt FG at or beyond this yard line on 4th
+                                 // = opponent's 33 yard line ≈ 50-yard FG  (was 70/47 yds, +3 yd range)
+    desperationYardLine: 59,     // trailing 2+ scores Q4 late: attempt from opponent's 41 ≈ 58-yard FG  (was 62)
   },
 
   // ── Punt ──────────────────────────────────────────────────────────────────
@@ -410,17 +458,64 @@ export const TUNING = {
     touchbackYardLine: 20,
   },
 
+  // ── Kickoff return (pre-2011 / Hester-era model) ──────────────────────────
+  // Touchbacks spot at the 20 (pre-2011 rule). High return rate, more variance.
+  kickoffReturn: {
+    touchbackRate:      0.22,   // 22% touchbacks (target 20–30%)
+    touchbackYardLine:  20,     // pre-2011 rule: own 20
+    catchYardLine:       5,     // returner catches near own 5
+    returnBaseMin:      12,
+    returnBaseMax:      30,     // avg base 21 yds → drive at own ~26
+    returnerBonusScale: 0.20,   // (krScore − 50) × 0.20
+    returnerBonusCap:    8,     // ±8 yard cap
+    bigReturnChance:    0.04,   // 4% of returns are explosive (40–70 yds)
+    bigReturnMin:       40,
+    bigReturnMax:       70,
+  },
+
+  // ── Punt return ────────────────────────────────────────────────────────────
+  puntReturn: {
+    fairCatchRate:      0.45,   // 45% fair catch / dead ball (target 40–50%)
+    returnBaseMin:       4,
+    returnBaseMax:      16,     // avg base 10 yds (target 8–10)
+    returnerBonusScale: 0.12,   // (prScore − 50) × 0.12
+    returnerBonusCap:    6,     // ±6 yard cap
+    bigReturnChance:    0.04,   // 4% of returns are 20+ yds
+    bigReturnMin:       20,
+    bigReturnMax:       42,
+  },
+
+  // ── Returner composite weights ─────────────────────────────────────────────
+  returner: {
+    krSpeedWeight:       0.65,   // KR: speed + elusiveness (RB) or speed + yac (WR)
+    krElusivenessWeight: 0.35,
+    prSpeedWeight:       0.65,   // PR: speed + hands + yac (WR only)
+    prHandsWeight:       0.20,
+    prYacWeight:         0.15,
+  },
+
   // ── Big-play burst ────────────────────────────────────────────────────────
+  // Reduced frequency but much bigger range — creates meaningful 20-40 yd gains
+  // instead of frequent minor additions. Net expected yards per burst-eligible
+  // play is roughly neutral vs previous (0.10*19 ≈ 0.17*8.5).
   bigPlay: {
     speedThreshold: 82,
-    burstChance:    0.15,
-    burstBonusMin:  5,
-    burstBonusMax:  12,
+    burstChance:    0.19,   // was 0.14 — raised to create more burst-driven 20+ plays
+    burstBonusMin:  10,     // unchanged
+    burstBonusMax:  34,     // was 28 — larger ceiling for elite speed merchants
+    // Breakaway upgrade layer: independent post-resolution chance to convert a normal
+    // gain into a chunk play. Only fires if yards < 20 (naturally excludes bomb/YAC/burst
+    // outcomes which already produce 20+ yards). Applies to runs, short, medium passes.
+    // Deep passes excluded — they already carry an 18% bomb probability.
+    breakawayUpgradeChancePass: 0.030,  // short/medium passes
+    breakawayUpgradeChanceRun:  0.015,  // runs — lower to avoid scoring inflation
+    breakawayUpgradeMin:        20,
+    breakawayUpgradeMax:        36,
   },
 
   // ── Game structure ────────────────────────────────────────────────────────
   game: {
-    playsPerQuarter: 32,
+    playsPerQuarter: 36,
     /**
      * Global offense success-probability bonus.
      * Reflects the offense's inherent play-calling advantage (they know the
@@ -429,7 +524,125 @@ export const TUNING = {
      * structural advantage; this is just a small residual edge.
      * Set to 0 to restore perfect parity; raise to give offense more edge.
      */
-    offenseAdvantage: 0.04,
+    offenseAdvantage: 0.055,
+  },
+
+  // ── Clock model ───────────────────────────────────────────────────────────
+  // Primary quarter-ender: clockSeconds <= 0.
+  // Safety fallback: quarterPlays >= maxPlaysPerQuarter prevents infinite loops.
+  clock: {
+    secondsPerQuarter: 900,
+    maxPlaysPerQuarter: 55,   // safety cap — quarter always ends even if clock logic fails
+
+    // Clock runoff ranges (min, max seconds); randomized each play for realism
+    runoff: {
+      incompleteMin:  6,  incompleteMax: 10,   // incomplete pass — clock stops
+      sidelineMin:    8,  sidelineMax:   12,   // completed but out-of-bounds proxy
+      completeMin:   27,  completeMax:   36,   // completion in bounds  (was 28/38, −5% for A1)
+      runMin:        29,  runMax:        40,   // run play or sack or scramble  (was 30/42, −5% for A1)
+      tdMin:         20,  tdMax:         22,   // scoring play — stops for PAT/kickoff
+      fgMin:         18,  fgMax:         25,   // field goal attempt
+      puntMin:       12,  puntMax:       20,   // punt
+    },
+
+    // Probability a completed pass is treated as "sideline" (clock stops)
+    sidelinePassChance: 0.31,
+
+    // Tempo modifier: seconds per play added/removed (applied to non-stop-clock plays)
+    tempoModifier: {
+      normal:     0,
+      hurry_up:  -12,
+      clock_kill: +10,
+    } as Record<string, number>,
+  },
+
+  // ── Situational playcalling ───────────────────────────────────────────────
+  // All run% values are additive percentage-point deltas applied to the team's base runPct.
+  // All depth values are additive pp shifts applied after the run/pass decision.
+  // Clamp prevents any adjustment from overriding the base tendency entirely.
+  situational: {
+    // ── Score differential thresholds (offensive team's score − defensive) ──
+    leadSmallDiff:  7,   // "holding a lead"
+    leadLargeDiff: 14,   // "leading comfortably"
+    trailSmallDiff: 7,   // "trailing" (use as abs value, applied when scoreDiff < −N)
+    garbageDiff:   21,   // "garbage time" — winning team stops trying
+
+    // ── Clock thresholds (clockSeconds remaining in current quarter) ─────────
+    lateGameSeconds:   240,   // ~4 minutes left — urgency window
+    twoMinuteSeconds:  120,   // ~2-minute drill
+
+    // ── Field position ──────────────────────────────────────────────────────
+    backedUpYardLine:    20,   // own territory, protect ball
+
+    // ── Run% adjustments (pp) ────────────────────────────────────────────────
+    backedUpRunBoost:     8,   // own territory: protect ball, force run
+    leadSmallRunBoost:    5,   // leading by 7+ any time: slight run lean (mirrors trailRunCut)
+    clockKillRunBoost:   20,   // Q4 late, leading by 7+: run the clock
+    comfortLeadRunBoost: 10,   // leading by 14+ any time: lean on run game
+    trailRunCut:         10,   // trailing by 7+: pass more
+    urgentTrailRunCut:   20,   // Q4 late, trailing by 7+: urgent pass mode
+    twoMinuteRunCut:     30,   // Q4 final plays, still behind: near pass-only
+    garbageRunBoost:     15,   // blowout win late: run it out
+
+    // ── Aggressiveness scale bounds ─────────────────────────────────────────
+    // aggScale = 1 + ((aggressiveness - 50) / 100)
+    // Applied to all score/clock run% and pass-depth adjustments only.
+    // D&D nudges and backedUpRunBoost are not scaled.
+    aggressivenessMin: 0.5,   // aggressiveness=0  → 0.5× adjustments
+    aggressivenessMax: 1.5,   // aggressiveness=100 → 1.5× adjustments
+
+    // ── Pass depth adjustments (pp shifts, renormalized after) ──────────────
+    // 2-minute drill: quick short routes to stop the clock
+    twoMinuteShortBoost:  25,
+    twoMinuteDeepCut:     10,
+    // Trailing urgently in Q4: more shots downfield
+    urgentTrailShortCut:  10,
+    urgentTrailMediumBoost: 5,
+    urgentTrailDeepBoost: 10,
+    // Clock-kill: if forced to pass, keep it short and safe
+    clockKillShortBoost:  15,
+    clockKillDeepCut:     10,
+    // Garbage time: winner takes what's there
+    garbageShortBoost:    10,
+    garbageDeepCut:        5,
+  },
+
+  // ── Long-yardage conversion resistance ───────────────────────────────────
+  // Negative additive penalty applied to pass success probability only,
+  // when the offense is behind the sticks. Does not affect run plays or
+  // yards-on-completion distributions — purely reduces completion rate in
+  // specific down/distance buckets so drives stall more after negative plays.
+  longYardage: {
+    d2LongThreshold:  8,    // 2nd and 8+
+    d3MedThreshold:   5,    // 3rd and 5–7
+    d3LongThreshold:  8,    // 3rd and 8+
+    d3VeryThreshold: 12,    // 3rd and 12+
+
+    d2LongPenalty:   0.06,  // −6%  on 2nd and 8+
+    d3ShortPenalty:  0.03,  // −3%  on 3rd and 1–4 passes
+    d3MedPenalty:    0.12,  // −12% on 3rd and 5–7  (was 0.06)
+    d3LongPenalty:   0.19,  // −19% on 3rd and 8–11 (was 0.12)
+    d3VeryPenalty:   0.23,  // −23% on 3rd and 12+  (was 0.12)
+    d3RunPenalty:    0.05,  // −5%  on any 3rd down run (defense keys up stops)
+    d3SackBonus:     0.018, // +1.8% sack chance on any 3rd down pass
+  },
+
+  // ── Red zone modifiers ────────────────────────────────────────────────────
+  // Applied in simulateGame when yardLine crosses the threshold.
+  // Reflects tighter spacing, compressed routes, and prepared goal-line defenses.
+  //
+  // TUNING STATUS (locked): These values produce ~68–69% RZ TD%, which is slightly
+  // above the NFL benchmark of 55–65%. This is the structural floor given the sim's
+  // yardage distributions — pushing harder breaks overall scoring balance (~21 pts/game).
+  // WATCH ITEM: Monitor RZ TD% across future validation runs. If playcalling, clock
+  // management, or situational logic changes naturally pull it toward 60–65%, great.
+  // Revisit only if it rises significantly (>72%) or causes gameplay weirdness.
+  redZone: {
+    yardLine:            80,    // start of red zone (opponent's 20)
+    goalLineYardLine:    90,    // inside opponent's 10 — extra run difficulty
+    passSuccessPenalty:  0.03,  // flat reduction to pass successProb inside red zone (locked floor)
+    rushSuccessPenalty:  0.02,  // flat reduction to rush successProb inside goal line  (was 0.04, −5% relative RZ TD%)
+    sackBonus:           0.01,  // extra sack probability inside red zone  (was 0.02, eased for scoring recovery)
   },
 
   // ── Player progression ────────────────────────────────────────────────────

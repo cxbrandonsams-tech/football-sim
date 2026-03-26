@@ -47,6 +47,7 @@ function emptySeasonStats(
     receivingTDs:      0,
     sacks:             0,
     interceptionsCaught: 0,
+    tackles:           0,
   };
 }
 
@@ -72,6 +73,7 @@ function mergeGameStats(
     receivingTDs:      season.receivingTDs      + game.receivingTDs,
     sacks:             season.sacks             + game.sacks,
     interceptionsCaught: season.interceptionsCaught + game.interceptionsCaught,
+    tackles:           season.tackles           + game.tackles,
   };
 }
 

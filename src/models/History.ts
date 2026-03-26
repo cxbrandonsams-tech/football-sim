@@ -52,7 +52,7 @@ export interface PlayerSeasonStats {
   // Defense
   sacks:             number;
   interceptionsCaught: number;
-  // TODO Phase 3: forcedFumbles, passesDefended, tackles
+  tackles:           number;
 }
 
 /** Cumulative career stats (derived by summing season history). */
@@ -72,6 +72,7 @@ export interface PlayerCareerStats {
   receivingTDs:      number;
   sacks:             number;
   interceptionsCaught: number;
+  tackles:           number;
 }
 
 export interface CoachSeasonRecord {
@@ -223,7 +224,7 @@ export function emptyPlayerCareerStats(): PlayerCareerStats {
     seasons: 0, completions: 0, attempts: 0, passingYards: 0, passingTDs: 0,
     interceptions: 0, carries: 0, rushingYards: 0, rushingTDs: 0,
     targets: 0, receptions: 0, receivingYards: 0, receivingTDs: 0,
-    sacks: 0, interceptionsCaught: 0,
+    sacks: 0, interceptionsCaught: 0, tackles: 0,
   };
 }
 
@@ -246,6 +247,7 @@ export function deriveCareerStats(seasons: PlayerSeasonStats[]): PlayerCareerSta
     career.receivingTDs       += s.receivingTDs;
     career.sacks              += s.sacks;
     career.interceptionsCaught += s.interceptionsCaught;
+    career.tackles            += s.tackles;
   }
   return career;
 }

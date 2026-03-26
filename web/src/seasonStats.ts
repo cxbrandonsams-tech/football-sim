@@ -21,6 +21,10 @@ export interface SeasonPlayerStats {
   receptions: number;
   receivingYards: number;
   receivingTDs: number;
+  // defense
+  sacks: number;
+  interceptionsCaught: number;
+  tackles: number;
 }
 
 /**
@@ -58,10 +62,13 @@ export function aggregateSeasonStats(games: Game[]): Record<string, SeasonPlayer
           carries:          s.carries,
           rushingYards:     s.rushingYards,
           rushingTDs:       s.rushingTDs,
-          targets:          s.targets,
-          receptions:       s.receptions,
-          receivingYards:   s.receivingYards,
-          receivingTDs:     s.receivingTDs,
+          targets:             s.targets,
+          receptions:          s.receptions,
+          receivingYards:      s.receivingYards,
+          receivingTDs:        s.receivingTDs,
+          sacks:               s.sacks,
+          interceptionsCaught: s.interceptionsCaught,
+          tackles:             s.tackles,
         };
       } else {
         t.completions    += s.completions;
@@ -74,9 +81,12 @@ export function aggregateSeasonStats(games: Game[]): Record<string, SeasonPlayer
         t.rushingYards   += s.rushingYards;
         t.rushingTDs     += s.rushingTDs;
         t.targets        += s.targets;
-        t.receptions     += s.receptions;
-        t.receivingYards += s.receivingYards;
-        t.receivingTDs   += s.receivingTDs;
+        t.receptions         += s.receptions;
+        t.receivingYards     += s.receivingYards;
+        t.receivingTDs       += s.receivingTDs;
+        t.sacks              += s.sacks;
+        t.interceptionsCaught += s.interceptionsCaught;
+        t.tackles            += s.tackles;
       }
     }
   }

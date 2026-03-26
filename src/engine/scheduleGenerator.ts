@@ -30,9 +30,9 @@ const CONF_PAIRING: [number, number, number, number][] = [
   [3, 2, 1, 0], // year%3==2 : N↔W  S↔E
 ];
 
-const BYE_WEEK_START  = 6;
-const BYE_WEEK_SPREAD = 9;  // bye weeks land in 6-14, 3-4 teams per week
-const TOTAL_WEEKS     = 18; // 18-week window: 17 games + 1 bye per team, capacity = 18×16−16 = 272 (exact fit)
+/** Exactly 8 bye weeks × 4 teams each = 32 bye slots (one per team). */
+const BYE_WEEKS   = [6, 7, 8, 9, 10, 11, 12, 13] as const;
+const TOTAL_WEEKS = 18; // 18-week window: 17 games + 1 bye per team, capacity = 10×16 + 8×14 = 272 (exact fit)
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -272,39 +272,158 @@ function shuffled<T>(arr: T[], seed: number): T[] {
 }
 
 function assignByes(teams: Team[]): Map<string, number> {
+  // 32 teams ÷ 8 bye weeks = exactly 4 teams per bye week — guaranteed no overflow.
   const byes = new Map<string, number>();
-  teams.forEach((t, i) => byes.set(t.id, BYE_WEEK_START + (i % BYE_WEEK_SPREAD)));
+  teams.forEach((t, i) => byes.set(t.id, BYE_WEEKS[Math.floor(i / 4)]!));
   return byes;
 }
 
+/**
+ * Near-maximum matching via randomised greedy restarts + one DFS augmentation pass.
+ *
+ * The DFS augmenting-path algorithm for *general* (non-bipartite) graphs can produce
+ * inconsistent matchedTo entries when odd cycles exist (the classic "blossom" problem).
+ * Rather than implementing Edmonds' full blossom algorithm we use:
+ *   1. 50 random greedy passes — shuffle candidates, accept each matchup if both teams
+ *      are free.  Keeps the best result across all passes.
+ *   2. One DFS augmenting-path pass on the *best* greedy result to pick up any
+ *      remaining slack (safe because the greedy already avoids odd-cycle issues).
+ *
+ * For a 17-regular graph on 32 vertices this reliably finds the perfect matching.
+ */
+function maxMatchingGreedy(candidates: Matchup[], seed: number): Matchup[] {
+  if (candidates.length === 0) return [];
+
+  // Compute max possible: floor(teams / 2).
+  const teamSet = new Set<string>();
+  for (const m of candidates) { teamSet.add(m.homeId); teamSet.add(m.awayId); }
+  const maxPossible = Math.floor(teamSet.size / 2);
+
+  // ── Phase 1: 50 random greedy restarts ───────────────────────────────────────
+  let bestPlaced: Matchup[] = [];
+
+  for (let attempt = 0; attempt < 50 && bestPlaced.length < maxPossible; attempt++) {
+    const order = shuffled(candidates, seed + attempt * 7919);
+    const used  = new Set<string>();
+    const cur:  Matchup[] = [];
+
+    for (const m of order) {
+      if (!used.has(m.homeId) && !used.has(m.awayId)) {
+        used.add(m.homeId);
+        used.add(m.awayId);
+        cur.push(m);
+      }
+    }
+    if (cur.length > bestPlaced.length) bestPlaced = cur;
+  }
+
+  // ── Phase 2: DFS augmentation on remaining unmatched teams ───────────────────
+  // Build adjacency list from the original candidates (not just placed ones).
+  const adj = new Map<string, Matchup[]>();
+  for (const m of candidates) {
+    if (!adj.has(m.homeId)) adj.set(m.homeId, []);
+    adj.get(m.homeId)!.push(m);
+    if (!adj.has(m.awayId)) adj.set(m.awayId, []);
+    adj.get(m.awayId)!.push(m);
+  }
+
+  // Seed the matching from the greedy result.
+  const matchedTo = new Map<string, string>();
+  const matchedBy = new Map<string, Matchup>();
+  for (const m of bestPlaced) {
+    matchedTo.set(m.homeId, m.awayId);
+    matchedTo.set(m.awayId, m.homeId);
+    matchedBy.set(m.homeId, m);
+    matchedBy.set(m.awayId, m);
+  }
+
+  function augment(u: string, visited: Set<string>): boolean {
+    for (const m of (adj.get(u) ?? [])) {
+      const v = m.homeId === u ? m.awayId : m.homeId;
+      if (visited.has(v)) continue;
+      visited.add(v);
+      const prev = matchedTo.get(v);
+      if (prev === undefined || augment(prev, visited)) {
+        // Clear the edge that prev was using (if any), so it's no longer in result.
+        if (prev !== undefined) {
+          const oldEdge = matchedBy.get(prev);
+          if (oldEdge) {
+            matchedBy.delete(oldEdge.homeId);
+            matchedBy.delete(oldEdge.awayId);
+          }
+        }
+        matchedTo.set(u, v);
+        matchedTo.set(v, u);
+        matchedBy.set(u, m);
+        matchedBy.set(v, m);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Only try teams that the greedy left unmatched.
+  for (const team of teamSet) {
+    if (!matchedTo.has(team)) augment(team, new Set([team]));
+  }
+
+  // Collect distinct matchups from matchedBy (each matchup appears twice).
+  const placed = new Set<Matchup>(matchedBy.values());
+  return [...placed];
+}
+
+/**
+ * Attempt one full season schedule with the given shuffle seed.
+ * Returns games-with-weeks; any games with week > TOTAL_WEEKS are overflow.
+ */
 function assignWeeks(
   matchups: Matchup[],
   byes:     Map<string, number>,
-  year:     number,
+  seed:     number,
 ): Array<Matchup & { week: number }> {
   const weekBusy: Set<string>[] = Array.from({ length: TOTAL_WEEKS + 2 }, () => new Set());
-
-  // Pre-fill bye weeks
   for (const [teamId, byeWeek] of byes) {
     weekBusy[byeWeek]!.add(teamId);
   }
 
-  const ordered = matchups;
+  // Pre-sort matchups by "flexibility": games with fewest valid weeks go first,
+  // so the most constrained matchups get the best chance of landing in the right week.
+  // Flexibility ≈ number of weeks where neither team is on bye.
+  const byeOf = new Map<string, number>();
+  for (const [teamId, byeWeek] of byes) byeOf.set(teamId, byeWeek);
 
+  const flexibility = (m: Matchup) => {
+    const bA = byeOf.get(m.homeId) ?? -1;
+    const bB = byeOf.get(m.awayId) ?? -1;
+    const excluded = bA === bB ? 1 : (bA >= 0 ? 1 : 0) + (bB >= 0 ? 1 : 0);
+    return TOTAL_WEEKS - excluded;
+  };
+
+  // Shuffle first (for variety across seeds), then stable-sort by flexibility.
+  const shuffledMatchups = shuffled(matchups, seed);
+  shuffledMatchups.sort((a, b) => flexibility(a) - flexibility(b));
+
+  let remaining = shuffledMatchups;
   const result: Array<Matchup & { week: number }> = [];
 
-  for (const m of ordered) {
-    let week = TOTAL_WEEKS + 1;
-    for (let w = 1; w <= TOTAL_WEEKS; w++) {
-      const busy = weekBusy[w]!;
-      if (!busy.has(m.homeId) && !busy.has(m.awayId)) {
-        week = w;
-        break;
-      }
+  for (let w = 1; w <= TOTAL_WEEKS; w++) {
+    const busy = weekBusy[w]!;
+
+    // Candidates = remaining matchups where both teams are free this week.
+    const candidates = remaining.filter(m => !busy.has(m.homeId) && !busy.has(m.awayId));
+    const placed      = maxMatchingGreedy(candidates, seed * 1000 + w);
+    const placedSet   = new Set(placed);
+
+    for (const m of placed) {
+      busy.add(m.homeId);
+      busy.add(m.awayId);
+      result.push({ ...m, week: w });
     }
-    weekBusy[week]!.add(m.homeId);
-    weekBusy[week]!.add(m.awayId);
-    result.push({ ...m, week });
+    remaining = remaining.filter(m => !placedSet.has(m));
+  }
+
+  for (const m of remaining) {
+    result.push({ ...m, week: TOTAL_WEEKS + 1 }); // overflow marker
   }
   return result;
 }
@@ -322,11 +441,23 @@ export function generateSchedule(params: ScheduleParams): Game[] {
     ...sameRankMatchups(divisions, year, prevDivFinish),
   ];
 
-  const byes   = assignByes(teams);
-  const placed = assignWeeks(matchups, byes, year);
+  const byes = assignByes(teams);
+
+  // Try up to 30 different shuffle seeds; stop as soon as we find a perfect schedule.
+  let bestPlaced: Array<Matchup & { week: number }> = [];
+  let bestOverflow = Infinity;
+
+  for (let attempt = 0; attempt < 30 && bestOverflow > 0; attempt++) {
+    const placed   = assignWeeks(matchups, byes, year * 100 + attempt);
+    const overflow = placed.filter(m => m.week > TOTAL_WEEKS).length;
+    if (overflow < bestOverflow) {
+      bestOverflow = overflow;
+      bestPlaced   = placed;
+    }
+  }
 
   let gameNum = 0;
-  return placed.map(m => createGame(
+  return bestPlaced.map(m => createGame(
     `${year}-g${++gameNum}`,
     m.week,
     teamMap.get(m.homeId)!,

@@ -45,6 +45,7 @@ function makeMatchup(
 
 function simulateMatchup(m: PlayoffMatchup, teamMap: Map<string, Team>): PlayoffMatchup {
   if (m.winnerId) return m;                      // already played
+  // TODO: assumes both IDs exist in teamMap; a corrupt bracket will crash inside simulateGame
   const home = teamMap.get(m.topSeedId)!;
   const away = teamMap.get(m.bottomSeedId)!;
   const { game } = simulateGame(createGame(`playoff-${m.id}`, 0, home, away));
@@ -196,6 +197,7 @@ export function advancePlayoffRound(
   bracket:  PlayoffBracket,
   teamMap:  Map<string, Team>,
 ): PlayoffBracket {
+  // Guard: callers must check currentRound === 'complete' before calling (server.ts does this).
   if (bracket.currentRound === 'complete') {
     throw new Error('Postseason is already complete.');
   }
