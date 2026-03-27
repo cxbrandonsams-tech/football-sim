@@ -143,7 +143,7 @@ export const TUNING = {
   run: {
     // Blocking phase
     blockingBase:               0.55,
-    defRunDefenseResistance:    0.40,
+    defRunDefenseResistance:    0.90,   // was 0.40 (dead code); now wired into ratio formula. <1.0 = slight offense lean; >1.0 = defense amplified
 
     // Vision phase
     visionBonusThreshold:    75,      // vision above this grants bonus yards
@@ -174,7 +174,7 @@ export const TUNING = {
     // Tackles for loss (TFL) — applied to failed run plays only
     // At avg ratings (success ≈ 55%), ~12 failed runs/team/game.
     // tflChance: 0.25 → ~4 TFLs/team/game.
-    tflChance:       0.25,   // fraction of failed runs that become TFLs
+    tflChance:       0.32,   // fraction of failed runs that become TFLs (was 0.25)
     tflTypicalMin:  -2,      // typical TFL (stuffed at the line, -1 to -2 yd)
     tflTypicalMax:  -1,
     tflBigChance:    0.15,   // fraction of TFLs that are big losses (-3 to -5)
@@ -182,7 +182,7 @@ export const TUNING = {
     tflBigMax:      -3,
 
     // Fumble
-    baseFumbleChance:        0.013,
+    baseFumbleChance:        0.022,
     ballSecurityFumbleReduction: 0.0003, // per point of ballSecurity above 50
 
     // Yards on success — two-tier distribution (2026-03 reshape)
@@ -212,8 +212,8 @@ export const TUNING = {
   passYards: {
     shortMin:   4,
     shortMax:   8,
-    mediumMin:  8,
-    mediumMax: 10,
+    mediumMin:  7,
+    mediumMax:  9,
     // Medium bomb: 6% of medium completions travel 22–46 yards.
     mediumBombChance: 0.06,
     mediumBombMin:    22,
@@ -442,7 +442,7 @@ export const TUNING = {
   // ── Field goal ────────────────────────────────────────────────────────────
   fieldGoal: {
     baseChance:          0.98,   // kickers are accurate close-in
-    distancePenalty:     0.009,  // per yard beyond 20
+    distancePenalty:     0.007,  // per yard beyond 20
     kickPowerBonus:      0.004,  // per point of kickPower above 70
     minChance:           0.25,
     attemptYardLine:     67,     // attempt FG at or beyond this yard line on 4th
@@ -524,7 +524,7 @@ export const TUNING = {
      * structural advantage; this is just a small residual edge.
      * Set to 0 to restore perfect parity; raise to give offense more edge.
      */
-    offenseAdvantage: 0.055,
+    offenseAdvantage: 0.065,   // was 0.055; bumped for scoring recovery (run system tightened)
   },
 
   // ── Clock model ───────────────────────────────────────────────────────────
@@ -620,8 +620,8 @@ export const TUNING = {
 
     d2LongPenalty:   0.06,  // −6%  on 2nd and 8+
     d3ShortPenalty:  0.03,  // −3%  on 3rd and 1–4 passes
-    d3MedPenalty:    0.12,  // −12% on 3rd and 5–7  (was 0.06)
-    d3LongPenalty:   0.19,  // −19% on 3rd and 8–11 (was 0.12)
+    d3MedPenalty:    0.02,  // −2% on 3rd and 5–7  (was 0.12 → 0.07 → 0.02)
+    d3LongPenalty:   0.07,  // −7% on 3rd and 8–11 (was 0.19 → 0.13 → 0.07)
     d3VeryPenalty:   0.23,  // −23% on 3rd and 12+  (was 0.12)
     d3RunPenalty:    0.05,  // −5%  on any 3rd down run (defense keys up stops)
     d3SackBonus:     0.018, // +1.8% sack chance on any 3rd down pass
@@ -1031,8 +1031,26 @@ export const TUNING = {
     },
 
     // Target weight shaping (applied after role × rating computation)
-    targetWeightExponent: 0.90,  // diminishing returns: weight^0.9 flattens extremes
-    targetWeightNoise:    0.075, // ±7.5% uniform noise added to each candidate's weight
+    targetWeightExponent: 0.80,  // diminishing returns: weight^0.8 (was 0.90) — more aggressive flattening reduces WR1 concentration
+    targetWeightNoise:    0.10,  // ±10% uniform noise (was 0.075) — more game-to-game variance in target distribution
+
+    // Role opportunity multipliers by pass depth.
+    // Controls how much positional role (WR1 vs WR2 vs slot vs TE vs RB) matters
+    // relative to ratings in the target selection lottery.
+    // Moved from hardcoded constant in simulateGame.ts — 2026-03-27.
+    //
+    // Key calibration goals:
+    //   WR1 target share ~23–27%  (was 31% with old values)
+    //   TE target share  ~15–20%  (was 15%, borderline)
+    //   RB target share  ~10–15%  (was 10%, acceptable)
+    roleMult: {
+      featured_route:  { short: 1.10, medium: 1.10, deep: 1.20 },  // WR1 — was 1.15/1.25/1.50
+      secondary_route: { short: 1.00, medium: 1.10, deep: 1.20 },  // WR2 — was 1.00/1.05/1.15
+      slot:            { short: 1.10, medium: 1.00, deep: 0.50 },  // WR3 — was 1.05/0.90/0.50
+      inline_option:   { short: 0.85, medium: 0.90, deep: 0.40 },  // TE (heavy sets) — was 0.80/0.70/0.25
+      seam_route:      { short: 0.90, medium: 1.00, deep: 0.70 },  // TE (12/21 pkg) — unchanged
+      check_down:      { short: 1.00, medium: 0.65, deep: 0.10 },  // RB — was 0.90/0.50/0.10
+    },
 
     // Sack credit: weight = max(0, passRush − threshold); linear so elites dominate but backups contribute
     sackCreditThreshold: 40,

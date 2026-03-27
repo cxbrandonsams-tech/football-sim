@@ -429,15 +429,8 @@ interface ReceiverStats {
   slot:         TargetSlot;
 }
 
-// Role opportunity multipliers by pass depth (reduced spread — ratings remain primary driver).
-const ROLE_MULT: Record<ReceiverRole, Record<'short' | 'medium' | 'deep', number>> = {
-  featured_route:  { short: 1.15, medium: 1.25, deep: 1.50 },
-  secondary_route: { short: 1.00, medium: 1.05, deep: 1.15 },
-  slot:            { short: 1.05, medium: 0.90, deep: 0.50 },
-  seam_route:      { short: 0.90, medium: 1.10, deep: 0.75 },
-  inline_option:   { short: 0.80, medium: 0.70, deep: 0.25 },
-  check_down:      { short: 0.95, medium: 0.50, deep: 0.10 },
-};
+// Role opportunity multipliers — now sourced from config.ts (TUNING.personnel.roleMult).
+// See config.ts for values and calibration notes.
 
 // Receiver rating blend by pass depth.
 const RECV_RW: Record<'short' | 'medium' | 'deep', { rr: number; sp: number; hd: number }> = {
@@ -554,7 +547,7 @@ function selectPassTarget(off: Team, depth: 'short' | 'medium' | 'deep', pkg: Pe
 
     const nm = p.name.split(' ').pop() ?? p.name;
     const ratingScore = routeRunning * rw.rr + speed * rw.sp + hands * rw.hd;
-    const roleMult    = ROLE_MULT[entry.role][depth];
+    const roleMult    = cfg.personnel.roleMult[entry.role][depth];
 
     // raw weight = role × (rating / 50), then diminishing returns, then noise
     let w = roleMult * (ratingScore / 50);
@@ -1164,10 +1157,12 @@ function simulatePlay(
     };
   }
 
-  // ── Run: rating-ratio approach (unchanged) ────────────────────────────────
+  // ── Run: rating-ratio approach ────────────────────────────────────────────
+  // defRunDefenseResistance scales how much defensive rating resists blocking.
+  // At 1.0 defense is at full strength; lower values dampen DL impact.
   const oRating = offRating(off, type);
   const dRating = defRating(def, type);
-  const baseProb = oRating / (oRating + dRating);
+  const baseProb = oRating / (oRating + dRating * cfg.run.defRunDefenseResistance);
   const rzRushPenalty = yardLine >= cfg.redZone.goalLineYardLine ? cfg.redZone.rushSuccessPenalty : 0;
   successProb = Math.max(0.05, Math.min(0.95,
     baseProb + cfg.game.offenseAdvantage + schemeAdj + fatigueAdj - rzRushPenalty));
