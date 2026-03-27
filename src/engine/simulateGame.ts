@@ -14,6 +14,8 @@ import { buildBoxScoreFromGame } from './gameStats';
 import { computeSchemeAdjustment } from './schemeBonus';
 import { getPersonality } from '../models/Coach';
 import { TUNING } from './config';
+import { resolvePlay, applyFormationToTeam } from './playSelection';
+import { resolveDefensivePlay, applyPackageToTeam } from './defensiveSelection';
 
 const cfg = TUNING;
 
@@ -1431,12 +1433,19 @@ export function simulateGame(game: Game): GameResult {
           : resolvePuntReturn(puntReceiver, landSpot);
       }
     } else {
-      const type  = selectPlayType(off, sit);
-      const isRun = type === 'inside_run' || type === 'outside_run';
+      // Playbook system: select play from team's offensive plan (if configured).
+      // applyFormationToTeam remaps WR/TE/RB depth chart slots to match the
+      // formation's slot assignments — no engine math is changed.
+      const resolved   = resolvePlay(off, sit);
+      const type       = resolved?.engineType ?? selectPlayType(off, sit);
+      const offForPlay = resolved ? applyFormationToTeam(off, resolved.play) : off;
+      const defResolved = resolveDefensivePlay(def, sit);
+      const defForPlay  = defResolved ? applyPackageToTeam(def, defResolved.play) : def;
+      const isRun      = type === 'inside_run' || type === 'outside_run';
 
       // Identify primary skill players for fatigue/injury tracking
-      const offPrimary = isRun ? firstHealthy(off, 'RB') : firstHealthy(off, 'QB');
-      const defPrimary = isRun ? firstHealthy(def, 'LB') : firstHealthy(def, 'CB');
+      const offPrimary = isRun ? firstHealthy(offForPlay, 'RB') : firstHealthy(offForPlay, 'QB');
+      const defPrimary = isRun ? firstHealthy(defForPlay, 'LB') : firstHealthy(defForPlay, 'CB');
 
       // Fatigue adjustment: tired offense = penalty; tired defense = bonus for offense
       const offFatigue = fatigueMap.get(offPrimary?.id ?? '') ?? 0;
@@ -1464,7 +1473,7 @@ export function simulateGame(game: Game): GameResult {
         }
       }
 
-      const ev = simulatePlay(off, def, type, quarter, down, distance, yardLine, playAdj, sit);
+      const ev = simulatePlay(offForPlay, defForPlay, type, quarter, down, distance, yardLine, playAdj, sit);
       events.push(ev);
 
       // Build fatigue after the play

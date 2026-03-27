@@ -1,4 +1,11 @@
-import { type League, type TradeAsset, type GameplanSettings } from './types';
+import {
+  type League, type TradeAsset, type GameplanSettings,
+  type OffensiveSlot, type OffensivePlan,
+  type OffensiveFormation, type Playbook,
+  type DefensiveSlot, type DefensivePlan,
+  type DefensivePackage, type DefPlaybook, type DefensivePlay,
+  type PlaybookEntry, type DefPlaybookEntry,
+} from './types';
 
 // API base URL — set VITE_API_URL in Vercel environment variables.
 // In local dev this is empty ('') and Vite proxies API routes to localhost:3000.
@@ -139,6 +146,39 @@ export const setDepthChart = (id: string, slot: string, playerIds: string[]) =>
   request<League>(`/league/${id}/set-depth-chart`, 'POST', { slot, playerIds });
 export const setGameplan = (id: string, gameplan: Partial<GameplanSettings>) =>
   request<League>(`/league/${id}/set-gameplan`, 'POST', gameplan);
+export const setFormationSlot = (
+  id:          string,
+  formationId: string,
+  slot:        OffensiveSlot,
+  playerId:    string | null,
+) => request<League>(`/league/${id}/set-formation-slot`, 'POST', { formationId, slot, playerId });
+export const setOffensivePlan = (id: string, plan: Partial<OffensivePlan>) =>
+  request<League>(`/league/${id}/set-offensive-plan`, 'POST', plan);
+export const setPackageSlot = (
+  id:        string,
+  packageId: string,
+  slot:      DefensiveSlot,
+  playerId:  string | null,
+) => request<League>(`/league/${id}/set-package-slot`, 'POST', { packageId, slot, playerId });
+export const setDefensivePlan = (id: string, plan: Partial<DefensivePlan>) =>
+  request<League>(`/league/${id}/set-defensive-plan`, 'POST', plan);
+export const getFormations = () =>
+  request<{
+    formations:         OffensiveFormation[];
+    playbooks:          Playbook[];
+    plays:              import('./types').OffensivePlay[];
+    packages:           DefensivePackage[];
+    defensivePlaybooks: DefPlaybook[];
+    defensivePlays:     DefensivePlay[];
+  }>('/formations');
+export const saveOffensePlaybook = (id: string, playbook: { id: string; name: string; entries: PlaybookEntry[] }) =>
+  request<League>(`/league/${id}/save-offense-playbook`, 'POST', { playbook });
+export const deleteOffensePlaybook = (id: string, playbookId: string) =>
+  request<League>(`/league/${id}/delete-offense-playbook`, 'POST', { playbookId });
+export const saveDefensePlaybook = (id: string, playbook: { id: string; name: string; entries: DefPlaybookEntry[] }) =>
+  request<League>(`/league/${id}/save-defense-playbook`, 'POST', { playbook });
+export const deleteDefensePlaybook = (id: string, playbookId: string) =>
+  request<League>(`/league/${id}/delete-defense-playbook`, 'POST', { playbookId });
 export const draftPick = (id: string, playerId: string) =>
   request<League>(`/league/${id}/draft-pick`, 'POST', { playerId });
 export const simDraft = (id: string) =>

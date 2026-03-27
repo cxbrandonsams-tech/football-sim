@@ -4,6 +4,10 @@ import { type DepthChart, buildDepthChart, getStarters } from './DepthChart';
 import { type PlaycallingWeights, DEFAULT_PLAYCALLING, clampWeights } from './Playcalling';
 import { type HeadScout } from './Scout';
 import { type ProspectScoutingState } from './Prospect';
+import { type FormationDepthCharts } from './Formation';
+import { type Playbook, type OffensivePlan } from './Playbook';
+import { type PackageDepthCharts } from './DefensivePackage';
+import { type DefensivePlan, type DefensivePlaybook as DefPlaybookModel } from './DefensivePlaybook';
 
 // ── Gameplan types ─────────────────────────────────────────────────────────────
 
@@ -109,6 +113,40 @@ export interface Team {
   draftBoard?:       string[];
   /** Persistent front-office building philosophy (CPU teams only). */
   frontOffice?:      FrontOfficePersonality;
+
+  // ── Playbook / formation system ────────────────────────────────────────────
+  /**
+   * Formation-specific slot assignments: formationId → { slot → playerId }.
+   * Applied to the positional depth chart before each play when a play is
+   * selected from offensivePlan. Falls back to the base depthChart when unset.
+   */
+  formationDepthCharts?: FormationDepthCharts;
+  /**
+   * Maps every down/distance bucket to a playbook ID.
+   * When present, play selection uses this plan instead of the engine's
+   * built-in selectPlayType() logic.
+   */
+  offensivePlan?:        OffensivePlan;
+
+  // ── Defensive package system ────────────────────────────────────────────────
+  /**
+   * Package-specific slot assignments: packageId → { slot → playerId }.
+   * Applied to the defensive depth chart before each play when a play is
+   * selected from defensivePlan. Falls back to the base depthChart when unset.
+   */
+  packageDepthCharts?: PackageDepthCharts;
+  /**
+   * Maps every down/distance bucket to a defensive playbook ID.
+   * When present, defensive play selection uses this plan instead of leaving
+   * the depth chart unmodified.
+   */
+  defensivePlan?:      DefensivePlan;
+
+  // ── Custom playbooks (GM-created) ───────────────────────────────────────────
+  /** Offensive playbooks created by the team's GM. Merged with built-ins during play selection. */
+  customOffensivePlaybooks?: Playbook[];
+  /** Defensive playbooks created by the team's GM. Merged with built-ins during play selection. */
+  customDefensivePlaybooks?: DefPlaybookModel[];
 }
 
 export function createTeam(

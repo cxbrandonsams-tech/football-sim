@@ -394,7 +394,13 @@ export interface Team {
   depthChart?:    Record<string, (Player | null)[]>;
   coaches:        CoachingStaff;
   playcalling:    PlaycallingWeights;
-  gameplan?:      GameplanSettings;
+  gameplan?:          GameplanSettings;
+  formationDepthCharts?: Record<string, Partial<Record<OffensiveSlot, string | null>>>;
+  offensivePlan?:        OffensivePlan;
+  packageDepthCharts?:   Record<string, Partial<Record<DefensiveSlot, string | null>>>;
+  defensivePlan?:        DefensivePlan;
+  customOffensivePlaybooks?: Playbook[];
+  customDefensivePlaybooks?: DefPlaybook[];
   scout?:         HeadScout;
   scoutingBudget?: number;
   scoutingPoints?: number;
@@ -873,6 +879,107 @@ export interface League {
   milestonesHit:        Record<string, string[]>;
   gmCareer?:            GmCareer;
 }
+
+// ── Playbook / Formation system ───────────────────────────────────────────────
+
+export type OffensiveSlot     = 'X' | 'Z' | 'SLOT' | 'TE' | 'RB' | 'FB';
+export type OffensivePersonnel = '11' | '12' | '21' | '22' | '10' | '00';
+
+export interface OffensiveFormation {
+  id:        string;
+  name:      string;
+  personnel: OffensivePersonnel;
+  slots:     OffensiveSlot[];
+}
+
+export type RouteTag = 'SHORT' | 'MEDIUM' | 'DEEP';
+
+export interface SlotRoute {
+  slot:     OffensiveSlot;
+  routeTag: RouteTag;
+}
+
+export interface OffensivePlay {
+  id:               string;
+  name:             string;
+  formationId:      string;
+  engineType:       string;
+  conceptId?:       string;
+  routes?:          SlotRoute[];
+  ballCarrierSlot?: OffensiveSlot;
+  isPlayAction?:    boolean;
+}
+
+export interface PlaybookEntry {
+  playId:  string;
+  weight:  number;
+}
+
+export interface Playbook {
+  id:      string;
+  name:    string;
+  entries: PlaybookEntry[];
+}
+
+export type DownDistanceBucket =
+  | 'FIRST_10' | 'FIRST_LONG' | 'FIRST_MEDIUM' | 'FIRST_SHORT'
+  | 'SECOND_LONG' | 'SECOND_MEDIUM' | 'SECOND_SHORT'
+  | 'THIRD_LONG' | 'THIRD_MEDIUM' | 'THIRD_SHORT'
+  | 'FOURTH_LONG' | 'FOURTH_MEDIUM' | 'FOURTH_SHORT';
+
+export type OffensivePlan = Record<DownDistanceBucket, string>;
+
+// ── Defensive package / playbook system ──────────────────────────────────────
+
+export type DefensiveSlot =
+  | 'DE1' | 'DE2'
+  | 'DT1' | 'DT2' | 'NT'
+  | 'LB1' | 'LB2' | 'LB3' | 'LB4'
+  | 'OLB1' | 'OLB2' | 'ILB1' | 'ILB2'
+  | 'CB1' | 'CB2' | 'NCB' | 'DC1' | 'DC2'
+  | 'FS' | 'SS';
+
+export type DefensivePersonnel = '4-3' | '3-4' | '4-2-5' | '4-1-6' | '4-0-7' | '5-3-3';
+
+export interface DefensivePackage {
+  id:          string;
+  name:        string;
+  personnel:   DefensivePersonnel;
+  slots:       DefensiveSlot[];
+  description?: string;
+}
+
+export type DefensiveFrontLabel =
+  | 'four_three' | 'three_four' | 'nickel' | 'dime' | 'quarter' | 'goal_line';
+
+export type DefensiveCoverage =
+  | 'cover_0' | 'cover_1' | 'cover_2' | 'cover_3' | 'cover_4' | 'cover_6'
+  | 'tampa_2' | 'man_under';
+
+export type BlitzTag =
+  | 'lb_blitz' | 'cb_blitz' | 'safety_blitz' | 'zone_blitz';
+
+export interface DefensivePlay {
+  id:        string;
+  name:      string;
+  packageId: string;
+  front:     DefensiveFrontLabel;
+  coverage:  DefensiveCoverage;
+  blitz?:    BlitzTag;
+}
+
+export interface DefPlaybookEntry {
+  playId:  string;
+  weight:  number;
+}
+
+export interface DefPlaybook {
+  id:      string;
+  name:    string;
+  entries: DefPlaybookEntry[];
+}
+
+export type DefensivePlan = Record<DownDistanceBucket, string>;
 
 // ── Standings ─────────────────────────────────────────────────────────────────
 

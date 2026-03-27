@@ -21,6 +21,16 @@ import { newsForGame, newsForTrade, newsForSigning, newsForDraftPick, addNewsIte
 import { getUserTeam } from './models/League';
 import { type DepthChart } from './models/DepthChart';
 import { type GameplanSettings, DEFAULT_GAMEPLAN, derivePlaycalling } from './models/Team';
+import { type OffensiveSlot } from './models/Formation';
+import { type Playbook, type OffensivePlan } from './models/Playbook';
+import { OFFENSIVE_FORMATIONS } from './models/Formation';
+import { PLAYBOOKS, DEFAULT_OFFENSIVE_PLAN } from './data/playbooks';
+import { OFFENSIVE_PLAYS } from './data/plays';
+import { type DefensiveSlot } from './models/DefensivePackage';
+import { type DefensivePlaybook, type DefensivePlan } from './models/DefensivePlaybook';
+import { DEFENSIVE_PACKAGES } from './models/DefensivePackage';
+import { DEFENSIVE_PLAYBOOKS, DEFAULT_DEFENSIVE_PLAN } from './data/defensivePlaybooks';
+import { DEFENSIVE_PLAYS } from './data/defensivePlays';
 import * as crypto from 'crypto';
 import {
   getLeague as dbGetLeague,
@@ -1157,6 +1167,294 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[error] Unhandled route error:', err);
   if (res.headersSent) return;
   res.status(500).json({ error: 'Internal server error.' });
+});
+
+// POST /league/:id/set-formation-slot — assign a player to a formation slot.
+app.post('/league/:id/set-formation-slot', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { formationId, slot, playerId } = req.body as {
+    formationId?: string;
+    slot?:        string;
+    playerId?:    string | null;
+  };
+  if (!formationId) { res.status(400).json({ error: 'formationId is required.' }); return; }
+  if (!slot)        { res.status(400).json({ error: 'slot is required.' }); return; }
+
+  const validFormation = OFFENSIVE_FORMATIONS.find(f => f.id === formationId);
+  if (!validFormation) { res.status(400).json({ error: `Unknown formationId '${formationId}'.` }); return; }
+
+  const validSlots: OffensiveSlot[] = ['X', 'Z', 'SLOT', 'TE', 'RB', 'FB'];
+  if (!validSlots.includes(slot as OffensiveSlot)) {
+    res.status(400).json({ error: `Invalid slot '${slot}'. Must be one of: ${validSlots.join(', ')}.` }); return;
+  }
+
+  if (playerId !== null && playerId !== undefined) {
+    const userTeam = getUserTeam(league);
+    if (!userTeam.roster.some(p => p.id === playerId)) {
+      res.status(400).json({ error: 'Player not found on your roster.' }); return;
+    }
+  }
+
+  const userTeam = getUserTeam(league);
+  const existing = userTeam.formationDepthCharts ?? {};
+  const updatedAssignment = { ...(existing[formationId] ?? {}), [slot]: playerId ?? null };
+  const updatedCharts = { ...existing, [formationId]: updatedAssignment };
+  const updatedTeam = { ...userTeam, formationDepthCharts: updatedCharts };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/set-offensive-plan — update bucket → playbook mappings.
+app.post('/league/:id/set-offensive-plan', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const body = req.body as Partial<OffensivePlan>;
+
+  const userTeam = getUserTeam(league);
+
+  // Validate playbook IDs (built-in + team's custom)
+  const knownIds = new Set([
+    ...PLAYBOOKS.map(pb => pb.id),
+    ...(userTeam.customOffensivePlaybooks ?? []).map(pb => pb.id),
+  ]);
+  for (const [bucket, playbookId] of Object.entries(body)) {
+    if (playbookId && !knownIds.has(playbookId)) {
+      res.status(400).json({ error: `Unknown playbook ID '${playbookId}' for bucket '${bucket}'.` }); return;
+    }
+  }
+  const current    = userTeam.offensivePlan ?? { ...DEFAULT_OFFENSIVE_PLAN };
+  const newPlan    = { ...current, ...body } as OffensivePlan;
+  const updatedTeam = { ...userTeam, offensivePlan: newPlan };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/set-package-slot — assign a player to a defensive package slot.
+app.post('/league/:id/set-package-slot', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { packageId, slot, playerId } = req.body as {
+    packageId?: string;
+    slot?:      string;
+    playerId?:  string | null;
+  };
+  if (!packageId) { res.status(400).json({ error: 'packageId is required.' }); return; }
+  if (!slot)      { res.status(400).json({ error: 'slot is required.' }); return; }
+
+  const validPackage = DEFENSIVE_PACKAGES.find(p => p.id === packageId);
+  if (!validPackage) {
+    res.status(400).json({ error: `Unknown package ID '${packageId}'.` }); return;
+  }
+  if (!validPackage.slots.includes(slot as DefensiveSlot)) {
+    res.status(400).json({ error: `Slot '${slot}' is not valid for package '${packageId}'.` }); return;
+  }
+
+  const userTeam = getUserTeam(league);
+  const existing = userTeam.packageDepthCharts ?? {};
+  const updatedAssignment = { ...(existing[packageId] ?? {}), [slot]: playerId ?? null };
+  const updatedCharts = { ...existing, [packageId]: updatedAssignment };
+  const updatedTeam = { ...userTeam, packageDepthCharts: updatedCharts };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/set-defensive-plan — update bucket → defensive playbook mappings.
+app.post('/league/:id/set-defensive-plan', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const body = req.body as Partial<DefensivePlan>;
+
+  const userTeam = getUserTeam(league);
+
+  // Validate playbook IDs (built-in + team's custom)
+  const knownIds = new Set([
+    ...DEFENSIVE_PLAYBOOKS.map(pb => pb.id),
+    ...(userTeam.customDefensivePlaybooks ?? []).map(pb => pb.id),
+  ]);
+  for (const [bucket, playbookId] of Object.entries(body)) {
+    if (playbookId && !knownIds.has(playbookId)) {
+      res.status(400).json({ error: `Unknown defensive playbook ID '${playbookId}' for bucket '${bucket}'.` }); return;
+    }
+  }
+
+  const current     = userTeam.defensivePlan ?? { ...DEFAULT_DEFENSIVE_PLAN };
+  const newPlan     = { ...current, ...body } as DefensivePlan;
+  const updatedTeam = { ...userTeam, defensivePlan: newPlan };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/save-offense-playbook — upsert a custom offensive playbook.
+app.post('/league/:id/save-offense-playbook', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { playbook } = req.body as { playbook?: Playbook };
+  if (!playbook?.id || !playbook.name?.trim()) {
+    res.status(400).json({ error: 'playbook.id and playbook.name are required.' }); return;
+  }
+  if (!Array.isArray(playbook.entries)) {
+    res.status(400).json({ error: 'playbook.entries must be an array.' }); return;
+  }
+  if (playbook.entries.length === 0) {
+    res.status(400).json({ error: 'Playbook must have at least one play.' }); return;
+  }
+  if (playbook.name.trim().length > 60) {
+    res.status(400).json({ error: 'Playbook name must be 60 characters or fewer.' }); return;
+  }
+  if (PLAYBOOKS.some(pb => pb.id === playbook.id)) {
+    res.status(400).json({ error: 'Cannot overwrite a built-in playbook.' }); return;
+  }
+  if (playbook.entries.length > 50) {
+    res.status(400).json({ error: 'A playbook cannot have more than 50 entries.' }); return;
+  }
+  const knownPlayIds = new Set(OFFENSIVE_PLAYS.map(p => p.id));
+  for (const entry of playbook.entries) {
+    if (!knownPlayIds.has(entry.playId)) {
+      res.status(400).json({ error: `Unknown play ID '${entry.playId}'.` }); return;
+    }
+    if (typeof entry.weight !== 'number' || !Number.isFinite(entry.weight) || entry.weight < 1) {
+      res.status(400).json({ error: `Weight for '${entry.playId}' must be a whole number of at least 1.` }); return;
+    }
+  }
+  // Duplicate entry IDs within the same playbook
+  const entryIds = playbook.entries.map(e => e.playId);
+  if (new Set(entryIds).size !== entryIds.length) {
+    res.status(400).json({ error: 'Playbook contains duplicate play entries. Each play may appear at most once.' }); return;
+  }
+
+  const userTeam  = getUserTeam(league);
+  const existing  = userTeam.customOffensivePlaybooks ?? [];
+  // Duplicate name check (case-insensitive, excluding the playbook being updated)
+  const dupName = existing.filter(pb => pb.id !== playbook.id)
+    .find(pb => pb.name.trim().toLowerCase() === playbook.name.trim().toLowerCase());
+  if (dupName) {
+    res.status(400).json({ error: `A custom playbook named "${playbook.name.trim()}" already exists. Choose a different name.` }); return;
+  }
+  const idx       = existing.findIndex(pb => pb.id === playbook.id);
+  const newList   = idx >= 0
+    ? existing.map((pb, i) => i === idx ? { id: playbook.id, name: playbook.name.trim(), entries: playbook.entries } : pb)
+    : [...existing, { id: playbook.id, name: playbook.name.trim(), entries: playbook.entries }];
+  const updatedTeam = { ...userTeam, customOffensivePlaybooks: newList };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/delete-offense-playbook — delete a custom offensive playbook.
+app.post('/league/:id/delete-offense-playbook', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { playbookId } = req.body as { playbookId?: string };
+  if (!playbookId) { res.status(400).json({ error: 'playbookId is required.' }); return; }
+
+  const userTeam = getUserTeam(league);
+  if (!(userTeam.customOffensivePlaybooks ?? []).some(pb => pb.id === playbookId)) {
+    res.status(404).json({ error: 'Custom playbook not found.' }); return;
+  }
+  // Safety: block deletion if referenced in active plan
+  const plan = userTeam.offensivePlan;
+  if (plan && Object.values(plan).includes(playbookId)) {
+    res.status(400).json({ error: 'Cannot delete a playbook assigned in your Offensive Plan. Reassign those buckets first.' }); return;
+  }
+  const newList = (userTeam.customOffensivePlaybooks ?? []).filter(pb => pb.id !== playbookId);
+  const updatedTeam = { ...userTeam, customOffensivePlaybooks: newList };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/save-defense-playbook — upsert a custom defensive playbook.
+app.post('/league/:id/save-defense-playbook', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { playbook } = req.body as { playbook?: DefensivePlaybook };
+  if (!playbook?.id || !playbook.name?.trim()) {
+    res.status(400).json({ error: 'playbook.id and playbook.name are required.' }); return;
+  }
+  if (!Array.isArray(playbook.entries)) {
+    res.status(400).json({ error: 'playbook.entries must be an array.' }); return;
+  }
+  if (playbook.entries.length === 0) {
+    res.status(400).json({ error: 'Playbook must have at least one play.' }); return;
+  }
+  if (playbook.name.trim().length > 60) {
+    res.status(400).json({ error: 'Playbook name must be 60 characters or fewer.' }); return;
+  }
+  if (playbook.entries.length > 50) {
+    res.status(400).json({ error: 'A playbook cannot have more than 50 entries.' }); return;
+  }
+  if (DEFENSIVE_PLAYBOOKS.some(pb => pb.id === playbook.id)) {
+    res.status(400).json({ error: 'Cannot overwrite a built-in defensive playbook.' }); return;
+  }
+  const knownPlayIds = new Set(DEFENSIVE_PLAYS.map(p => p.id));
+  for (const entry of playbook.entries) {
+    if (!knownPlayIds.has(entry.playId)) {
+      res.status(400).json({ error: `Unknown defensive play ID '${entry.playId}'.` }); return;
+    }
+    if (typeof entry.weight !== 'number' || !Number.isFinite(entry.weight) || entry.weight < 1) {
+      res.status(400).json({ error: `Weight for '${entry.playId}' must be a whole number of at least 1.` }); return;
+    }
+  }
+  const entryIds = playbook.entries.map(e => e.playId);
+  if (new Set(entryIds).size !== entryIds.length) {
+    res.status(400).json({ error: 'Playbook contains duplicate play entries. Each play may appear at most once.' }); return;
+  }
+
+  const userTeam  = getUserTeam(league);
+  const existing  = userTeam.customDefensivePlaybooks ?? [];
+  // Duplicate name check (case-insensitive, excluding the playbook being updated)
+  const dupName = existing.filter(pb => pb.id !== playbook.id)
+    .find(pb => pb.name.trim().toLowerCase() === playbook.name.trim().toLowerCase());
+  if (dupName) {
+    res.status(400).json({ error: `A custom playbook named "${playbook.name.trim()}" already exists. Choose a different name.` }); return;
+  }
+  const idx       = existing.findIndex(pb => pb.id === playbook.id);
+  const newList   = idx >= 0
+    ? existing.map((pb, i) => i === idx ? { id: playbook.id, name: playbook.name.trim(), entries: playbook.entries } : pb)
+    : [...existing, { id: playbook.id, name: playbook.name.trim(), entries: playbook.entries }];
+  const updatedTeam = { ...userTeam, customDefensivePlaybooks: newList };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/delete-defense-playbook — delete a custom defensive playbook.
+app.post('/league/:id/delete-defense-playbook', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { playbookId } = req.body as { playbookId?: string };
+  if (!playbookId) { res.status(400).json({ error: 'playbookId is required.' }); return; }
+
+  const userTeam = getUserTeam(league);
+  if (!(userTeam.customDefensivePlaybooks ?? []).some(pb => pb.id === playbookId)) {
+    res.status(404).json({ error: 'Custom defensive playbook not found.' }); return;
+  }
+  const plan = userTeam.defensivePlan;
+  if (plan && Object.values(plan).includes(playbookId)) {
+    res.status(400).json({ error: 'Cannot delete a defensive playbook assigned in your Defensive Plan. Reassign those buckets first.' }); return;
+  }
+  const newList = (userTeam.customDefensivePlaybooks ?? []).filter(pb => pb.id !== playbookId);
+  const updatedTeam = { ...userTeam, customDefensivePlaybooks: newList };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// GET /formations — return the full formation + playbook library (offensive + defensive) for UI.
+app.get('/formations', (req: Request, res: Response) => {
+  res.json({
+    formations:         OFFENSIVE_FORMATIONS,
+    playbooks:          PLAYBOOKS,
+    plays:              OFFENSIVE_PLAYS,
+    packages:           DEFENSIVE_PACKAGES,
+    defensivePlaybooks: DEFENSIVE_PLAYBOOKS,
+    defensivePlays:     DEFENSIVE_PLAYS,
+  });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
