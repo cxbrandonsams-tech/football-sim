@@ -411,7 +411,11 @@ function defRating(def: Team, type: PlayType): number {
   }
 }
 
-// ── Pass target selection ─────────────────────────────────────────────────────
+// ── Personnel package system ──────────────────────────────────────────────────
+
+type PersonnelPackage = '11' | '12' | '21' | '10' | '22';
+type ReceiverRole = 'featured_route' | 'secondary_route' | 'slot' | 'seam_route' | 'inline_option' | 'check_down';
+type TargetSlot   = 'WR1' | 'WR2' | 'WR3' | 'TE1' | 'TE2' | 'RB1' | 'RB2';
 
 interface ReceiverStats {
   playerId:     string | undefined;
@@ -421,50 +425,222 @@ interface ReceiverStats {
   hands:        number;
   size:         number;
   yac:          number;
+  role:         ReceiverRole;
+  slot:         TargetSlot;
 }
 
-function getReceiverStats(p: Player | null | undefined): ReceiverStats | null {
-  if (!p || p.injuryWeeksRemaining > 0) return null;
-  const r  = p.trueRatings;
-  const nm = p.name.split(' ').pop() ?? p.name;
-  if (r.position === 'WR') return { playerId: p.id, name: nm, routeRunning: r.routeRunning, speed: r.speed, hands: r.hands, size: r.size, yac: r.yac };
-  if (r.position === 'TE') return { playerId: p.id, name: nm, routeRunning: r.routeRunning, speed: r.speed, hands: r.hands, size: r.size, yac: r.yac };
-  if (r.position === 'RB') return { playerId: p.id, name: nm, routeRunning: r.elusiveness, speed: r.speed, hands: Math.min(r.ballSecurity + 10, 85), size: 55, yac: r.speed };
-  return null;
+// Role opportunity multipliers by pass depth (reduced spread — ratings remain primary driver).
+const ROLE_MULT: Record<ReceiverRole, Record<'short' | 'medium' | 'deep', number>> = {
+  featured_route:  { short: 1.15, medium: 1.25, deep: 1.50 },
+  secondary_route: { short: 1.00, medium: 1.05, deep: 1.15 },
+  slot:            { short: 1.05, medium: 0.90, deep: 0.50 },
+  seam_route:      { short: 0.90, medium: 1.10, deep: 0.75 },
+  inline_option:   { short: 0.80, medium: 0.70, deep: 0.25 },
+  check_down:      { short: 0.95, medium: 0.50, deep: 0.10 },
+};
+
+// Receiver rating blend by pass depth.
+const RECV_RW: Record<'short' | 'medium' | 'deep', { rr: number; sp: number; hd: number }> = {
+  short:  { rr: 0.55, sp: 0.25, hd: 0.20 },
+  medium: { rr: 0.45, sp: 0.40, hd: 0.15 },
+  deep:   { rr: 0.25, sp: 0.65, hd: 0.10 },
+};
+
+// INT credit role weights: base opportunity for each defender by target slot and pass depth.
+// CB1 shades to WR1 (best CB follows best WR). Safeties help over middle/deep.
+// LBs primarily cover RBs and TEs on short/medium routes.
+type IntSlotW = { cb1: number; cb2: number; s1: number; s2: number; lb1: number };
+const INT_CREDIT: Record<TargetSlot, Record<'short' | 'medium' | 'deep', IntSlotW>> = {
+  WR1: { short: {cb1:1.5,cb2:0.5,s1:0.4,s2:0.2,lb1:0.2}, medium:{cb1:1.2,cb2:0.7,s1:0.7,s2:0.3,lb1:0.2}, deep:{cb1:1.2,cb2:0.4,s1:1.1,s2:0.8,lb1:0.1} },
+  WR2: { short: {cb1:0.6,cb2:1.4,s1:0.4,s2:0.2,lb1:0.2}, medium:{cb1:0.6,cb2:1.1,s1:0.7,s2:0.4,lb1:0.2}, deep:{cb1:0.6,cb2:1.0,s1:0.9,s2:0.9,lb1:0.1} },
+  WR3: { short: {cb1:0.5,cb2:1.0,s1:0.5,s2:0.3,lb1:0.5}, medium:{cb1:0.4,cb2:0.9,s1:0.7,s2:0.5,lb1:0.4}, deep:{cb1:0.4,cb2:0.7,s1:0.9,s2:1.0,lb1:0.2} },
+  TE1: { short: {cb1:0.3,cb2:0.3,s1:0.9,s2:0.6,lb1:1.0}, medium:{cb1:0.3,cb2:0.3,s1:1.1,s2:0.8,lb1:0.8}, deep:{cb1:0.3,cb2:0.2,s1:1.3,s2:1.1,lb1:0.3} },
+  TE2: { short: {cb1:0.2,cb2:0.3,s1:0.8,s2:0.7,lb1:1.1}, medium:{cb1:0.2,cb2:0.3,s1:1.0,s2:0.9,lb1:0.8}, deep:{cb1:0.2,cb2:0.2,s1:1.2,s2:1.2,lb1:0.3} },
+  RB1: { short: {cb1:0.2,cb2:0.2,s1:0.3,s2:0.3,lb1:1.5}, medium:{cb1:0.2,cb2:0.2,s1:0.4,s2:0.4,lb1:1.3}, deep:{cb1:0.2,cb2:0.2,s1:0.6,s2:0.6,lb1:0.8} },
+  RB2: { short: {cb1:0.2,cb2:0.2,s1:0.3,s2:0.3,lb1:1.5}, medium:{cb1:0.2,cb2:0.2,s1:0.4,s2:0.4,lb1:1.3}, deep:{cb1:0.2,cb2:0.2,s1:0.6,s2:0.6,lb1:0.8} },
+};
+
+/**
+ * Selects a personnel package based on game situation.
+ * Returns the formation code used to determine which receivers are on the field.
+ */
+function selectPersonnel(_off: Team, sit: GameSituation): PersonnelPackage {
+  const p = cfg.personnel.packages;
+  type PkgDist = { pkg22: number; pkg21: number; pkg12: number; pkg11: number; pkg10: number };
+  let d: PkgDist;
+  if      (sit.yardLine >= 94) d = p.goalLine;
+  else if (sit.yardLine >= 80) d = p.redZone;
+  else if (sit.distance <= 2)  d = p.shortYardage;
+  else if (sit.scoreDiff < -7 && sit.clockSeconds < 120 &&
+           (sit.quarter === 2 || sit.quarter === 4)) d = p.twoMinute;
+  else d = p.standard;
+
+  const r = Math.random();
+  if (r < d.pkg22)                           return '22';
+  if (r < d.pkg22 + d.pkg21)                return '21';
+  if (r < d.pkg22 + d.pkg21 + d.pkg12)      return '12';
+  if (r < d.pkg22 + d.pkg21 + d.pkg12 + d.pkg11) return '11';
+  return '10';
 }
 
 /**
- * Select a pass target from WR1, WR2, TE, RB using depth-based target-share weights.
- * Deep passes heavily favour WR1/WR2; short passes include TE/RB screen targets.
+ * Build the on-field receiver pool from the active personnel package,
+ * then select a target using ratings-driven target weights:
+ *   weight = roleMult(role, depth) × ratingScore(receiver, depth)
+ * Diminishing returns (weight^0.9) and small noise (±7.5%) prevent extreme concentration.
  */
-function selectPassTarget(off: Team, depth: 'short' | 'medium' | 'deep'): ReceiverStats {
-  const wr1 = off.depthChart['WR'][0] ?? null;
-  const wr2 = off.depthChart['WR'][1] ?? null;
-  const te  = off.depthChart['TE'][0] ?? null;
-  const rb  = off.depthChart['RB'][0] ?? null;
+function selectPassTarget(off: Team, depth: 'short' | 'medium' | 'deep', pkg: PersonnelPackage): ReceiverStats {
+  const fallback: ReceiverStats = {
+    playerId: undefined, name: '', routeRunning: 50, speed: 50, hands: 50, size: 50, yac: 50,
+    role: 'check_down', slot: 'RB1',
+  };
 
-  // Target share weights: [WR1, WR2, TE, RB]
-  const w =
-    depth === 'short'  ? [22, 16, 22, 20] :
-    depth === 'medium' ? [28, 22, 20, 12] :
-                         [42, 30, 16,  4] ;
+  type PoolEntry = { player: Player | null; role: ReceiverRole; slot: TargetSlot };
+  const dc = off.depthChart;
 
-  const players = [wr1, wr2, te, rb];
-  const available: { stats: ReceiverStats; weight: number }[] = [];
-  for (let i = 0; i < players.length; i++) {
-    const s = getReceiverStats(players[i]);
-    if (s) available.push({ stats: s, weight: w[i]! });
+  const pool: PoolEntry[] = (() => {
+    switch (pkg) {
+      case '11': return [
+        { player: dc['WR'][0] ?? null, role: 'featured_route',  slot: 'WR1' },
+        { player: dc['WR'][1] ?? null, role: 'secondary_route', slot: 'WR2' },
+        { player: dc['WR'][2] ?? null, role: 'slot',            slot: 'WR3' },
+        { player: dc['TE'][0] ?? null, role: 'inline_option',   slot: 'TE1' },
+        { player: dc['RB'][0] ?? null, role: 'check_down',      slot: 'RB1' },
+      ];
+      case '12': return [
+        { player: dc['WR'][0] ?? null, role: 'featured_route',  slot: 'WR1' },
+        { player: dc['WR'][1] ?? null, role: 'secondary_route', slot: 'WR2' },
+        { player: dc['TE'][0] ?? null, role: 'seam_route',      slot: 'TE1' },
+        { player: dc['TE'][1] ?? null, role: 'inline_option',   slot: 'TE2' },
+        { player: dc['RB'][0] ?? null, role: 'check_down',      slot: 'RB1' },
+      ];
+      case '21': return [
+        { player: dc['WR'][0] ?? null, role: 'featured_route',  slot: 'WR1' },
+        { player: dc['WR'][1] ?? null, role: 'secondary_route', slot: 'WR2' },
+        { player: dc['TE'][0] ?? null, role: 'seam_route',      slot: 'TE1' },
+        { player: dc['RB'][0] ?? null, role: 'check_down',      slot: 'RB1' },
+        { player: dc['RB'][1] ?? null, role: 'check_down',      slot: 'RB2' },
+      ];
+      case '10': return [
+        { player: dc['WR'][0] ?? null, role: 'featured_route',  slot: 'WR1' },
+        { player: dc['WR'][1] ?? null, role: 'secondary_route', slot: 'WR2' },
+        { player: dc['WR'][2] ?? null, role: 'slot',            slot: 'WR3' },
+        { player: dc['RB'][0] ?? null, role: 'check_down',      slot: 'RB1' },
+      ];
+      case '22': return [
+        { player: dc['WR'][0] ?? null, role: 'featured_route',  slot: 'WR1' },
+        { player: dc['TE'][0] ?? null, role: 'seam_route',      slot: 'TE1' },
+        { player: dc['TE'][1] ?? null, role: 'inline_option',   slot: 'TE2' },
+        { player: dc['RB'][0] ?? null, role: 'check_down',      slot: 'RB1' },
+        { player: dc['RB'][1] ?? null, role: 'check_down',      slot: 'RB2' },
+      ];
+    }
+  })();
+
+  const rw  = RECV_RW[depth];
+  const cfgP = cfg.personnel;
+  const candidates: { stats: ReceiverStats; weight: number }[] = [];
+
+  for (const entry of pool) {
+    const p = entry.player;
+    if (!p || p.injuryWeeksRemaining > 0) continue;
+    const r = p.trueRatings;
+    let routeRunning: number, speed: number, hands: number, size: number, yac: number;
+
+    if      (r.position === 'WR') { routeRunning = r.routeRunning; speed = r.speed; hands = r.hands; size = r.size; yac = r.yac; }
+    else if (r.position === 'TE') { routeRunning = r.routeRunning; speed = r.speed; hands = r.hands; size = r.size; yac = r.yac; }
+    else if (r.position === 'RB') { routeRunning = r.elusiveness;  speed = r.speed; hands = Math.min(r.ballSecurity + 10, 85); size = 55; yac = r.speed; }
+    else continue;
+
+    const nm = p.name.split(' ').pop() ?? p.name;
+    const ratingScore = routeRunning * rw.rr + speed * rw.sp + hands * rw.hd;
+    const roleMult    = ROLE_MULT[entry.role][depth];
+
+    // raw weight = role × (rating / 50), then diminishing returns, then noise
+    let w = roleMult * (ratingScore / 50);
+    w = Math.pow(w, cfgP.targetWeightExponent);
+    w *= 1 + (Math.random() * 2 - 1) * cfgP.targetWeightNoise;
+    w = Math.max(0, w);
+
+    candidates.push({ stats: { playerId: p.id, name: nm, routeRunning, speed, hands, size, yac, role: entry.role, slot: entry.slot }, weight: w });
   }
-  if (available.length === 0) {
-    return { playerId: undefined, name: '', routeRunning: 50, speed: 50, hands: 50, size: 50, yac: 50 };
-  }
-  const total = available.reduce((s, c) => s + c.weight, 0);
+
+  if (candidates.length === 0) return fallback;
+  const total = candidates.reduce((s, c) => s + c.weight, 0);
   let roll = Math.random() * total;
-  for (const c of available) {
-    roll -= c.weight;
-    if (roll <= 0) return c.stats;
+  for (const c of candidates) { roll -= c.weight; if (roll <= 0) return c.stats; }
+  return candidates[candidates.length - 1]!.stats;
+}
+
+/**
+ * Pick which defender gets sack credit.
+ * Standard 4-man rush: DE1, DE2, DT1, LB1.
+ * Weight = max(0, passRush − threshold) — linear so elite rushers dominate while backups contribute.
+ */
+function pickSackCredit(def: Team): string | undefined {
+  const threshold = cfg.personnel.sackCreditThreshold;
+  const rushSlots: Array<{ slot: DepthChartSlot; idx: number }> = [
+    { slot: 'DE', idx: 0 }, { slot: 'DE', idx: 1 },
+    { slot: 'DT', idx: 0 }, { slot: 'LB', idx: 0 },
+  ];
+
+  const candidates: { id: string; weight: number }[] = [];
+  for (const { slot, idx } of rushSlots) {
+    const p = def.depthChart[slot][idx] ?? null;
+    if (!p || p.injuryWeeksRemaining > 0) continue;
+    const r = p.trueRatings;
+    const passRush =
+      (r.position === 'DE' || r.position === 'DT')       ? (r as DLRatings).passRush :
+      (r.position === 'OLB' || r.position === 'MLB')      ? (r as LBRatings).passRush : 0;
+    const w = Math.max(0, passRush - threshold);
+    if (w > 0) candidates.push({ id: p.id, weight: w });
   }
-  return available[0]!.stats;
+  if (candidates.length === 0) return def.depthChart['DE'][0]?.id;
+  const total = candidates.reduce((s, c) => s + c.weight, 0);
+  let roll = Math.random() * total;
+  for (const c of candidates) { roll -= c.weight; if (roll <= 0) return c.id; }
+  return candidates[candidates.length - 1]?.id;
+}
+
+/**
+ * Pick which defender gets INT credit.
+ * Role weights reflect which defender was likely in coverage on the targeted route.
+ * Multiplied by a ratings score (ballSkills + coverage + awareness).
+ */
+function pickIntCredit(def: Team, tgt: ReceiverStats, depth: 'short' | 'medium' | 'deep'): string | undefined {
+  const sw = INT_CREDIT[tgt.slot]?.[depth] ?? { cb1:1.0, cb2:0.5, s1:0.5, s2:0.3, lb1:0.3 };
+
+  type CovSlot = { slot: DepthChartSlot; idx: number; roleW: number };
+  const covSlots: CovSlot[] = [
+    { slot: 'CB', idx: 0, roleW: sw.cb1 },
+    { slot: 'CB', idx: 1, roleW: sw.cb2 },
+    { slot: 'S',  idx: 0, roleW: sw.s1  },
+    { slot: 'S',  idx: 1, roleW: sw.s2  },
+    { slot: 'LB', idx: 0, roleW: sw.lb1 },
+  ];
+
+  const candidates: { id: string; weight: number }[] = [];
+  for (const { slot, idx, roleW } of covSlots) {
+    const p = def.depthChart[slot][idx] ?? null;
+    if (!p || p.injuryWeeksRemaining > 0) continue;
+    const r = p.trueRatings;
+    let ballSkills: number, coverage: number, awareness: number;
+    if (r.position === 'CB') {
+      ballSkills = (r as CBRatings).ballSkills;  coverage = (r as CBRatings).manCoverage;  awareness = (r as CBRatings).awareness;
+    } else if (r.position === 'FS' || r.position === 'SS') {
+      ballSkills = (r as SafetyRatings).ballSkills; coverage = (r as SafetyRatings).zoneCoverage; awareness = (r as SafetyRatings).awareness;
+    } else { // LB
+      ballSkills = 50; coverage = (r as LBRatings).coverage; awareness = (r as LBRatings).awareness;
+    }
+    const ratingScore = ballSkills * 0.45 + coverage * 0.30 + awareness * 0.25;
+    const w = roleW * (ratingScore / 50);
+    if (w > 0) candidates.push({ id: p.id, weight: w });
+  }
+  if (candidates.length === 0) return def.depthChart['CB'][0]?.id;
+  const total = candidates.reduce((s, c) => s + c.weight, 0);
+  let roll = Math.random() * total;
+  for (const c of candidates) { roll -= c.weight; if (roll <= 0) return c.id; }
+  return candidates[candidates.length - 1]?.id;
 }
 
 // ── Pass phase helpers ────────────────────────────────────────────────────────
@@ -712,8 +888,11 @@ function yardsOnFail(type: PlayType): number {
 function simulatePlay(
   off: Team, def: Team, type: PlayType,
   quarter: number, down: number, distance: number, yardLine: number,
-  fatigueAdj = 0,   // positive = net help for offense; negative = net hurt for offense
+  fatigueAdj = 0,       // positive = net help for offense; negative = net hurt for offense
+  sit?: GameSituation,  // for personnel package selection
 ): PlayEvent {
+  // Reconstruct a minimal sit if not provided (used for FG / special teams calls)
+  const situation: GameSituation = sit ?? { down, distance, yardLine, quarter, clockSeconds: 900, scoreDiff: 0 };
   const base = { type, offenseTeamId: off.id, defenseTeamId: def.id, quarter, down, distance, yardLine };
 
   // Punt
@@ -770,17 +949,17 @@ function simulatePlay(
     pressureLevel = Math.max(0, Math.min(1, (advantage / 50) * 0.8));
 
     if (sackRoll < adjustedSackChance) {
-      // QB was brought down — sack
-      const qbId = pid(off, 'QB');
-      const deId = pid(def, 'DE');
+      // QB was brought down — sack credited to the ratings-weighted pass rusher
+      const qbId  = pid(off, 'QB');
+      const sackId = pickSackCredit(def);
       return {
         ...base,
         type:        'sack',
         result:      'fail',
         yards:       randInt(-8, -2),
         ballCarrier: lastName(off, 'QB'),
-        ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
-        ...(deId !== undefined ? { defPlayerId:   deId } : {}),
+        ...(qbId   !== undefined ? { ballCarrierId: qbId   } : {}),
+        ...(sackId !== undefined ? { defPlayerId:   sackId } : {}),
       };
     }
     // Scramble — independent of the sack window.
@@ -844,8 +1023,10 @@ function simulatePlay(
     const depth: 'short' | 'medium' | 'deep' =
       type === 'short_pass'  ? 'short'  :
       type === 'medium_pass' ? 'medium' : 'deep';
-    // Select target receiver before separation — their ratings drive route/separation
-    const tgt     = selectPassTarget(off, depth);
+    // Select personnel package then target receiver.
+    // Personnel determines the on-field pool; ratings drive who earns the target.
+    const pkg = selectPersonnel(off, situation);
+    const tgt = selectPassTarget(off, depth, pkg);
     // Play-action bonus from offensive gameplan
     const paLevel    = (off.gameplan?.playAction ?? 'low') as keyof typeof cfg.gameplan.playAction;
     const paBonus    = cfg.gameplan.playAction[paLevel] ?? 0;
@@ -931,8 +1112,8 @@ function simulatePlay(
           + throwQualityBonus + pressureBonus + windowIntMod + badDMIntMod),
       );
       if (Math.random() < intChance) {
-        const qbId = pid(off, 'QB');
-        const cbId = pid(def, 'CB');
+        const qbId  = pid(off, 'QB');
+        const intId = pickIntCredit(def, tgt, depth);
         return {
           ...base,
           type:        'interception',
@@ -940,9 +1121,9 @@ function simulatePlay(
           yards:       0,
           ballCarrier: lastName(off, 'QB'),
           target:      tgt.name,
-          ...(qbId         !== undefined ? { ballCarrierId: qbId } : {}),
+          ...(qbId         !== undefined ? { ballCarrierId: qbId  } : {}),
           ...(tgt.playerId !== undefined ? { targetId: tgt.playerId } : {}),
-          ...(cbId         !== undefined ? { defPlayerId:   cbId } : {}),
+          ...(intId        !== undefined ? { defPlayerId:   intId } : {}),
         };
       }
     }
@@ -1288,7 +1469,7 @@ export function simulateGame(game: Game): GameResult {
         }
       }
 
-      const ev = simulatePlay(off, def, type, quarter, down, distance, yardLine, playAdj);
+      const ev = simulatePlay(off, def, type, quarter, down, distance, yardLine, playAdj, sit);
       events.push(ev);
 
       // Build fatigue after the play

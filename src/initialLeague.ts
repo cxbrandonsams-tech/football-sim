@@ -27,8 +27,8 @@ function seededRng(seed: number): () => number {
 
 // ── Rating generators ─────────────────────────────────────────────────────────
 
-const p = (we: number, lo: number, gr: number, di: number) =>
-  ({ workEthic: we, loyalty: lo, greed: gr, discipline: di });
+const p = (we: number, lo: number, gr: number) =>
+  ({ workEthic: we, loyalty: lo, greed: gr });
 
 function rng(rand: () => number, center: number, spread = 12): number {
   return clamp(Math.round(center + (rand() - 0.5) * 2 * spread));
@@ -46,6 +46,7 @@ function makeQB(rand: () => number, tier: number): AnyRatings {
     deepAccuracy:   rng(rand, c - 2),
     processing:     rng(rand, c + 1),
     decisionMaking: rng(rand, c + 2),
+    personality:    p(rng(rand, 70, 15), rng(rand, 60, 20), rng(rand, 45, 20)),
   };
 }
 
@@ -58,7 +59,7 @@ function makeRB(rand: () => number, tier: number): AnyRatings {
     power:        rng(rand, c),
     vision:       rng(rand, c),
     ballSecurity: rng(rand, c - 2),
-    personality:  p(rng(rand, 70, 15), rng(rand, 60, 20), rng(rand, 45, 20), rng(rand, 68, 15)),
+    personality:  p(rng(rand, 70, 15), rng(rand, 60, 20), rng(rand, 45, 20)),
   };
 }
 
@@ -71,7 +72,7 @@ function makeWR(rand: () => number, tier: number): AnyRatings {
     hands:        rng(rand, c + 2),
     yac:          rng(rand, c + 1),
     size:         rng(rand, c - 3),
-    personality:  p(rng(rand, 68, 15), rng(rand, 58, 20), rng(rand, 50, 20), rng(rand, 65, 15)),
+    personality:  p(rng(rand, 68, 15), rng(rand, 58, 20), rng(rand, 50, 20)),
   };
 }
 
@@ -85,7 +86,7 @@ function makeTE(rand: () => number, tier: number): AnyRatings {
     yac:          rng(rand, c),
     size:         rng(rand, c + 2),
     blocking:     rng(rand, c + 3),
-    personality:  p(rng(rand, 72, 15), rng(rand, 65, 20), rng(rand, 42, 20), rng(rand, 70, 15)),
+    personality:  p(rng(rand, 72, 15), rng(rand, 65, 20), rng(rand, 42, 20)),
   };
 }
 
@@ -96,7 +97,8 @@ function makeOL(rand: () => number, tier: number, pos: 'OT' | 'OG' | 'C'): AnyRa
     passBlocking: rng(rand, c + 2),
     runBlocking:  rng(rand, c + 1),
     awareness:    rng(rand, c),
-    personality:  p(rng(rand, 74, 15), rng(rand, 68, 20), rng(rand, 38, 20), rng(rand, 74, 15)),
+    discipline:   rng(rand, c + 1),
+    personality:  p(rng(rand, 74, 15), rng(rand, 68, 20), rng(rand, 38, 20)),
   };
 }
 
@@ -107,7 +109,7 @@ function makeDE(rand: () => number, tier: number): AnyRatings {
     passRush:    rng(rand, c + 4),
     runDefense:  rng(rand, c),
     discipline:  rng(rand, c + 1),
-    personality: p(rng(rand, 72, 15), rng(rand, 62, 20), rng(rand, 44, 20), rng(rand, 68, 15)),
+    personality: p(rng(rand, 72, 15), rng(rand, 62, 20), rng(rand, 44, 20)),
   };
 }
 
@@ -118,7 +120,7 @@ function makeDT(rand: () => number, tier: number): AnyRatings {
     passRush:    rng(rand, c + 1),
     runDefense:  rng(rand, c + 4),
     discipline:  rng(rand, c + 2),
-    personality: p(rng(rand, 74, 15), rng(rand, 66, 20), rng(rand, 40, 20), rng(rand, 72, 15)),
+    personality: p(rng(rand, 74, 15), rng(rand, 66, 20), rng(rand, 40, 20)),
   };
 }
 
@@ -132,7 +134,8 @@ function makeLB(rand: () => number, tier: number, pos: 'OLB' | 'MLB'): AnyRating
     speed:       rng(rand, c + 2),
     pursuit:     rng(rand, c + 1),
     awareness:   rng(rand, c + 1),
-    personality: p(rng(rand, 76, 15), rng(rand, 68, 20), rng(rand, 40, 20), rng(rand, 74, 15)),
+    discipline:  rng(rand, c + 1),
+    personality: p(rng(rand, 76, 15), rng(rand, 68, 20), rng(rand, 40, 20)),
   };
 }
 
@@ -146,8 +149,9 @@ function makeCB(rand: () => number, tier: number): AnyRatings {
     speed:        rng(rand, c + 6),
     size:         rng(rand, c - 2),
     awareness:    rng(rand, c + 1),
+    discipline:   rng(rand, c + 1),
     tackling:     rng(rand, c - 2),
-    personality:  p(rng(rand, 70, 15), rng(rand, 62, 20), rng(rand, 48, 20), rng(rand, 68, 15)),
+    personality:  p(rng(rand, 70, 15), rng(rand, 62, 20), rng(rand, 48, 20)),
   };
 }
 
@@ -163,8 +167,9 @@ function makeSafety(rand: () => number, tier: number, pos: 'FS' | 'SS'): AnyRati
     speed:        rng(rand, c + 2),
     size:         rng(rand, pos === 'SS' ? c + 2 : c - 1),
     awareness:    rng(rand, pos === 'FS' ? c + 3 : c),
+    discipline:   rng(rand, c + 1),
     tackling:     rng(rand, pos === 'SS' ? c + 3 : c),
-    personality:  p(rng(rand, 72, 15), rng(rand, 66, 20), rng(rand, 42, 20), rng(rand, 72, 15)),
+    personality:  p(rng(rand, 72, 15), rng(rand, 66, 20), rng(rand, 42, 20)),
   };
 }
 
@@ -175,7 +180,7 @@ function makeK(rand: () => number, tier: number): AnyRatings {
     kickPower:    rng(rand, c + 4),
     kickAccuracy: rng(rand, c + 3),
     composure:    rng(rand, c),
-    personality:  p(rng(rand, 70, 15), rng(rand, 72, 20), rng(rand, 38, 20), rng(rand, 76, 15)),
+    personality:  p(rng(rand, 70, 15), rng(rand, 72, 20), rng(rand, 38, 20)),
   };
 }
 
@@ -186,7 +191,7 @@ function makeP(rand: () => number, tier: number): AnyRatings {
     kickPower:    rng(rand, c + 2),
     kickAccuracy: rng(rand, c + 5),
     composure:    rng(rand, c + 1),
-    personality:  p(rng(rand, 70, 15), rng(rand, 72, 20), rng(rand, 36, 20), rng(rand, 76, 15)),
+    personality:  p(rng(rand, 70, 15), rng(rand, 72, 20), rng(rand, 36, 20)),
   };
 }
 

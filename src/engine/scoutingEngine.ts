@@ -118,31 +118,32 @@ function rTier(tier: DraftTier): number {
 }
 
 function personality(tier: DraftTier): PersonalityRatings {
-  return { workEthic: rTier(tier), loyalty: rTier(tier), greed: rTier(tier), discipline: rTier(tier) };
+  return { workEthic: rTier(tier), loyalty: rTier(tier), greed: rTier(tier) };
 }
 
 function makeRatings(position: Position, tier: DraftTier): AnyRatings {
   const r = () => rTier(tier);
   switch (position) {
     case 'QB':  return { position: 'QB', armStrength: r(), pocketPresence: r(), mobility: r(),
-      shortAccuracy: r(), mediumAccuracy: r(), deepAccuracy: r(), processing: r(), decisionMaking: r() };
+      shortAccuracy: r(), mediumAccuracy: r(), deepAccuracy: r(), processing: r(), decisionMaking: r(),
+      personality: personality(tier) };
     case 'RB':  return { position: 'RB', speed: r(), elusiveness: r(), power: r(),
       vision: r(), ballSecurity: r(), personality: personality(tier) };
     case 'WR':  return { position: 'WR', speed: r(), routeRunning: r(), hands: r(),
       yac: r(), size: r(), personality: personality(tier) };
     case 'TE':  return { position: 'TE', speed: r(), routeRunning: r(), hands: r(),
       yac: r(), size: r(), blocking: r(), personality: personality(tier) };
-    case 'OT':  return { position: 'OT', passBlocking: r(), runBlocking: r(), awareness: r(), personality: personality(tier) };
-    case 'OG':  return { position: 'OG', passBlocking: r(), runBlocking: r(), awareness: r(), personality: personality(tier) };
-    case 'C':   return { position: 'C',  passBlocking: r(), runBlocking: r(), awareness: r(), personality: personality(tier) };
+    case 'OT':  return { position: 'OT', passBlocking: r(), runBlocking: r(), awareness: r(), discipline: r(), personality: personality(tier) };
+    case 'OG':  return { position: 'OG', passBlocking: r(), runBlocking: r(), awareness: r(), discipline: r(), personality: personality(tier) };
+    case 'C':   return { position: 'C',  passBlocking: r(), runBlocking: r(), awareness: r(), discipline: r(), personality: personality(tier) };
     case 'DE':  return { position: 'DE', passRush: r(), runDefense: r(), discipline: r(), personality: personality(tier) };
     case 'DT':  return { position: 'DT', passRush: r(), runDefense: r(), discipline: r(), personality: personality(tier) };
-    case 'OLB': return { position: 'OLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), awareness: r(), personality: personality(tier) };
-    case 'MLB': return { position: 'MLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), awareness: r(), personality: personality(tier) };
+    case 'OLB': return { position: 'OLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), awareness: r(), discipline: r(), personality: personality(tier) };
+    case 'MLB': return { position: 'MLB', passRush: r(), runDefense: r(), coverage: r(), speed: r(), pursuit: r(), awareness: r(), discipline: r(), personality: personality(tier) };
     // Range is derived (speed*0.6 + awareness*0.4) — NOT a stored stat
-    case 'CB':  return { position: 'CB', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), speed: r(), size: r(), awareness: r(), tackling: r(), personality: personality(tier) };
-    case 'FS':  return { position: 'FS', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), speed: r(), size: r(), awareness: r(), tackling: r(), personality: personality(tier) };
-    case 'SS':  return { position: 'SS', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), speed: r(), size: r(), awareness: r(), tackling: r(), personality: personality(tier) };
+    case 'CB':  return { position: 'CB', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), speed: r(), size: r(), awareness: r(), discipline: r(), tackling: r(), personality: personality(tier) };
+    case 'FS':  return { position: 'FS', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), speed: r(), size: r(), awareness: r(), discipline: r(), tackling: r(), personality: personality(tier) };
+    case 'SS':  return { position: 'SS', manCoverage: r(), zoneCoverage: r(), ballSkills: r(), speed: r(), size: r(), awareness: r(), discipline: r(), tackling: r(), personality: personality(tier) };
     case 'K':   return { position: 'K',  kickPower: r(), kickAccuracy: r(), composure: r(), personality: personality(tier) };
     case 'P':   return { position: 'P',  kickPower: r(), kickAccuracy: r(), composure: r(), personality: personality(tier) };
   }
@@ -202,6 +203,7 @@ function getRatingEntries(ratings: AnyRatings): RatingEntry[] {
       { key:'passBlocking', value: ratings.passBlocking, hiText:'Stout in pass protection, anchors well vs. bull rushes',      loText:'Gives up pressure and struggles on spin/speed moves' },
       { key:'runBlocking',  value: ratings.runBlocking,  hiText:'Dominant in the run game, drives defenders off the ball',    loText:'Inconsistent run blocker who gets washed out' },
       { key:'awareness',    value: ratings.awareness,    hiText:'Smart and communicates well, handles stunts and games',       loText:'Gets confused by complex defensive stunts' },
+      { key:'discipline',   value: ratings.discipline,   hiText:'Disciplined technique, rarely gets flagged for holding or false starts', loText:'Penalty-prone — holds and false starts hurt the offense' },
     ];
     case 'DE': case 'DT': return [
       { key:'passRush',    value: ratings.passRush,    hiText:'Relentless pass rusher with a varied and effective move set',  loText:'Pass rush production is inconsistent on film' },
@@ -214,23 +216,26 @@ function getRatingEntries(ratings: AnyRatings): RatingEntry[] {
       { key:'speed',       value: ratings.speed,       hiText:'Athletic range to cover sideline-to-sideline',                loText:'Limited athleticism affects his range and recovery' },
       { key:'pursuit',     value: ratings.pursuit,     hiText:'Elite pursuit angles, rarely overruns or loses contain',      loText:'Takes poor pursuit angles and gets cut back on' },
       { key:'awareness',   value: ratings.awareness,   hiText:'Smart and pre-snap awareness helps him anticipate plays',     loText:'Gets fooled by misdirection and play-action' },
+      { key:'discipline',  value: ratings.discipline,  hiText:'Disciplined and assignment-sound, rarely jumps offside or takes late hits', loText:'Undisciplined — takes costly penalties at bad times' },
     ];
     case 'CB': return [
-      // Range is hidden/derived — not listed; speed and awareness implicitly drive it
+      // Range is derived — not listed; speed and awareness implicitly drive it
       { key:'manCoverage',  value: ratings.manCoverage,  hiText:'Can lock receivers down in tight man-to-man coverage',      loText:'Struggles to stay with quicker receivers in man' },
       { key:'zoneCoverage', value: ratings.zoneCoverage, hiText:'Reads zone assignments and ball-tracks with elite instincts', loText:'Gets lost in zone and bites on route combinations' },
       { key:'speed',        value: ratings.speed,        hiText:'Closing speed to run with any receiver on the field',       loText:'Average speed is a liability against speed receivers' },
       { key:'ballSkills',   value: ratings.ballSkills,   hiText:'Ball hawk who goes up and takes the football away',         loText:'Ball skills and playmaking need improvement' },
       { key:'awareness',    value: ratings.awareness,    hiText:'Pre-snap recognition and assignment discipline are elite',  loText:'Gets confused by route combinations and motion' },
+      { key:'discipline',   value: ratings.discipline,   hiText:'Stays disciplined in coverage, avoids holding and PI',     loText:'Grabs and holds in coverage — a penalty risk on every rep' },
       { key:'tackling',     value: ratings.tackling,     hiText:'Reliable open-field tackler, rarely misses in space',       loText:'Open-field tackling is an area of concern' },
     ];
     case 'FS': case 'SS': return [
-      // Range is a HIDDEN derived stat (speed*0.6 + awareness*0.4) — not listed here
+      // Range is a derived stat (speed*0.6 + awareness*0.4) — not listed here
       { key:'zoneCoverage', value: ratings.zoneCoverage, hiText:'Natural center fielder who covers ground effortlessly',     loText:'Zone coverage reads are slow and inconsistent' },
       { key:'manCoverage',  value: ratings.manCoverage,  hiText:'Can match up in press on TEs and slot receivers',          loText:'Man coverage is a consistent liability on film' },
       { key:'speed',        value: ratings.speed,        hiText:'Elite closing speed, takes great angles to the football',  loText:'Below-average speed limits positional versatility' },
       { key:'ballSkills',   value: ratings.ballSkills,   hiText:'Ball hawk with instincts to read and jump routes',         loText:'Ball skills need improvement at the next level' },
       { key:'awareness',    value: ratings.awareness,    hiText:'Elite range coverage driven by outstanding read and react', loText:'Slow to process plays, limited range as a result' },
+      { key:'discipline',   value: ratings.discipline,   hiText:'Controlled aggressor — hits hard without crossing the line', loText:'Undisciplined hitter prone to unnecessary roughness calls' },
       { key:'tackling',     value: ratings.tackling,     hiText:'Physical hitter who sets the tone in run support',         loText:'Lacks the physicality needed at the next level' },
     ];
     case 'K': case 'P': return [

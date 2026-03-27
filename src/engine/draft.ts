@@ -63,7 +63,7 @@ function r(tier: Tier): number {
 }
 
 function personality(tier: Tier): PersonalityRatings {
-  return { workEthic: r(tier), loyalty: r(tier), greed: r(tier), discipline: r(tier) };
+  return { workEthic: r(tier), loyalty: r(tier), greed: r(tier) };
 }
 
 function makeRatings(position: Position, tier: Tier): AnyRatings {
@@ -73,6 +73,7 @@ function makeRatings(position: Position, tier: Tier): AnyRatings {
       armStrength: r(tier), pocketPresence: r(tier), mobility: r(tier),
       shortAccuracy: r(tier), mediumAccuracy: r(tier), deepAccuracy: r(tier),
       processing: r(tier), decisionMaking: r(tier),
+      personality: personality(tier),
     };
     case 'RB': return {
       position: 'RB',
@@ -94,17 +95,17 @@ function makeRatings(position: Position, tier: Tier): AnyRatings {
     };
     case 'OT': return {
       position: 'OT',
-      passBlocking: r(tier), runBlocking: r(tier), awareness: r(tier),
+      passBlocking: r(tier), runBlocking: r(tier), awareness: r(tier), discipline: r(tier),
       personality: personality(tier),
     };
     case 'OG': return {
       position: 'OG',
-      passBlocking: r(tier), runBlocking: r(tier), awareness: r(tier),
+      passBlocking: r(tier), runBlocking: r(tier), awareness: r(tier), discipline: r(tier),
       personality: personality(tier),
     };
     case 'C': return {
       position: 'C',
-      passBlocking: r(tier), runBlocking: r(tier), awareness: r(tier),
+      passBlocking: r(tier), runBlocking: r(tier), awareness: r(tier), discipline: r(tier),
       personality: personality(tier),
     };
     case 'DE': return {
@@ -120,32 +121,32 @@ function makeRatings(position: Position, tier: Tier): AnyRatings {
     case 'OLB': return {
       position: 'OLB',
       passRush: r(tier), runDefense: r(tier), coverage: r(tier),
-      speed: r(tier), pursuit: r(tier), awareness: r(tier),
+      speed: r(tier), pursuit: r(tier), awareness: r(tier), discipline: r(tier),
       personality: personality(tier),
     };
     case 'MLB': return {
       position: 'MLB',
       passRush: r(tier), runDefense: r(tier), coverage: r(tier),
-      speed: r(tier), pursuit: r(tier), awareness: r(tier),
+      speed: r(tier), pursuit: r(tier), awareness: r(tier), discipline: r(tier),
       personality: personality(tier),
     };
     // Range is derived (speed*0.6 + awareness*0.4) — NOT stored
     case 'CB': return {
       position: 'CB',
       manCoverage: r(tier), zoneCoverage: r(tier), ballSkills: r(tier),
-      speed: r(tier), size: r(tier), awareness: r(tier), tackling: r(tier),
+      speed: r(tier), size: r(tier), awareness: r(tier), discipline: r(tier), tackling: r(tier),
       personality: personality(tier),
     };
     case 'FS': return {
       position: 'FS',
       manCoverage: r(tier), zoneCoverage: r(tier), ballSkills: r(tier),
-      speed: r(tier), size: r(tier), awareness: r(tier), tackling: r(tier),
+      speed: r(tier), size: r(tier), awareness: r(tier), discipline: r(tier), tackling: r(tier),
       personality: personality(tier),
     };
     case 'SS': return {
       position: 'SS',
       manCoverage: r(tier), zoneCoverage: r(tier), ballSkills: r(tier),
-      speed: r(tier), size: r(tier), awareness: r(tier), tackling: r(tier),
+      speed: r(tier), size: r(tier), awareness: r(tier), discipline: r(tier), tackling: r(tier),
       personality: personality(tier),
     };
     case 'K': return {

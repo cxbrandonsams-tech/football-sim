@@ -62,7 +62,7 @@ export const TUNING = {
     // route distance with no after-catch gain. 2 yards reflects realistic average YAC.
     // Rating differences then modify this baseline: elite YAC + poor tackling → more;
     // average YAC + elite tackling → less (floors at 0 via Math.max).
-    baseYACYards:          1,       // yards after catch at neutral ratings; differential from WR YAC vs def tackling shifts up/down
+    baseYACYards:          0.5,     // yards after catch at neutral ratings; differential from WR YAC vs def tackling shifts up/down
     yacNetScale:           0.05,    // per point of net WR YAC advantage above/below neutral
 
     // Interception (on incompletions only)
@@ -1016,5 +1016,25 @@ export const TUNING = {
       maxRecapPerWeek:      1,
       maxMilestonesPerWeek: 3,
     },
+  },
+  // ── Personnel packages ────────────────────────────────────────────────────
+  // Controls on-field receiver pools and ratings-driven stat distribution.
+  personnel: {
+    // Package selection: cumulative fractions for [22, 21, 12, 11, 10] in that order.
+    // Each situation's values must sum to 1.0.
+    packages: {
+      goalLine:     { pkg22: 0.60, pkg21: 0.18, pkg12: 0.18, pkg11: 0.04, pkg10: 0.00 },
+      redZone:      { pkg22: 0.05, pkg21: 0.18, pkg12: 0.38, pkg11: 0.37, pkg10: 0.02 },
+      shortYardage: { pkg22: 0.15, pkg21: 0.35, pkg12: 0.28, pkg11: 0.22, pkg10: 0.00 },
+      twoMinute:    { pkg22: 0.00, pkg21: 0.00, pkg12: 0.05, pkg11: 0.35, pkg10: 0.60 },
+      standard:     { pkg22: 0.01, pkg21: 0.08, pkg12: 0.24, pkg11: 0.59, pkg10: 0.08 },
+    },
+
+    // Target weight shaping (applied after role × rating computation)
+    targetWeightExponent: 0.90,  // diminishing returns: weight^0.9 flattens extremes
+    targetWeightNoise:    0.075, // ±7.5% uniform noise added to each candidate's weight
+
+    // Sack credit: weight = max(0, passRush − threshold); linear so elites dominate but backups contribute
+    sackCreditThreshold: 40,
   },
 } as const;

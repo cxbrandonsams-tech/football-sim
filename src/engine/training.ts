@@ -13,7 +13,6 @@ export function getTrainableFields(ratings: AnyRatings): { key: string; label: s
       { key: 'armStrength',    label: 'Arm Strength' },
       { key: 'pocketPresence', label: 'Pocket Presence' },
       { key: 'mobility',       label: 'Mobility' },
-      // Hidden sub-ratings are also trainable (just not labeled as "scouted" in UI)
       { key: 'shortAccuracy',  label: 'Short Accuracy' },
       { key: 'mediumAccuracy', label: 'Medium Accuracy' },
       { key: 'deepAccuracy',   label: 'Deep Accuracy' },
@@ -45,9 +44,8 @@ export function getTrainableFields(ratings: AnyRatings): { key: string; label: s
     case 'OT': case 'OG': case 'C': return [
       { key: 'passBlocking', label: 'Pass Blocking' },
       { key: 'runBlocking',  label: 'Run Blocking' },
-      { key: 'strength',     label: 'Strength' },
-      { key: 'agility',      label: 'Agility' },
       { key: 'awareness',    label: 'Awareness' },
+      { key: 'discipline',   label: 'Discipline' },
     ];
     case 'DE': case 'DT': return [
       { key: 'passRush',    label: 'Pass Rush' },
@@ -57,25 +55,26 @@ export function getTrainableFields(ratings: AnyRatings): { key: string; label: s
       { key: 'motor',       label: 'Motor' },
     ];
     case 'OLB': case 'MLB': return [
-      { key: 'runStop',     label: 'Run Stop' },
+      { key: 'runDefense',  label: 'Run Defense' },
       { key: 'coverage',    label: 'Coverage' },
-      { key: 'athleticism', label: 'Athleticism' },
-      { key: 'awareness',   label: 'Awareness' },
+      { key: 'speed',       label: 'Speed' },
       { key: 'pursuit',     label: 'Pursuit' },
+      { key: 'awareness',   label: 'Awareness' },
+      { key: 'discipline',  label: 'Discipline' },
     ];
     case 'CB': return [
       { key: 'manCoverage',  label: 'Man Coverage' },
       { key: 'zoneCoverage', label: 'Zone Coverage' },
       { key: 'ballSkills',   label: 'Ball Skills' },
-      { key: 'press',        label: 'Press' },
       { key: 'speed',        label: 'Speed' },
+      { key: 'discipline',   label: 'Discipline' },
     ];
     case 'FS': case 'SS': return [
       { key: 'zoneCoverage', label: 'Zone Coverage' },
-      { key: 'range',        label: 'Range' },
-      { key: 'athleticism',  label: 'Athleticism' },
-      { key: 'hitPower',     label: 'Hit Power' },
+      { key: 'manCoverage',  label: 'Man Coverage' },
       { key: 'ballSkills',   label: 'Ball Skills' },
+      { key: 'awareness',    label: 'Awareness' },
+      { key: 'discipline',   label: 'Discipline' },
     ];
     case 'K': case 'P': return [
       { key: 'kickPower',    label: 'Kick Power' },

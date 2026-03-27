@@ -5,7 +5,7 @@ export type DepthChartSlot = 'QB' | 'RB' | 'WR' | 'TE' | 'OL' | 'DE' | 'DT' | 'L
 export type DepthChart = Record<DepthChartSlot, (Player | null)[]>;
 
 export const STARTER_COUNTS: Record<DepthChartSlot, number> = {
-  QB: 2, RB: 2, WR: 2, TE: 1, OL: 5,
+  QB: 2, RB: 2, WR: 3, TE: 2, OL: 5,
   DE: 2, DT: 2, LB: 2, CB: 2, S: 2,
   K: 1, P: 1,
 };

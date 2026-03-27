@@ -35,17 +35,17 @@ function getProgressableFields(ratings: AnyRatings): string[] {
     case 'TE':
       return ['speed', 'routeRunning', 'hands', 'yac', 'size', 'blocking'];
     case 'OT': case 'OG': case 'C':
-      return ['passBlocking', 'runBlocking', 'awareness'];
+      return ['passBlocking', 'runBlocking', 'awareness', 'discipline'];
     case 'DE': case 'DT':
       return ['passRush', 'runDefense', 'discipline'];
     case 'OLB': case 'MLB':
-      return ['passRush', 'runDefense', 'coverage', 'speed', 'pursuit', 'awareness'];
+      return ['passRush', 'runDefense', 'coverage', 'speed', 'pursuit', 'awareness', 'discipline'];
     case 'CB':
       // Range is derived (speed*0.6 + awareness*0.4) — progressing speed/awareness develops range
-      return ['manCoverage', 'zoneCoverage', 'ballSkills', 'speed', 'size', 'awareness', 'tackling'];
+      return ['manCoverage', 'zoneCoverage', 'ballSkills', 'speed', 'size', 'awareness', 'discipline', 'tackling'];
     case 'FS': case 'SS':
       // Range is derived — NOT progressable directly
-      return ['manCoverage', 'zoneCoverage', 'ballSkills', 'speed', 'size', 'awareness', 'tackling'];
+      return ['manCoverage', 'zoneCoverage', 'ballSkills', 'speed', 'size', 'awareness', 'discipline', 'tackling'];
     case 'K': case 'P':
       return ['kickPower', 'kickAccuracy', 'composure'];
   }
@@ -82,7 +82,6 @@ function getAgeBand(age: number): AgeBand {
 
 function getWorkEthic(player: Player): number {
   const r = player.trueRatings;
-  if (r.position === 'QB') return 50; // QB has no personality ratings
   return (r as { personality?: { workEthic?: number } }).personality?.workEthic ?? 50;
 }
 

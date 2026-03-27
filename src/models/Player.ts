@@ -16,26 +16,24 @@ export type Position =
  * Not used by the play-simulation engine directly.
  */
 export interface PersonalityRatings {
-  workEthic:  number; // 1-99  higher → better progression / training rolls
-  loyalty:    number; // 1-99  higher → lower contract demands
-  greed:      number; // 1-99  higher → higher contract demands
-  discipline: number; // 1-99  higher → lower injury chance, fewer penalties
+  workEthic: number; // 1-99  higher → better progression / training rolls
+  loyalty:   number; // 1-99  higher → lower contract demands
+  greed:     number; // 1-99  higher → higher contract demands
 }
 
 // ── Position-specific ratings ─────────────────────────────────────────────────
 
 export interface QBRatings {
   position: 'QB';
-  // Visible to GM via scouting
   armStrength:    number;
   pocketPresence: number;
   mobility:       number;
-  // Hidden — engine only, never exposed through scouting
   shortAccuracy:  number;
   mediumAccuracy: number;
   deepAccuracy:   number;
   processing:     number;
   decisionMaking: number;
+  personality:    PersonalityRatings;
 }
 
 export interface RBRatings {
@@ -74,6 +72,7 @@ export interface OLRatings {
   passBlocking: number;
   runBlocking:  number;
   awareness:    number;
+  discipline:   number;
   personality:  PersonalityRatings;
 }
 
@@ -93,6 +92,7 @@ export interface LBRatings {
   speed:       number;   // GDD: athleticism / lateral range
   pursuit:     number;   // GDD: angles and tracking
   awareness:   number;   // assignment correctness and pre-snap reads
+  discipline:  number;   // penalty avoidance, composure, assignment integrity
   personality: PersonalityRatings;
 }
 
@@ -105,6 +105,7 @@ export interface CBRatings {
   speed:        number;  // separation prevention, closes on routes
   size:         number;  // situational; contested-catch influence
   awareness:    number;  // pre-snap reads, assignment correctness
+  discipline:   number;  // pass interference / holding penalty avoidance
   tackling:     number;  // open-field tackle (used in YAC resolution)
   personality:  PersonalityRatings;
 }
@@ -117,7 +118,8 @@ export interface SafetyRatings {
   ballSkills:   number;
   speed:        number;
   size:         number;
-  awareness:    number;  // read recognition; also feeds hidden Range derivation
+  awareness:    number;  // read recognition; also feeds derived Range stat
+  discipline:   number;  // penalty avoidance (PI, unnecessary roughness)
   tackling:     number;  // open-field tackle (used in YAC resolution)
   // range is a HIDDEN DERIVED stat — NOT stored here.
   // Formula: Range = (speed * 0.6) + (awareness * 0.4)
@@ -189,9 +191,10 @@ export function calcOverall(ratings: AnyRatings): number {
     case 'OG':
     case 'C':
       return Math.round(
-        ratings.passBlocking * 0.45 +
-        ratings.runBlocking  * 0.40 +
-        ratings.awareness    * 0.15
+        ratings.passBlocking * 0.42 +
+        ratings.runBlocking  * 0.37 +
+        ratings.awareness    * 0.13 +
+        ratings.discipline   * 0.08
       );
     case 'DE':
     case 'DT':
@@ -203,21 +206,23 @@ export function calcOverall(ratings: AnyRatings): number {
     case 'OLB':
     case 'MLB':
       return Math.round(
-        ratings.runDefense  * 0.26 +
-        ratings.speed       * 0.20 +
-        ratings.pursuit     * 0.18 +
-        ratings.coverage    * 0.18 +
-        ratings.awareness   * 0.12 +
-        ratings.passRush    * 0.06
+        ratings.runDefense  * 0.24 +
+        ratings.speed       * 0.18 +
+        ratings.pursuit     * 0.16 +
+        ratings.coverage    * 0.16 +
+        ratings.awareness   * 0.10 +
+        ratings.passRush    * 0.06 +
+        ratings.discipline  * 0.10
       );
     case 'CB':
       // Range is derived (speed*0.6 + awareness*0.4) — not stored, not in overall
       return Math.round(
-        ratings.manCoverage  * 0.25 +
-        ratings.speed        * 0.25 +
-        ratings.zoneCoverage * 0.20 +
-        ratings.ballSkills   * 0.15 +
-        ratings.awareness    * 0.10 +
+        ratings.manCoverage  * 0.23 +
+        ratings.speed        * 0.23 +
+        ratings.zoneCoverage * 0.18 +
+        ratings.ballSkills   * 0.14 +
+        ratings.awareness    * 0.09 +
+        ratings.discipline   * 0.08 +
         ratings.tackling     * 0.03 +
         ratings.size         * 0.02
       );
@@ -226,12 +231,13 @@ export function calcOverall(ratings: AnyRatings): number {
       // Range is derived (speed*0.6 + awareness*0.4) — not stored, not directly in overall
       // but speed and awareness ARE in overall, so range quality is captured indirectly
       return Math.round(
-        ratings.zoneCoverage * 0.25 +
-        ratings.speed        * 0.22 +
-        ratings.manCoverage  * 0.15 +
-        ratings.awareness    * 0.15 +
-        ratings.ballSkills   * 0.13 +
-        ratings.tackling     * 0.07 +
+        ratings.zoneCoverage * 0.23 +
+        ratings.speed        * 0.20 +
+        ratings.manCoverage  * 0.14 +
+        ratings.awareness    * 0.14 +
+        ratings.ballSkills   * 0.12 +
+        ratings.discipline   * 0.08 +
+        ratings.tackling     * 0.06 +
         ratings.size         * 0.03
       );
     case 'K':
@@ -261,7 +267,6 @@ function noise(v: number): number {
 
 /**
  * Apply scouting noise to a rating value.
- * QB hidden sub-ratings are always returned as 50 (not exposed to GM).
  */
 function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number): AnyRatings {
   const v = scoutVariance(scoutingLevel);
@@ -271,17 +276,15 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
     case 'QB':
       return {
         position:       'QB',
-        // Visible — apply variance
         armStrength:    clamp(trueRatings.armStrength    + n()),
         pocketPresence: clamp(trueRatings.pocketPresence + n()),
         mobility:       clamp(trueRatings.mobility       + n()),
-        // Accuracy is now visible (GDD: QB Accuracy is the primary visible category)
         shortAccuracy:  clamp(trueRatings.shortAccuracy  + n()),
         mediumAccuracy: clamp(trueRatings.mediumAccuracy + n()),
         deepAccuracy:   clamp(trueRatings.deepAccuracy   + n()),
-        // Still hidden engine internals
-        processing:     50,
-        decisionMaking: 50,
+        processing:     clamp(trueRatings.processing     + n()),
+        decisionMaking: clamp(trueRatings.decisionMaking + n()),
+        personality:    trueRatings.personality,
       };
     case 'RB':
       return {
@@ -322,6 +325,7 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
         passBlocking: clamp(trueRatings.passBlocking + n()),
         runBlocking:  clamp(trueRatings.runBlocking  + n()),
         awareness:    clamp(trueRatings.awareness    + n()),
+        discipline:   clamp(trueRatings.discipline   + n()),
         personality:  trueRatings.personality,
       };
     case 'DE':
@@ -343,6 +347,7 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
         speed:       clamp(trueRatings.speed       + n()),
         pursuit:     clamp(trueRatings.pursuit     + n()),
         awareness:   clamp(trueRatings.awareness   + n()),
+        discipline:  clamp(trueRatings.discipline  + n()),
         personality: trueRatings.personality,
       };
     case 'CB':
@@ -354,12 +359,13 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
         speed:        clamp(trueRatings.speed        + n()),
         size:         clamp(trueRatings.size         + n()),
         awareness:    clamp(trueRatings.awareness    + n()),
+        discipline:   clamp(trueRatings.discipline   + n()),
         tackling:     clamp(trueRatings.tackling     + n()),
         personality:  trueRatings.personality,
       };
     case 'FS':
     case 'SS':
-      // Range is hidden and derived — NOT copied into scoutedRatings
+      // Range is derived — NOT copied into scoutedRatings
       return {
         position:     trueRatings.position,
         manCoverage:  clamp(trueRatings.manCoverage  + n()),
@@ -368,6 +374,7 @@ function generateScoutedRatings(trueRatings: AnyRatings, scoutingLevel: number):
         speed:        clamp(trueRatings.speed        + n()),
         size:         clamp(trueRatings.size         + n()),
         awareness:    clamp(trueRatings.awareness    + n()),
+        discipline:   clamp(trueRatings.discipline   + n()),
         tackling:     clamp(trueRatings.tackling     + n()),
         personality:  trueRatings.personality,
       };
@@ -439,7 +446,7 @@ export interface Player {
   contractDemand?:       ContractDemand;
   scoutingLevel:         number;   // 0-100
   trueRatings:           AnyRatings; // engine only — never sent to GM directly
-  scoutedRatings:        AnyRatings; // GM-visible; QB hidden fields set to 50
+  scoutedRatings:        AnyRatings; // GM-visible; scouting noise applied to all ratings
   overall:               number;   // derived from trueRatings
   scoutedOverall:        number;   // derived from scoutedRatings
   salary:                number;
