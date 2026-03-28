@@ -1,5 +1,5 @@
 import {
-  type League, type TradeAsset, type GameplanSettings,
+  type League, type TradeAsset, type GameplanSettings, type TeamTendencies,
   type OffensiveSlot, type OffensivePlan,
   type OffensiveFormation, type Playbook,
   type DefensiveSlot, type DefensivePlan,
@@ -146,6 +146,8 @@ export const setDepthChart = (id: string, slot: string, playerIds: string[]) =>
   request<League>(`/league/${id}/set-depth-chart`, 'POST', { slot, playerIds });
 export const setGameplan = (id: string, gameplan: Partial<GameplanSettings>) =>
   request<League>(`/league/${id}/set-gameplan`, 'POST', gameplan);
+export const setTendencies = (id: string, tendencies: Partial<TeamTendencies>) =>
+  request<League>(`/league/${id}/set-tendencies`, 'POST', tendencies);
 export const setFormationSlot = (
   id:          string,
   formationId: string,
@@ -171,10 +173,18 @@ export const getFormations = () =>
     defensivePlaybooks: DefPlaybook[];
     defensivePlays:     DefensivePlay[];
   }>('/formations');
+export const saveCustomPlay = (id: string, play: import('./types').OffensivePlay) =>
+  request<League>(`/league/${id}/save-custom-play`, 'POST', { play });
+export const deleteCustomPlay = (id: string, playId: string) =>
+  request<League>(`/league/${id}/delete-custom-play`, 'POST', { playId });
 export const saveOffensePlaybook = (id: string, playbook: { id: string; name: string; entries: PlaybookEntry[] }) =>
   request<League>(`/league/${id}/save-offense-playbook`, 'POST', { playbook });
 export const deleteOffensePlaybook = (id: string, playbookId: string) =>
   request<League>(`/league/${id}/delete-offense-playbook`, 'POST', { playbookId });
+export const saveCustomDefensePlay = (id: string, play: import('./types').DefensivePlay) =>
+  request<League>(`/league/${id}/save-custom-defense-play`, 'POST', { play });
+export const deleteCustomDefensePlay = (id: string, playId: string) =>
+  request<League>(`/league/${id}/delete-custom-defense-play`, 'POST', { playId });
 export const saveDefensePlaybook = (id: string, playbook: { id: string; name: string; entries: DefPlaybookEntry[] }) =>
   request<League>(`/league/${id}/save-defense-playbook`, 'POST', { playbook });
 export const deleteDefensePlaybook = (id: string, playbookId: string) =>

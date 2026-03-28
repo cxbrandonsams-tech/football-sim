@@ -1,6 +1,6 @@
 import { type Player } from '../models/Player';
-import { type Team } from '../models/Team';
-import { type League } from '../models/League';
+import { type Team, type PlayEffStats } from '../models/Team';
+import { type League, type MetaProfile } from '../models/League';
 import { type NewsItem } from '../models/News';
 import { type PlayerSeasonStats } from '../models/History';
 import { buildDepthChart } from '../models/DepthChart';
@@ -16,6 +16,40 @@ import {
   addNewsItems,
 } from './news';
 import { TUNING } from './config';
+import { OFFENSIVE_PLAYS } from '../data/plays';
+
+// ── League meta computation ──────────────────────────────────────────────────
+
+function computeLeagueMeta(teams: Team[]): MetaProfile | undefined {
+  const engineTypeById = new Map(OFFENSIVE_PLAYS.map(p => [p.id, p.engineType]));
+  // Also add custom plays from all teams
+  for (const t of teams) {
+    for (const p of t.customOffensivePlays ?? []) {
+      engineTypeById.set(p.id, p.engineType);
+    }
+  }
+
+  let runCalls = 0, passCalls = 0, deepCalls = 0, totalCalls = 0;
+
+  for (const t of teams) {
+    if (!t.playStats) continue;
+    for (const [playId, stats] of Object.entries(t.playStats)) {
+      const et = engineTypeById.get(playId);
+      if (!et) continue;
+      totalCalls += stats.calls;
+      if (et === 'inside_run' || et === 'outside_run') runCalls += stats.calls;
+      if (et === 'short_pass' || et === 'medium_pass' || et === 'deep_pass') passCalls += stats.calls;
+      if (et === 'deep_pass') deepCalls += stats.calls;
+    }
+  }
+
+  if (totalCalls < 50) return undefined; // not enough league data yet
+
+  const passRate = passCalls / totalCalls;
+  const deepRate = passCalls > 0 ? deepCalls / passCalls : 0.2;
+
+  return { passRate, runRate: 1 - passRate, deepRate, totalCalls };
+}
 
 // ── Performance thresholds (single-game box score) ─────────────────────────────
 
@@ -85,21 +119,66 @@ export function simulateWeek(league: League): League {
   // 1. Recover existing multi-game injuries
   let teams = league.teams.map(t => recoverInjuries(t, t.id === league.userTeamId));
 
-  // 2. Simulate games, collecting in-game injuries
+  // 2. Compute league meta profile from all teams' play stats
+  const meta = computeLeagueMeta(teams);
+
+  // 3. Simulate games, collecting in-game injuries
   const teamMap      = new Map(teams.map(t => [t.id, t]));
   const allInjuries: GameInjury[] = [];
+  const allPlayStats = new Map<string, Map<string, PlayEffStats>>(); // teamId → playId → stats
   const updatedGames = league.currentSeason.games.map(g => {
     if (g.week !== league.currentWeek || g.status !== 'scheduled') return g;
     const result = simulateGame({
       ...g,
       homeTeam: teamMap.get(g.homeTeam.id) ?? g.homeTeam,
       awayTeam: teamMap.get(g.awayTeam.id) ?? g.awayTeam,
-    });
+    }, meta);
     allInjuries.push(...result.injuries);
+    // Merge play effectiveness stats from this game
+    for (const [teamId, playMap] of result.playStats) {
+      if (!allPlayStats.has(teamId)) allPlayStats.set(teamId, new Map());
+      const dest = allPlayStats.get(teamId)!;
+      for (const [playId, stats] of playMap) {
+        const existing = dest.get(playId);
+        if (existing) {
+          existing.calls      += stats.calls;
+          existing.totalYards += stats.totalYards;
+          existing.successes  += stats.successes;
+          existing.firstDowns += stats.firstDowns;
+          existing.touchdowns += stats.touchdowns;
+          existing.turnovers  += stats.turnovers;
+        } else {
+          dest.set(playId, { ...stats });
+        }
+      }
+    }
     return result.game;
   });
 
-  // 3. Apply in-game injuries to team rosters
+  // 3. Apply in-game injuries and play stats to team rosters
+  // Merge cumulative play stats onto teams
+  teams = teams.map(t => {
+    const gameStats = allPlayStats.get(t.id);
+    if (!gameStats) return t;
+    const existing = { ...(t.playStats ?? {}) };
+    for (const [playId, stats] of gameStats) {
+      const prev = existing[playId];
+      if (prev) {
+        existing[playId] = {
+          calls:      prev.calls      + stats.calls,
+          totalYards: prev.totalYards + stats.totalYards,
+          successes:  prev.successes  + stats.successes,
+          firstDowns: prev.firstDowns + stats.firstDowns,
+          touchdowns: prev.touchdowns + stats.touchdowns,
+          turnovers:  prev.turnovers  + stats.turnovers,
+        };
+      } else {
+        existing[playId] = { ...stats };
+      }
+    }
+    return { ...t, playStats: existing };
+  });
+
   for (const inj of allInjuries) {
     teams = teams.map(t => {
       if (t.id !== inj.teamId) return t;
@@ -345,6 +424,8 @@ export function simulateWeek(league: League): League {
   newsItems.push(recapItem);
 
   // 12. Assemble final league state
+  // Recompute meta after this week's stats are merged into teams
+  const updatedMeta = computeLeagueMeta(teams);
   const base: League = {
     ...league,
     teams,
@@ -352,6 +433,7 @@ export function simulateWeek(league: League): League {
     currentSeasonStats,
     currentWeek:        week + 1,
     milestonesHit,
+    ...(updatedMeta ? { metaProfile: updatedMeta } : {}),
   };
   return addNewsItems(base, newsItems);
 }

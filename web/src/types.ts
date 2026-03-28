@@ -240,6 +240,19 @@ export interface ProspectScoutingState {
 }
 
 /** Prospect as received from the server — hidden fields (trueOverall etc.) are stripped. */
+export type CombineStockMove = 'rising' | 'falling' | 'neutral';
+
+export interface CombineResults {
+  fortyYard:    number;
+  benchPress:   number;
+  vertJump:     number;
+  broadJump:    number;
+  threeCone:    number;
+  shuttle:      number;
+  stockMove:    CombineStockMove;
+  headline:     string;
+}
+
 export interface ClientProspect {
   id:       string;
   name:     string;
@@ -248,6 +261,7 @@ export interface ClientProspect {
   college:  string;
   height:   string;
   weight:   number;
+  combine?: CombineResults;
 }
 
 export interface DraftClass {
@@ -373,6 +387,99 @@ export const DEFAULT_GAMEPLAN: GameplanSettings = {
   defensivePlaybook: 'balanced',
 };
 
+// ── Play effectiveness stats ─────────────────────────────────────────────────
+
+export interface PlayEffStats {
+  calls:      number;
+  totalYards: number;
+  successes:  number;
+  firstDowns: number;
+  touchdowns: number;
+  turnovers:  number;
+}
+
+// ── Team tendencies ──────────────────────────────────────────────────────────
+
+export interface TeamTendencies {
+  runPassBias:        number;
+  aggressiveness:     number;
+  playActionRate:     number;
+  shotPlayRate:       number;
+  blitzRate:          number;
+  coverageAggression: number;
+  runCommitment:      number;
+}
+
+export const DEFAULT_TENDENCIES: TeamTendencies = {
+  runPassBias:        50,
+  aggressiveness:     50,
+  playActionRate:     50,
+  shotPlayRate:       50,
+  blitzRate:          50,
+  coverageAggression: 50,
+  runCommitment:      50,
+};
+
+// ── Coach archetypes ────────────────────────────────────────────────────────
+
+export interface CoachArchetype {
+  id:          string;
+  name:        string;
+  description: string;
+  tendencies:  TeamTendencies;
+}
+
+export const COACH_ARCHETYPES: CoachArchetype[] = [
+  {
+    id: 'balanced',
+    name: 'Balanced',
+    description: 'No strong lean in any direction — adapts to personnel.',
+    tendencies: { runPassBias: 50, aggressiveness: 50, playActionRate: 50, shotPlayRate: 50, blitzRate: 50, coverageAggression: 50, runCommitment: 50 },
+  },
+  {
+    id: 'west_coast',
+    name: 'West Coast',
+    description: 'Short, high-percentage passes to control the clock and move chains.',
+    tendencies: { runPassBias: 62, aggressiveness: 30, playActionRate: 55, shotPlayRate: 25, blitzRate: 45, coverageAggression: 45, runCommitment: 45 },
+  },
+  {
+    id: 'vertical',
+    name: 'Vertical',
+    description: 'Push the ball downfield with deep shots and aggressive play calls.',
+    tendencies: { runPassBias: 68, aggressiveness: 78, playActionRate: 40, shotPlayRate: 75, blitzRate: 55, coverageAggression: 55, runCommitment: 40 },
+  },
+  {
+    id: 'run_heavy',
+    name: 'Run Heavy',
+    description: 'Pound the rock, control time of possession, and wear down defenses.',
+    tendencies: { runPassBias: 25, aggressiveness: 35, playActionRate: 60, shotPlayRate: 30, blitzRate: 45, coverageAggression: 40, runCommitment: 60 },
+  },
+  {
+    id: 'play_action',
+    name: 'Play Action',
+    description: 'Lean on a credible run threat to open up the passing game.',
+    tendencies: { runPassBias: 40, aggressiveness: 58, playActionRate: 82, shotPlayRate: 55, blitzRate: 50, coverageAggression: 50, runCommitment: 50 },
+  },
+  {
+    id: 'aggressive_defense',
+    name: 'Aggressive Defense',
+    description: 'Blitz-heavy, press coverage — generate turnovers and disrupt the QB.',
+    tendencies: { runPassBias: 50, aggressiveness: 50, playActionRate: 50, shotPlayRate: 50, blitzRate: 78, coverageAggression: 75, runCommitment: 45 },
+  },
+  {
+    id: 'coverage_defense',
+    name: 'Coverage Defense',
+    description: 'Sit back in zone, take away big plays, and let the pass rush get home.',
+    tendencies: { runPassBias: 50, aggressiveness: 50, playActionRate: 50, shotPlayRate: 50, blitzRate: 25, coverageAggression: 28, runCommitment: 40 },
+  },
+  {
+    id: 'run_stop_defense',
+    name: 'Run Stop Defense',
+    description: 'Stack the box and shut down the ground game — dare them to throw.',
+    tendencies: { runPassBias: 50, aggressiveness: 50, playActionRate: 50, shotPlayRate: 50, blitzRate: 55, coverageAggression: 45, runCommitment: 80 },
+  },
+];
+
 // ── Front-office personality ──────────────────────────────────────────────────
 
 export type FrontOfficePersonality =
@@ -395,11 +502,15 @@ export interface Team {
   coaches:        CoachingStaff;
   playcalling:    PlaycallingWeights;
   gameplan?:          GameplanSettings;
+  tendencies?:        TeamTendencies;
   formationDepthCharts?: Record<string, Partial<Record<OffensiveSlot, string | null>>>;
   offensivePlan?:        OffensivePlan;
   packageDepthCharts?:   Record<string, Partial<Record<DefensiveSlot, string | null>>>;
   defensivePlan?:        DefensivePlan;
+  playStats?: Record<string, PlayEffStats>;
+  customOffensivePlays?: OffensivePlay[];
   customOffensivePlaybooks?: Playbook[];
+  customDefensivePlays?: DefensivePlay[];
   customDefensivePlaybooks?: DefPlaybook[];
   scout?:         HeadScout;
   scoutingBudget?: number;
@@ -415,7 +526,7 @@ export interface Team {
 export type PlayType =
   | 'inside_run' | 'outside_run'
   | 'short_pass' | 'medium_pass' | 'deep_pass'
-  | 'sack' | 'interception' | 'fumble'
+  | 'sack' | 'scramble' | 'interception' | 'fumble'
   | 'field_goal' | 'punt';
 
 export type PlayResult =
@@ -438,6 +549,7 @@ export interface PlayEvent {
   ballCarrierId?: string;       // player.id
   targetId?:      string;       // player.id
   defPlayerId?:   string;       // player.id of defensive player
+  explanation?:   string[];    // play selection reasoning
 }
 
 // ── Box score ──────────────────────────────────────────────────────────────────
@@ -699,6 +811,9 @@ export interface GmAchievement {
   unlockedYear: number;
 }
 
+export type ReputationTier = 'Hot Seat' | 'Unproven' | 'Respected' | 'Proven Winner' | 'Elite';
+export type ReputationTrend = 'rising' | 'stable' | 'falling';
+
 export interface GmCareer {
   teamId:                    string;
   teamName:                  string;
@@ -706,6 +821,8 @@ export interface GmCareer {
   seasons:                   GmSeasonRecord[];
   achievements:              GmAchievement[];
   legacyScore:               number;
+  reputation?:               number;
+  prevReputation?:           number;
   currentSeasonDraftPicks:   number;
   currentSeasonTrades:       number;
   currentSeasonFaSignings:   number;
@@ -843,6 +960,15 @@ export interface NewsItem {
   mentions?: NewsMention[];
 }
 
+// ── League meta profile ──────────────────────────────────────────────────────
+
+export interface MetaProfile {
+  passRate:   number;
+  runRate:    number;
+  deepRate:   number;
+  totalCalls: number;
+}
+
 // ── League ────────────────────────────────────────────────────────────────────
 
 export interface League {
@@ -878,6 +1004,31 @@ export interface League {
   news:                 NewsItem[];
   milestonesHit:        Record<string, string[]>;
   gmCareer?:            GmCareer;
+  metaProfile?:         MetaProfile;
+  collegeData?:         CollegeData;
+}
+
+// ── College data ──────────────────────────────────────────────────────────────
+
+export interface CollegeTeam {
+  name:       string;
+  conference: string;
+  wins:       number;
+  losses:     number;
+}
+
+export interface CollegeStatLeader {
+  name:       string;
+  prospectId: string;
+  college:    string;
+  stat:       string;
+  category:   'passing' | 'rushing' | 'receiving' | 'sacks' | 'interceptions';
+}
+
+export interface CollegeData {
+  year:       number;
+  conferences: { name: string; teams: CollegeTeam[] }[];
+  statLeaders: CollegeStatLeader[];
 }
 
 // ── Playbook / Formation system ───────────────────────────────────────────────

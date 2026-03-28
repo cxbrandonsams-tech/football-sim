@@ -44,6 +44,23 @@ export interface ProspectScoutingState {
 
 // ── Prospect ──────────────────────────────────────────────────────────────────
 
+// ── Combine results (public — visible without scouting) ──────────────────────
+
+export type CombineStockMove = 'rising' | 'falling' | 'neutral';
+
+export interface CombineResults {
+  fortyYard:    number;   // seconds, e.g. 4.42
+  benchPress:   number;   // reps of 225 lbs
+  vertJump:     number;   // inches
+  broadJump:    number;   // inches
+  threeCone:    number;   // seconds
+  shuttle:      number;   // seconds
+  /** Derived: how combine performance compares to hidden ratings */
+  stockMove:    CombineStockMove;
+  /** Human-readable summary, e.g. "Blazing speed draws attention" */
+  headline:     string;
+}
+
 export interface Prospect {
   id:       string;
   name:     string;
@@ -52,6 +69,8 @@ export interface Prospect {
   college:  string;
   height:   string;   // display string, e.g. "6'2\""
   weight:   number;   // lbs
+  /** Combine / Pro Day results — generated pre-draft, always public. */
+  combine?: CombineResults;
 
   // ── Hidden truth (never sent to frontend) ───────────────────────────────────
   trueOverall:   number;

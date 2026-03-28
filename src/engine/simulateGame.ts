@@ -5,7 +5,7 @@ import {
   type SafetyRatings, type SpecialTeamsRatings,
   calcRange,
 } from '../models/Player';
-import { type Team } from '../models/Team';
+import { type Team, type PlayEffStats } from '../models/Team';
 import { type Game } from '../models/Game';
 import { type DepthChart, type DepthChartSlot } from '../models/DepthChart';
 import { type PlayEvent, type PlayType, type PlayResult } from '../models/PlayEvent';
@@ -14,8 +14,8 @@ import { buildBoxScoreFromGame } from './gameStats';
 import { computeSchemeAdjustment } from './schemeBonus';
 import { getPersonality } from '../models/Coach';
 import { TUNING } from './config';
-import { resolvePlay, applyFormationToTeam } from './playSelection';
-import { resolveDefensivePlay, applyPackageToTeam } from './defensiveSelection';
+import { resolvePlay, applyFormationToTeam, createPlayHistory } from './playSelection';
+import { resolveDefensivePlay, applyPackageToTeam, buildScoutingProfileFromGameStats, type ScoutingProfile } from './defensiveSelection';
 
 const cfg = TUNING;
 
@@ -28,8 +28,10 @@ export interface GameInjury {
 }
 
 export interface GameResult {
-  game:     Game;
-  injuries: GameInjury[];
+  game:      Game;
+  injuries:  GameInjury[];
+  /** Per-team play effectiveness from this game. Keyed by teamId → playId → stats. */
+  playStats: Map<string, Map<string, import('../models/Team').PlayEffStats>>;
 }
 
 // ── Depth-chart helpers ───────────────────────────────────────────────────────
@@ -214,14 +216,11 @@ function selectPlayType(off: Team, sit: GameSituation): PlayType {
   const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
   // If no healthy QB is available, force a run play.
-  // Without this guard, pass plays generate events with no ballCarrierId,
-  // which causes WRs to accumulate receiving yards with no corresponding
-  // QB passing yards — inflating WR season stats and creating QB/WR mismatch.
   if (!firstHealthy(off, 'QB')) {
     return Math.random() < (w.insideRunPct / 100) ? 'inside_run' : 'outside_run';
   }
 
-  // ── Base run/pass split ───────────────────────────────────────────────────
+  // ── Base run/pass split (no tendency modifiers — those live in playSelection.ts) ──
   let runPct = w.runPct / 100;
 
   // Down & distance nudges
@@ -229,24 +228,19 @@ function selectPlayType(off: Team, sit: GameSituation): PlayType {
   else if (sit.distance >= 8)  runPct = clamp(runPct - 0.07, 0.10, 0.90);
   if (sit.down === 1)          runPct = clamp(runPct + 0.05, 0.10, 0.90);
 
-  // ── Aggressiveness scale: 1 + ((aggressiveness - 50) / 100) ─────────────
-  // 0→0.5×, 50→1.0× (default, no change), 100→1.5×
-  // Applied only to score/clock adjustments; D&D nudges and backedUpRunBoost are unscaled.
+  // ── Aggressiveness scale (from playcalling weights, not tendencies) ─────
   const agg      = w.aggressiveness ?? 50;
   const aggScale = 1 + (agg - 50) / 100;
 
   // ── Situational run% adjustment ───────────────────────────────────────────
   let runAdj = 0;
 
-  // Field position: backed up in own territory — not scaled by aggressiveness
   if (sit.yardLine < s.backedUpYardLine) {
     runAdj += s.backedUpRunBoost / 100;
   }
 
-  // Score + clock adjustments — all scaled by aggScale
   const isLate      = sit.clockSeconds < s.lateGameSeconds;
   const isTwoMinute = sit.clockSeconds < s.twoMinuteSeconds;
-  // Q2 gets the two-minute drill too (halftime urgency)
   const q4Late      = sit.quarter === 4 && isLate;
   const q4TwoMinute = (sit.quarter === 2 || sit.quarter === 4) && isTwoMinute;
   const leading     = sit.scoreDiff > s.leadSmallDiff;
@@ -277,7 +271,7 @@ function selectPlayType(off: Team, sit: GameSituation): PlayType {
     return Math.random() < insideFrac ? 'inside_run' : 'outside_run';
   }
 
-  // ── Pass depth distribution with situational adjustments ─────────────────
+  // ── Pass depth distribution (pure playcalling weights, no tendency bias) ──
   let shortPct = w.shortPassPct  / 100;
   let medPct   = w.mediumPassPct / 100;
   let deepPct  = Math.max(0, 1 - shortPct - medPct);
@@ -297,7 +291,6 @@ function selectPlayType(off: Team, sit: GameSituation): PlayType {
     deepPct  -= (s.garbageDeepCut    / 100) * aggScale;
   }
 
-  // Renormalize depth fractions (clamp negatives to 0 before normalizing)
   shortPct = Math.max(0, shortPct);
   medPct   = Math.max(0, medPct);
   deepPct  = Math.max(0, deepPct);
@@ -1323,7 +1316,7 @@ function shouldGoForIt(
   return Math.random() < clamp(base * mult, 0.02, 0.95);
 }
 
-export function simulateGame(game: Game): GameResult {
+export function simulateGame(game: Game, metaProfile?: import('../models/League').MetaProfile): GameResult {
   const home = game.homeTeam;
   const away = game.awayTeam;
   const events:   PlayEvent[]  = [];
@@ -1334,6 +1327,14 @@ export function simulateGame(game: Game): GameResult {
   const awayInjured = new Set<string>();
   // Fatigue accumulates per player over the game; key = playerId, value = 0.0–1.0
   const fatigueMap  = new Map<string, number>();
+  // Play history for repetition penalties (anti-spam), shared by both teams
+  const playHistory = createPlayHistory();
+  // Play effectiveness tracking — accumulated per team per play
+  const gamePlayStats = new Map<string, Map<string, PlayEffStats>>();
+  // First-half offensive stats per team (for halftime defensive adjustments)
+  const firstHalfStats = new Map<string, Map<string, PlayEffStats>>();
+  // Halftime scouting profiles per team (built from opponent's first-half data)
+  const halftimeProfiles = new Map<string, ScoutingProfile>();
 
   let quarter      = 1;
   let quarterPlays = 0;
@@ -1436,10 +1437,10 @@ export function simulateGame(game: Game): GameResult {
       // Playbook system: select play from team's offensive plan (if configured).
       // applyFormationToTeam remaps WR/TE/RB depth chart slots to match the
       // formation's slot assignments — no engine math is changed.
-      const resolved   = resolvePlay(off, sit);
+      const resolved   = resolvePlay(off, sit, playHistory, metaProfile);
       const type       = resolved?.engineType ?? selectPlayType(off, sit);
       const offForPlay = resolved ? applyFormationToTeam(off, resolved.play) : off;
-      const defResolved = resolveDefensivePlay(def, sit);
+      const defResolved = resolveDefensivePlay(def, sit, off, halftimeProfiles.get(def.id));
       const defForPlay  = defResolved ? applyPackageToTeam(def, defResolved.play) : def;
       const isRun      = type === 'inside_run' || type === 'outside_run';
 
@@ -1474,7 +1475,38 @@ export function simulateGame(game: Game): GameResult {
       }
 
       const ev = simulatePlay(offForPlay, defForPlay, type, quarter, down, distance, yardLine, playAdj, sit);
+      if (resolved?.explanation) ev.explanation = resolved.explanation;
       events.push(ev);
+
+      // Track play effectiveness
+      if (resolved) {
+        const teamId = off.id;
+        const playId = resolved.play.id;
+        // Full-game stats
+        if (!gamePlayStats.has(teamId)) gamePlayStats.set(teamId, new Map());
+        const teamStats = gamePlayStats.get(teamId)!;
+        if (!teamStats.has(playId)) teamStats.set(playId, { calls: 0, totalYards: 0, successes: 0, firstDowns: 0, touchdowns: 0, turnovers: 0 });
+        const s = teamStats.get(playId)!;
+        s.calls++;
+        s.totalYards += ev.yards;
+        if (ev.yards >= 4 || ev.firstDown) s.successes++;
+        if (ev.firstDown) s.firstDowns++;
+        if (ev.result === 'touchdown') s.touchdowns++;
+        if (ev.result === 'turnover') s.turnovers++;
+        // First-half stats (quarters 1–2 only, for halftime adjustments)
+        if (quarter <= 2) {
+          if (!firstHalfStats.has(teamId)) firstHalfStats.set(teamId, new Map());
+          const fhTeam = firstHalfStats.get(teamId)!;
+          if (!fhTeam.has(playId)) fhTeam.set(playId, { calls: 0, totalYards: 0, successes: 0, firstDowns: 0, touchdowns: 0, turnovers: 0 });
+          const fh = fhTeam.get(playId)!;
+          fh.calls++;
+          fh.totalYards += ev.yards;
+          if (ev.yards >= 4 || ev.firstDown) fh.successes++;
+          if (ev.firstDown) fh.firstDowns++;
+          if (ev.result === 'touchdown') fh.touchdowns++;
+          if (ev.result === 'turnover') fh.turnovers++;
+        }
+      }
 
       // Build fatigue after the play
       buildFatigue(offPrimary);
@@ -1514,6 +1546,18 @@ export function simulateGame(game: Game): GameResult {
       quarterPlays = 0;
       clockSeconds = cfg.clock.secondsPerQuarter;
       if (quarter === 3) {
+        // Halftime: build scouting profiles from first-half offensive data
+        // Each defense scouts the opposing offense's first-half tendencies
+        const homeOffStats = firstHalfStats.get(home.id);
+        const awayOffStats = firstHalfStats.get(away.id);
+        if (homeOffStats) {
+          // Away defense scouts home offense's first-half tendencies
+          halftimeProfiles.set(away.id, buildScoutingProfileFromGameStats(homeOffStats, home.customOffensivePlays));
+        }
+        if (awayOffStats) {
+          // Home defense scouts away offense's first-half tendencies
+          halftimeProfiles.set(home.id, buildScoutingProfileFromGameStats(awayOffStats, away.customOffensivePlays));
+        }
         changePoss(); // halftime flip
         yardLine = resolveKickoffStart(possession === 'home' ? home : away);
       }
@@ -1530,5 +1574,6 @@ export function simulateGame(game: Game): GameResult {
       boxScore: buildBoxScoreFromGame(home, away, events, homeScore, awayScore),
     },
     injuries,
+    playStats: gamePlayStats,
   };
 }

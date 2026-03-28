@@ -40,15 +40,12 @@ const LAST_NAMES = [
   'Coleman','Banks','Benson','Gaines','Payne','Watts','Holt','Cross',
 ];
 
+import { ALL_COLLEGE_NAMES } from '../models/College';
+
 const COLLEGES = [
-  'Alabama','Ohio State','Georgia','Michigan','LSU','USC','Notre Dame',
-  'Texas','Florida','Penn State','Oklahoma','Clemson','Oregon',
-  'Wisconsin','Nebraska','Iowa','Texas A&M','Auburn','Tennessee',
-  'Utah','Miami','Florida State','Virginia Tech','Pittsburgh',
-  'California','Stanford','Northwestern','Vanderbilt','Duke',
-  'North Carolina','Wake Forest','Boston College','Missouri','Ole Miss',
-  'South Carolina','Kentucky','West Virginia','Arizona State','Kansas State',
-  'Baylor','TCU','Oklahoma State','Utah State','San Jose State',
+  ...ALL_COLLEGE_NAMES,
+  // Additional programs not in a major conference
+  'Notre Dame', 'BYU', 'Memphis', 'Boise State', 'Fresno State', 'San Jose State',
 ];
 
 const POSITION_POOL: Position[] = [
@@ -304,10 +301,13 @@ export function generateScoutingReport(
   const effectiveVariance = Math.max(0, baseVariance + qualityRoundAdj);
   // At level 1, center can drift ±1 from reality (scouts guess wrong sometimes)
   const centerNoise = scoutLevel === 1 ? (Math.floor(Math.random() * 3) - 1) : 0;
-  const center      = prospect.trueRound + centerNoise;
+  // Combine stock movement shifts projected round slightly
+  const combineAdj = prospect.combine?.stockMove === 'rising' ? -0.5
+    : prospect.combine?.stockMove === 'falling' ? 0.5 : 0;
+  const center      = prospect.trueRound + centerNoise + combineAdj;
   const projectedRound = {
-    min: Math.max(1, center - effectiveVariance),
-    max: Math.min(7, center + effectiveVariance),
+    min: Math.max(1, Math.round(center - effectiveVariance)),
+    max: Math.min(7, Math.round(center + effectiveVariance)),
   };
 
   const grade      = gradeFromRange(projectedRound.min, projectedRound.max);

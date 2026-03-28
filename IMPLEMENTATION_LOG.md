@@ -256,4 +256,245 @@ Logs ~5% of defensive snaps: bucket → playbook → play → package → slot a
 
 ---
 
+## 2026-03-27 — Draft Trade System (Phase 1 MVP)
+
+**What:** Added pick-for-pick trading during the draft. Reuses the existing trade infrastructure (`propose-trade` endpoint, `draftPickOwnership`, `shouldAIAcceptTrade`, `applyTrade`). No new backend code — purely a UI addition that calls existing API.
+
+**UI:** "Trade Picks" button in draft header opens a trade panel. Select a team → checkboxes for your picks to give and their picks to get → "Propose Trade" submits via existing `proposeTradeApi`. AI responds immediately (accept/reject). On accept, league state refreshes and draft slots update.
+
+**Files changed:**
+- `web/src/App.tsx` — added `leagueId`/`onLeagueUpdated` props to DraftView, added trade state + `submitDraftTrade()` + `findOriginalTeam()`, trade panel UI with team selector, pick checkboxes, result display
+- `web/src/App.css` — `.draft-trade-*` styles
+
+**Trade flow:** User selects picks → `proposeTradeApi(leagueId, myTeamId, theirTeamId, fromAssets, toAssets)` → AI evaluates using existing `shouldAIAcceptTrade` (pick value chart) → accept/reject → draft slots automatically reflect new ownership on refresh.
+
+---
+
+## 2026-03-27 — Combine / Pro Day System & Draft Feedback
+
+**Combine system:** Generated per prospect alongside draft class. Results are public (no scouting needed). Metrics: 40-yard dash, bench press, vertical jump, broad jump, 3-cone, shuttle. Stock movement (rising/falling/neutral) derived from athletic performance vs expected for draft position. Combine adjusts scouting projected round by ±0.5 rounds.
+
+**Draft feedback:** Board target alerts (yellow bar when a board target is taken by another team), BPA tags (top 3 by OVR), Falling tags (past projected round), Value/Reach commentary on recent picks and user picks, value indicator in detail panel.
+
+**Files:** `src/models/Prospect.ts` (CombineResults type), `src/engine/combineGen.ts` (new), `src/engine/scoutingEngine.ts` (combine adj), `src/server.ts` (generation hook), `web/src/types.ts` (frontend types), `web/src/App.tsx` (Combine section in College tab + detail panel + draft alerts/tags), `web/src/App.css` (combine + feedback styles).
+
+---
+
+## 2026-03-27 — Draft Room UI & College-Scouting Integration
+
+**What:** Enhanced the existing DraftView into a full Draft Room experience with a prospect detail panel, "Your Picks" summary, and clickable prospect rows. Integrated the College tab with the existing scouting system (Scout buttons, View links, auto-focus navigation).
+
+**Draft Room enhancements:**
+- Clickable prospect rows → detail panel on right side showing name, position, OVR, college, size, scouting report (grade, confidence, projected round, strengths, weaknesses, notes), board rank, and "Draft [Name]" button when it's user's turn
+- "Your Picks" section showing all user selections this draft
+- Right panel layout: Detail → Your Picks → Recent Picks (stacked vertically)
+- Selected prospect highlighted with purple background
+
+**College-Scouting integration:**
+- Scout button directly in College tab's Top Prospects table (same API as Scouting tab)
+- Scouting state displayed per prospect (Unscouted / Lv1 with proj round / Full)
+- "View" button navigates to Scouting tab and auto-expands the prospect's detail
+- `scoutFocusId` state bridges College → Scouting tab navigation
+- Stat leaders also have "View" links
+
+**Files changed:**
+- `web/src/App.tsx` — DraftView: added `selectedId` state, prospect detail panel, "Your Picks" section, clickable rows. CollegeView: added scouting props, Scout/View buttons. ScoutingView: added `focusProspectId`/`onFocusConsumed` props with auto-expand effect. Added `scoutFocusId` state.
+- `web/src/App.css` — `.draft-right`, `.draft-detail-*`, `.draft-selected`, `.draft-tag-*`, `.draft-detail-pick-btn`, `.draft-my-picks` styles, updated grid layout
+
+**No backend changes. All compiles clean. Benchmark stable.**
+
+---
+
+## 2026-03-27 — College Scouting System (Phase 1 MVP)
+
+**What:** Added a college football presentation layer with 5 conferences (50 teams), generated standings, stat leaders, and prospect preview. Generated alongside the draft class each offseason.
+
+**Data model:**
+- `CollegeData` on League: `{ year, conferences: [{name, teams: [{name, conference, wins, losses}]}], statLeaders: [{name, prospectId, college, stat, category}] }`
+- Generated in `initDraftCycle()` via `generateCollegeData(year, prospects)`
+- `COLLEGE_CONFERENCES` defines SEC (10), Big Ten (10), ACC (10), Big 12 (10), Pac-12 (10) = 50 teams
+- Prospect `college` field now draws from conference teams (updated `scoutingEngine.ts`)
+
+**Standings generation:** Top teams in each conference get more wins (12-idx base + random variance). No games simulated.
+
+**Stat leaders:** Top 2-3 prospects by `trueOverall` at each position group (QBs, RBs, WRs/TEs, DEs/OLBs, CBs/safeties) get generated stat lines with believable ranges.
+
+**UI:** New "College" tab in the main nav (visible when `collegeData` exists). Three sections:
+1. Conference Standings — tabbed by conference, sorted by wins
+2. Stat Leaders — tabbed by category (passing/rushing/receiving/sacks/INTs)
+3. Top Prospects — first 20 prospects with name, position, college, height/weight
+
+**Files changed:**
+- `src/models/College.ts` — new: `CollegeTeam`, `CollegeStatLeader`, `CollegeData`, `COLLEGE_CONFERENCES`, `ALL_COLLEGE_NAMES`
+- `src/engine/collegeGen.ts` — new: `generateCollegeData()`
+- `src/engine/scoutingEngine.ts` — updated `COLLEGES` to use `ALL_COLLEGE_NAMES`
+- `src/models/League.ts` — added `collegeData?: CollegeData` to League
+- `src/server.ts` ��� generates college data in `initDraftCycle()`
+- `web/src/types.ts` — mirrored types + `collegeData` on League
+- `web/src/App.tsx` — `CollegeView` component, "College" tab in nav
+- `web/src/App.css` — `.col-*` styles
+
+**No engine math changes. All compiles clean. Benchmark stable.**
+
+---
+
+## 2026-03-27 — Coach Reputation System
+
+**What:** Added a long-term reputation layer that tracks coaching performance across seasons. Reputation score (0–100) updates once per season based on win rate and playoff/championship results.
+
+**Model:** Added `reputation?: number` and `prevReputation?: number` to `GmCareer`. Score starts at 40 ("Unproven") for new careers and moves ±5–15 per season. Tier thresholds: Hot Seat (0–19), Unproven (20–39), Respected (40–59), Proven Winner (60–79), Elite (80–100).
+
+**Update logic** (in `updateGmSeasonRecord`): Win% drives bulk of change (75%+ → +12, below 25% → -12). Playoffs +3, championship +8. Capped at ±15/season.
+
+**UI:** Integrated into existing GM Career dashboard panel as a sub-section. Shows tier label (color-coded), trend arrow (↑/→/↓ vs previous season), score, and one-line explanation.
+
+**Files changed:**
+- `src/models/History.ts` — added `ReputationTier`, `ReputationTrend` types, `reputation`/`prevReputation` fields on `GmCareer`
+- `src/engine/gmCareer.ts` — added `computeReputation()`, integrated into `updateGmSeasonRecord()`
+- `web/src/types.ts` — mirrored types and fields
+- `web/src/App.tsx` — reputation display in GM Career panel
+- `web/src/App.css` — `.rep-*` styles
+
+**Migration:** Existing leagues without `reputation` default to 40 ("Unproven"). No migration script needed.
+
+---
+
+## 2026-03-27 — Weekly Prep Polish & Pre-Game Workflow
+
+**What:** Polished the Weekly Prep panel into a cohesive pre-game workflow. Removed duplication between Weekly Prep and Team Insights. Added checklist structure, clearer matchup display, and full-width CTA.
+
+**Changes:**
+- Weekly Prep now shows: matchup (home/away + opponent abbr + full name), scouting/recommendation as checklist steps with ✓/○ indicators, recommendation detail card with "Suggested for this matchup" tag, full-width "Open Gameplan" CTA button
+- Removed opponent scouting from Team Insights (renamed to "Performance Notes") — opponent info is exclusively in Weekly Prep
+- Gameplan section in PlaybooksView now defaults to expanded (was collapsed)
+- Sidebar flow is now: League Meta → Weekly Prep (opponent-focused) → Performance Notes (team-focused) → Quick Access
+
+**Files changed:**
+- `web/src/App.tsx` — polished Weekly Prep panel, removed opponent scouting from Team Insights, renamed panel, defaulted Gameplan to expanded
+- `web/src/App.css` — added `.wp-steps`, `.wp-step`, `.wp-cta`, updated matchup and rec styles
+
+---
+
+## 2026-03-27 — Gameplan Recommendations & Weekly Prep
+
+**What:** Extracted inline gameplan recommendation logic into a reusable module (`gameplanRec.ts`). Surfaced recommendations in two places: the Gameplan panel (existing) and a new Weekly Prep sidebar panel on the dashboard.
+
+**Recommendation logic** (`web/src/gameplanRec.ts`):
+- Analyzes team `playStats` (run/pass avg yards, deep rate), league `metaProfile`, and upcoming opponent tendencies
+- Returns a preset ID, name, 2-3 reasons, and opponent info
+- Same deterministic rules used in both locations — no duplication
+
+**Weekly Prep panel** (dashboard sidebar, before Team Insights):
+- Shows upcoming opponent name, home/away, and week number
+- Displays scouting summary from `generateScoutingReport()` if available
+- Shows suggested gameplan preset with reasons
+- "Gameplan →" link navigates to the Playbooks tab
+- Hidden when no upcoming game exists; shows neutral message when insufficient data
+
+**Files changed:**
+- `web/src/gameplanRec.ts` — new file: extracted `generateGameplanRecommendation()`
+- `web/src/App.tsx` — added `league` prop to PlaybooksView, replaced inline recommendation with helper call, added Weekly Prep panel to dashboard sidebar
+- `web/src/App.css` — `.wp-*` styles for Weekly Prep panel
+
+---
+
+## 2026-03-27 — Weekly League Report / Headlines
+
+**What:** Auto-generated weekly report summarizing league activity — headlines, notable games, top performers, standout teams, and meta insights.
+
+**Generator** (`web/src/weeklyReport.ts`):
+- Computes report from `league.currentSeason.games` (current week's box scores), `standings`, and `metaProfile`
+- **Headlines** (3-6): standings leaders, shootouts, nail-biters, blowouts, defensive struggles, big performances, meta trends
+- **Notable games**: highest scoring (≥40 combined), closest (≤3pt margin), biggest blowout (≥21pt margin), defensive battle (≤20 combined)
+- **Top performers**: top passer (≥10 att), top rusher (≥5 car, ≥50 yds), top receiver (≥3 rec, ≥60 yds) — extracted from weekly box scores
+- **Standout teams**: best record (≥2 wins), biggest win this week (≥14pt margin)
+- **Meta summary**: reuses existing `metaProfile` insight sentences
+
+**UI**: Panel at top of dashboard feed column, above the League Feed. Styled with left-border accent headlines, game score cards with tags, performer stat lines, and italic meta insight.
+
+**Files changed:**
+- `web/src/weeklyReport.ts` — new file: report generator
+- `web/src/App.tsx` — import, compute `weeklyReport` in DashboardView, render panel
+- `web/src/App.css` — `.wr-*` styles
+
+**Graceful handling**: Returns `null` (panel hidden) when week < 1 or no final games exist. Handles missing box scores, sparse stats, and undefined meta.
+
+---
+
+## 2026-03-27 — Custom Offensive Play Creator (Phase 1 MVP)
+
+**What:** Users can now create custom offensive plays with structured route assignments and use them in custom playbooks.
+
+**Data model:** Custom plays use the existing `OffensivePlay` interface — no new type. Stored as `team.customOffensivePlays?: OffensivePlay[]` (max 20 per team). IDs prefixed with `custom_` to avoid collisions with built-in plays.
+
+**Validation rules (enforced both client-side and server-side):**
+- Play name required, max 60 chars, no duplicates (case-insensitive)
+- Formation must exist in the library
+- engineType must be one of: inside_run, outside_run, short_pass, medium_pass, deep_pass
+- Pass plays: at least one route, at most 3 DEEP routes, at least one SHORT or MEDIUM route
+- Run plays: must specify ballCarrierSlot (RB or FB), slot must exist in formation
+- Slots must be valid for the chosen formation, no duplicate slot assignments
+
+**Integration:**
+- `selectOffensivePlay()` now searches both `OFFENSIVE_PLAYS` and `team.customOffensivePlays`
+- `save-offense-playbook` endpoint accepts custom play IDs alongside built-in play IDs
+- Custom plays appear in the playbook editor's play picker
+- Same weight pipeline: tendency × repetition × context multipliers apply to custom plays
+- Explanation system works with custom plays (same `buildExplanation()` path)
+
+**Backend endpoints:**
+- `POST /league/:id/save-custom-play` — create/update custom play with validation
+- `POST /league/:id/delete-custom-play` — delete custom play (blocked if used in a playbook)
+
+**UI:** New "Custom Plays" section in PlaybooksView (offense tab):
+- Card grid showing existing custom plays with formation, type, route tags
+- Play creator form: name, formation, play type, play action checkbox, route assignments per slot (pass) or ball carrier (run)
+- Real-time client-side validation, Edit and Delete buttons per card
+
+**Files changed:**
+- `src/models/Team.ts` — added `customOffensivePlays?: OffensivePlay[]` to Team, imported OffensivePlay
+- `src/server.ts` — added `save-custom-play` and `delete-custom-play` endpoints, updated `save-offense-playbook` to accept custom play IDs
+- `src/engine/playSelection.ts` — `selectOffensivePlay()` accepts and searches `customPlays[]`, `resolvePlay()` passes `team.customOffensivePlays`
+- `web/src/types.ts` — added `customOffensivePlays` to frontend Team type
+- `web/src/api.ts` — added `saveCustomPlay` and `deleteCustomPlay` API calls
+- `web/src/App.tsx` — custom play creator state/handlers, Custom Plays section in PlaybooksView, custom plays merged into playbook editor's play list
+- `web/src/App.css` — all custom play creator styles
+
+**No engine math changes. All compiles clean. Benchmark stable.**
+
+---
+
+## 2026-03-27 — Play Selection Intelligence & Game Presentation Overhaul
+
+**What:** Six features implemented across play selection and game presentation:
+
+1. **Team Tendencies in Playbook Selection** — Moved tendency modifiers (`runPassBias`, `aggressiveness`, `shotPlayRate`) from the legacy `selectPlayType()` fallback into `selectOffensivePlay()` as weight multipliers. Legacy path is now a clean playcalling-weights-only fallback.
+
+2. **Repetition Penalties (Anti-Spam)** — Added `PlayHistory` tracking (last 6 plays per team). Same play last play → ×0.6, repeated 2+ times → ×0.4, same concept → ×0.7, same formation → ×0.85. Floor at 0.1.
+
+3. **Coach Archetypes** — 8 preset coaching styles (Balanced, West Coast, Vertical, Run Heavy, Play Action, Aggressive Defense, Coverage Defense, Run Stop Defense) that auto-configure all 7 tendency sliders. Purely frontend — uses existing `set-tendencies` endpoint.
+
+4. **Game Context Modifiers** — Score, time, and field position tilt play weights: losing late boosts passes (+20%), winning late boosts runs (+20%), red zone suppresses deep (-30%), backed up suppresses passes (-15%).
+
+5. **Play Explanation System** — Each resolved play carries human-readable `explanation[]` strings (tendency, repetition, context reasons). Shown via "🧠 Logic" toggle in GameViewer and GameCenterView.
+
+6. **Natural Language Commentary** — Replaced raw play text with varied templates (3-5 per play type/result). Deterministic seeding prevents re-render flickering. Handles negative yards, big plays, special teams.
+
+7. **Drive Summaries & Postgame Recap** — New `gameRecap.ts` module reconstructs drives from events, identifies key moments (TDs, turnovers, big plays, long drives), and generates templated recap headline + paragraph. New "Recap" tab (default) in GameDetail. Recap section in GameCenterView after game completion.
+
+**Weight pipeline:** `baseWeight × tendencyMult × repPenalty × contextMult = finalWeight`
+
+**Files changed:**
+- `src/engine/playSelection.ts` — tendency multipliers, repetition penalties, context modifiers, explanation builder
+- `src/engine/simulateGame.ts` — play history creation, explanation attachment to PlayEvent
+- `src/models/PlayEvent.ts` — added `explanation?: string[]`
+- `web/src/types.ts` — coach archetypes, frontend PlayEvent/PlayType sync
+- `web/src/App.tsx` — archetype picker, commentary templates, logic toggle, recap tab
+- `web/src/App.css` — all new styles
+- `web/src/gameRecap.ts` — new file: drive summaries, key moments, postgame recap
+
+**No engine math changes. All compiles clean. Benchmark stable.**
+
+---
+
 _Add new entries above this line, newest first._

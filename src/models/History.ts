@@ -112,6 +112,9 @@ export interface GmAchievement {
 }
 
 /** Persistent GM career object — stored on the league. */
+export type ReputationTier = 'Hot Seat' | 'Unproven' | 'Respected' | 'Proven Winner' | 'Elite';
+export type ReputationTrend = 'rising' | 'stable' | 'falling';
+
 export interface GmCareer {
   teamId:                    string;
   teamName:                  string;
@@ -119,6 +122,10 @@ export interface GmCareer {
   seasons:                   GmSeasonRecord[];
   achievements:              GmAchievement[];
   legacyScore:               number;
+  /** Coach/GM reputation score (0–100). Updated at season end. */
+  reputation?:               number;
+  /** Previous season's reputation (for trend calculation). */
+  prevReputation?:           number;
   /** In-season counters — reset to 0 at start of each new season. */
   currentSeasonDraftPicks:   number;
   currentSeasonTrades:       number;

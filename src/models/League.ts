@@ -132,6 +132,15 @@ export interface TradeProposal {
   completedPhase?: string;
 }
 
+// ── League meta profile ──────────────────────────────────────────────────────
+
+export interface MetaProfile {
+  passRate:   number;  // 0–1 league-wide pass rate
+  runRate:    number;  // 0–1
+  deepRate:   number;  // 0–1 fraction of passes that are deep
+  totalCalls: number;
+}
+
 // ── League ────────────────────────────────────────────────────────────────────
 
 export interface League {
@@ -177,6 +186,10 @@ export interface League {
   unemployedCoaches:    Coach[];
   /** GM career tracking — present whenever a user manages a team in this league. */
   gmCareer?:            GmCareer;
+  /** League-wide offensive meta profile — computed each week from all teams' playStats. */
+  metaProfile?:         MetaProfile;
+  /** College football data for the current draft cycle (standings, leaders). */
+  collegeData?:         import('./College').CollegeData;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

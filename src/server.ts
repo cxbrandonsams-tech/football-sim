@@ -14,20 +14,22 @@ import { incrementGmStat, initGmCareer } from './engine/gmCareer';
 import { offerContract, cpuInitialFASignings, calcAskingPrice } from './engine/freeAgency';
 import { startDraft, makeDraftPick, simRemainingDraft, advanceOneCpuPick, advanceToUserPick } from './engine/draft';
 import { generateDraftClass, generateScoutingReport, budgetToPoints } from './engine/scoutingEngine';
+import { generateCollegeData } from './engine/collegeGen';
+import { generateAllCombineResults } from './engine/combineGen';
 import { type ProspectScoutingState, type Prospect } from './models/Prospect';
 import { TUNING } from './engine/config';
 import { createTradeProposal, applyTrade, shouldAIAcceptTrade, runAITrades, describeAssets, validateTradeCaps, generateShopOffers } from './engine/trades';
 import { newsForGame, newsForTrade, newsForSigning, newsForDraftPick, addNewsItems } from './engine/news';
 import { getUserTeam } from './models/League';
 import { type DepthChart } from './models/DepthChart';
-import { type GameplanSettings, DEFAULT_GAMEPLAN, derivePlaycalling } from './models/Team';
+import { type GameplanSettings, DEFAULT_GAMEPLAN, derivePlaycalling, type TeamTendencies, DEFAULT_TENDENCIES, clampTendencies } from './models/Team';
 import { type OffensiveSlot } from './models/Formation';
-import { type Playbook, type OffensivePlan } from './models/Playbook';
+import { type OffensivePlay, type Playbook, type OffensivePlan, type RouteTag } from './models/Playbook';
 import { OFFENSIVE_FORMATIONS } from './models/Formation';
 import { PLAYBOOKS, DEFAULT_OFFENSIVE_PLAN } from './data/playbooks';
 import { OFFENSIVE_PLAYS } from './data/plays';
 import { type DefensiveSlot } from './models/DefensivePackage';
-import { type DefensivePlaybook, type DefensivePlan } from './models/DefensivePlaybook';
+import { type DefensivePlay as DefPlayType, type DefensivePlaybook, type DefensivePlan, type DefensiveFront, type DefensiveCoverage, type BlitzTag } from './models/DefensivePlaybook';
 import { DEFENSIVE_PACKAGES } from './models/DefensivePackage';
 import { DEFENSIVE_PLAYBOOKS, DEFAULT_DEFENSIVE_PLAN } from './data/defensivePlaybooks';
 import { DEFENSIVE_PLAYS } from './data/defensivePlays';
@@ -102,7 +104,9 @@ function initDraftCycle(league: League): League {
     scoutingData:   {} as Record<string, ProspectScoutingState>,
     draftBoard:     [] as string[],
   }));
-  return { ...league, draftClass, teams: updatedTeams };
+  generateAllCombineResults(draftClass.prospects);
+  const collegeData = generateCollegeData(draftYear, draftClass.prospects);
+  return { ...league, draftClass, collegeData, teams: updatedTeams };
 }
 
 function doAdvance(league: League): League {
@@ -911,6 +915,22 @@ app.post('/league/:id/set-gameplan', requireAuth, (req: Request, res: Response) 
   sendLeague(res, updated);
 });
 
+// POST /league/:id/set-tendencies — update the user's team tendencies.
+app.post('/league/:id/set-tendencies', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const userTeam = getUserTeam(league);
+  const body = req.body as Partial<TeamTendencies>;
+  const tendencies = clampTendencies({
+    ...(userTeam.tendencies ?? DEFAULT_TENDENCIES),
+    ...body,
+  });
+  const updatedTeam = { ...userTeam, tendencies };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
 // POST /league/:id/settings — update league settings (commissioner only).
 app.post('/league/:id/settings', requireAuth, async (req: Request, res: Response) => {
   const userId = (req as AuthRequest).user!.userId;
@@ -1312,7 +1332,9 @@ app.post('/league/:id/save-offense-playbook', requireAuth, (req: Request, res: R
   if (playbook.entries.length > 50) {
     res.status(400).json({ error: 'A playbook cannot have more than 50 entries.' }); return;
   }
-  const knownPlayIds = new Set(OFFENSIVE_PLAYS.map(p => p.id));
+  const userTeam   = getUserTeam(league);
+  const customPlays = userTeam.customOffensivePlays ?? [];
+  const knownPlayIds = new Set([...OFFENSIVE_PLAYS.map(p => p.id), ...customPlays.map(p => p.id)]);
   for (const entry of playbook.entries) {
     if (!knownPlayIds.has(entry.playId)) {
       res.status(400).json({ error: `Unknown play ID '${entry.playId}'.` }); return;
@@ -1327,7 +1349,6 @@ app.post('/league/:id/save-offense-playbook', requireAuth, (req: Request, res: R
     res.status(400).json({ error: 'Playbook contains duplicate play entries. Each play may appear at most once.' }); return;
   }
 
-  const userTeam  = getUserTeam(league);
   const existing  = userTeam.customOffensivePlaybooks ?? [];
   // Duplicate name check (case-insensitive, excluding the playbook being updated)
   const dupName = existing.filter(pb => pb.id !== playbook.id)
@@ -1368,6 +1389,242 @@ app.post('/league/:id/delete-offense-playbook', requireAuth, (req: Request, res:
   sendLeague(res, updated);
 });
 
+// POST /league/:id/save-custom-play — create or update a custom offensive play.
+app.post('/league/:id/save-custom-play', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { play } = req.body as { play?: OffensivePlay };
+  if (!play?.id || !play.name?.trim()) {
+    res.status(400).json({ error: 'play.id and play.name are required.' }); return;
+  }
+  // Must use custom_ prefix
+  if (!play.id.startsWith('custom_')) {
+    res.status(400).json({ error: "Custom play IDs must start with 'custom_'." }); return;
+  }
+  if (play.name.trim().length > 60) {
+    res.status(400).json({ error: 'Play name must be 60 characters or fewer.' }); return;
+  }
+  // Cannot collide with built-in play IDs
+  if (OFFENSIVE_PLAYS.some(p => p.id === play.id)) {
+    res.status(400).json({ error: 'Cannot overwrite a built-in play.' }); return;
+  }
+  // Validate formationId
+  const formation = OFFENSIVE_FORMATIONS.find(f => f.id === play.formationId);
+  if (!formation) {
+    res.status(400).json({ error: `Unknown formation '${play.formationId}'.` }); return;
+  }
+  // Validate engineType
+  const validEngineTypes = ['inside_run', 'outside_run', 'short_pass', 'medium_pass', 'deep_pass'];
+  if (!validEngineTypes.includes(play.engineType)) {
+    res.status(400).json({ error: `Invalid engineType '${play.engineType}'.` }); return;
+  }
+  const isRun = play.engineType === 'inside_run' || play.engineType === 'outside_run';
+
+  // Validate routes (pass plays)
+  if (!isRun) {
+    if (!Array.isArray(play.routes) || play.routes.length === 0) {
+      res.status(400).json({ error: 'Pass plays must have at least one route.' }); return;
+    }
+    const validDepths: RouteTag[] = ['SHORT', 'MEDIUM', 'DEEP'];
+    const validSlots = new Set(formation.slots as string[]);
+    const usedSlots = new Set<string>();
+    let deepCount = 0;
+    let hasShortOrMedium = false;
+    for (const r of play.routes) {
+      if (!validSlots.has(r.slot)) {
+        res.status(400).json({ error: `Slot '${r.slot}' is not valid for formation '${formation.name}'.` }); return;
+      }
+      if (usedSlots.has(r.slot)) {
+        res.status(400).json({ error: `Duplicate slot assignment '${r.slot}'.` }); return;
+      }
+      usedSlots.add(r.slot);
+      if (!validDepths.includes(r.routeTag)) {
+        res.status(400).json({ error: `Invalid route depth '${r.routeTag}'.` }); return;
+      }
+      if (r.routeTag === 'DEEP') deepCount++;
+      if (r.routeTag === 'SHORT' || r.routeTag === 'MEDIUM') hasShortOrMedium = true;
+    }
+    if (deepCount > 3) {
+      res.status(400).json({ error: 'A play may have at most 3 deep routes.' }); return;
+    }
+    if (!hasShortOrMedium) {
+      res.status(400).json({ error: 'A pass play must have at least one SHORT or MEDIUM route.' }); return;
+    }
+  }
+
+  // Validate ballCarrierSlot (run plays)
+  if (isRun) {
+    if (!play.ballCarrierSlot) {
+      res.status(400).json({ error: 'Run plays must specify a ballCarrierSlot.' }); return;
+    }
+    if (!formation.slots.includes(play.ballCarrierSlot as OffensiveSlot)) {
+      res.status(400).json({ error: `Ball carrier slot '${play.ballCarrierSlot}' is not valid for formation '${formation.name}'.` }); return;
+    }
+  }
+
+  const userTeam  = getUserTeam(league);
+  const existing  = userTeam.customOffensivePlays ?? [];
+
+  // Max 20 custom plays per team
+  const isUpdate = existing.some(p => p.id === play.id);
+  if (!isUpdate && existing.length >= 20) {
+    res.status(400).json({ error: 'Maximum 20 custom plays per team.' }); return;
+  }
+
+  // Duplicate name check (case-insensitive, excluding the play being updated)
+  const dupName = existing.filter(p => p.id !== play.id)
+    .find(p => p.name.trim().toLowerCase() === play.name.trim().toLowerCase());
+  if (dupName) {
+    res.status(400).json({ error: `A custom play named "${play.name.trim()}" already exists.` }); return;
+  }
+
+  const sanitized: OffensivePlay = {
+    id: play.id,
+    name: play.name.trim(),
+    formationId: play.formationId,
+    engineType: play.engineType,
+    ...(play.routes ? { routes: play.routes } : {}),
+    ...(play.ballCarrierSlot ? { ballCarrierSlot: play.ballCarrierSlot } : {}),
+    ...(play.isPlayAction ? { isPlayAction: true } : {}),
+    ...(play.conceptId ? { conceptId: play.conceptId } : {}),
+  };
+
+  const idx = existing.findIndex(p => p.id === play.id);
+  const newList = idx >= 0
+    ? existing.map((p, i) => i === idx ? sanitized : p)
+    : [...existing, sanitized];
+  const updatedTeam = { ...userTeam, customOffensivePlays: newList };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/delete-custom-play — delete a custom offensive play.
+app.post('/league/:id/delete-custom-play', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { playId } = req.body as { playId?: string };
+  if (!playId) { res.status(400).json({ error: 'playId is required.' }); return; }
+
+  const userTeam = getUserTeam(league);
+  if (!(userTeam.customOffensivePlays ?? []).some(p => p.id === playId)) {
+    res.status(404).json({ error: 'Custom play not found.' }); return;
+  }
+  // Block deletion if used in any custom playbook
+  const usedIn = (userTeam.customOffensivePlaybooks ?? [])
+    .filter(pb => pb.entries.some(e => e.playId === playId));
+  if (usedIn.length > 0) {
+    res.status(400).json({
+      error: `Cannot delete — play is used in playbook(s): ${usedIn.map(pb => pb.name).join(', ')}. Remove it from those playbooks first.`,
+    }); return;
+  }
+  const newList = (userTeam.customOffensivePlays ?? []).filter(p => p.id !== playId);
+  const updatedTeam = { ...userTeam, customOffensivePlays: newList };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/save-custom-defense-play — create or update a custom defensive play.
+app.post('/league/:id/save-custom-defense-play', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { play } = req.body as { play?: DefPlayType };
+  if (!play?.id || !play.name?.trim()) {
+    res.status(400).json({ error: 'play.id and play.name are required.' }); return;
+  }
+  if (!play.id.startsWith('custom_def_')) {
+    res.status(400).json({ error: "Custom defensive play IDs must start with 'custom_def_'." }); return;
+  }
+  if (play.name.trim().length > 60) {
+    res.status(400).json({ error: 'Play name must be 60 characters or fewer.' }); return;
+  }
+  if (DEFENSIVE_PLAYS.some(p => p.id === play.id)) {
+    res.status(400).json({ error: 'Cannot overwrite a built-in defensive play.' }); return;
+  }
+  // Validate packageId
+  const pkg = DEFENSIVE_PACKAGES.find(p => p.id === play.packageId);
+  if (!pkg) {
+    res.status(400).json({ error: `Unknown package '${play.packageId}'.` }); return;
+  }
+  // Validate front
+  const validFronts: DefensiveFront[] = ['four_three', 'three_four', 'nickel', 'dime', 'quarter', 'goal_line'];
+  if (!validFronts.includes(play.front)) {
+    res.status(400).json({ error: `Invalid front '${play.front}'.` }); return;
+  }
+  // Validate coverage
+  const validCoverages: DefensiveCoverage[] = ['cover_0', 'cover_1', 'cover_2', 'cover_3', 'cover_4', 'cover_6', 'tampa_2', 'man_under'];
+  if (!validCoverages.includes(play.coverage)) {
+    res.status(400).json({ error: `Invalid coverage '${play.coverage}'.` }); return;
+  }
+  // Validate blitz
+  if (play.blitz) {
+    const validBlitzes: BlitzTag[] = ['lb_blitz', 'cb_blitz', 'safety_blitz', 'zone_blitz'];
+    if (!validBlitzes.includes(play.blitz)) {
+      res.status(400).json({ error: `Invalid blitz type '${play.blitz}'.` }); return;
+    }
+    // Blitz + cover_0 is valid (all-out), but blitz + cover_4 doesn't make sense
+    if (play.coverage === 'cover_4' || play.coverage === 'cover_6') {
+      res.status(400).json({ error: `Cannot blitz with ${play.coverage} — not enough rushers in that coverage shell.` }); return;
+    }
+  }
+
+  const userTeam  = getUserTeam(league);
+  const existing  = userTeam.customDefensivePlays ?? [];
+  const isUpdate = existing.some(p => p.id === play.id);
+  if (!isUpdate && existing.length >= 20) {
+    res.status(400).json({ error: 'Maximum 20 custom defensive plays per team.' }); return;
+  }
+  const dupName = existing.filter(p => p.id !== play.id)
+    .find(p => p.name.trim().toLowerCase() === play.name.trim().toLowerCase());
+  if (dupName) {
+    res.status(400).json({ error: `A custom defensive play named "${play.name.trim()}" already exists.` }); return;
+  }
+
+  const sanitized: DefPlayType = {
+    id: play.id,
+    name: play.name.trim(),
+    packageId: play.packageId,
+    front: play.front,
+    coverage: play.coverage,
+    ...(play.blitz ? { blitz: play.blitz } : {}),
+  };
+
+  const idx = existing.findIndex(p => p.id === play.id);
+  const newList = idx >= 0
+    ? existing.map((p, i) => i === idx ? sanitized : p)
+    : [...existing, sanitized];
+  const updatedTeam = { ...userTeam, customDefensivePlays: newList };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
+// POST /league/:id/delete-custom-defense-play — delete a custom defensive play.
+app.post('/league/:id/delete-custom-defense-play', requireAuth, (req: Request, res: Response) => {
+  const league = getLeagueOrFail(req, res);
+  if (!league) return;
+  const { playId } = req.body as { playId?: string };
+  if (!playId) { res.status(400).json({ error: 'playId is required.' }); return; }
+
+  const userTeam = getUserTeam(league);
+  if (!(userTeam.customDefensivePlays ?? []).some(p => p.id === playId)) {
+    res.status(404).json({ error: 'Custom defensive play not found.' }); return;
+  }
+  const usedIn = (userTeam.customDefensivePlaybooks ?? [])
+    .filter(pb => pb.entries.some(e => e.playId === playId));
+  if (usedIn.length > 0) {
+    res.status(400).json({
+      error: `Cannot delete — play is used in playbook(s): ${usedIn.map(pb => pb.name).join(', ')}. Remove it first.`,
+    }); return;
+  }
+  const newList = (userTeam.customDefensivePlays ?? []).filter(p => p.id !== playId);
+  const updatedTeam = { ...userTeam, customDefensivePlays: newList };
+  const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
+  dbSaveLeague(updated);
+  sendLeague(res, updated);
+});
+
 // POST /league/:id/save-defense-playbook — upsert a custom defensive playbook.
 app.post('/league/:id/save-defense-playbook', requireAuth, (req: Request, res: Response) => {
   const league = getLeagueOrFail(req, res);
@@ -1391,7 +1648,9 @@ app.post('/league/:id/save-defense-playbook', requireAuth, (req: Request, res: R
   if (DEFENSIVE_PLAYBOOKS.some(pb => pb.id === playbook.id)) {
     res.status(400).json({ error: 'Cannot overwrite a built-in defensive playbook.' }); return;
   }
-  const knownPlayIds = new Set(DEFENSIVE_PLAYS.map(p => p.id));
+  const userTeam    = getUserTeam(league);
+  const customDefPlays = userTeam.customDefensivePlays ?? [];
+  const knownPlayIds = new Set([...DEFENSIVE_PLAYS.map(p => p.id), ...customDefPlays.map(p => p.id)]);
   for (const entry of playbook.entries) {
     if (!knownPlayIds.has(entry.playId)) {
       res.status(400).json({ error: `Unknown defensive play ID '${entry.playId}'.` }); return;
@@ -1405,7 +1664,6 @@ app.post('/league/:id/save-defense-playbook', requireAuth, (req: Request, res: R
     res.status(400).json({ error: 'Playbook contains duplicate play entries. Each play may appear at most once.' }); return;
   }
 
-  const userTeam  = getUserTeam(league);
   const existing  = userTeam.customDefensivePlaybooks ?? [];
   // Duplicate name check (case-insensitive, excluding the playbook being updated)
   const dupName = existing.filter(pb => pb.id !== playbook.id)

@@ -5,9 +5,9 @@ import { type PlaycallingWeights, DEFAULT_PLAYCALLING, clampWeights } from './Pl
 import { type HeadScout } from './Scout';
 import { type ProspectScoutingState } from './Prospect';
 import { type FormationDepthCharts } from './Formation';
-import { type Playbook, type OffensivePlan } from './Playbook';
+import { type OffensivePlay, type Playbook, type OffensivePlan } from './Playbook';
 import { type PackageDepthCharts } from './DefensivePackage';
-import { type DefensivePlan, type DefensivePlaybook as DefPlaybookModel } from './DefensivePlaybook';
+import { type DefensivePlay as DefPlayModel, type DefensivePlan, type DefensivePlaybook as DefPlaybookModel } from './DefensivePlaybook';
 
 // ── Gameplan types ─────────────────────────────────────────────────────────────
 
@@ -66,6 +66,70 @@ export function derivePlaycalling(g: GameplanSettings): PlaycallingWeights {
   });
 }
 
+// ── Play effectiveness stats ─────────────────────────────────────────────────
+
+export interface PlayEffStats {
+  calls:      number;
+  totalYards: number;
+  successes:  number;  // yards >= 4 or firstDown
+  firstDowns: number;
+  touchdowns: number;
+  turnovers:  number;
+}
+
+// ── Team tendencies (identity layer) ─────────────────────────────────────────
+
+/**
+ * Lightweight identity layer that nudges play-selection weights.
+ * All values are 0–100 integers. 50 = neutral / no effect.
+ *
+ * These modify the *selection* of play types, never the engine math
+ * that resolves a play once chosen.
+ */
+export interface TeamTendencies {
+  // ── Offensive ──
+  /** Run-heavy ← 0 ··· 50 ··· 100 → Pass-heavy */
+  runPassBias:     number;
+  /** Conservative (short) ← 0 ··· 50 ··· 100 → Aggressive (deep) */
+  aggressiveness:  number;
+  /** Play-action usage: 0 = rare, 50 = normal, 100 = frequent */
+  playActionRate:  number;
+  /** Shot-play (deep bomb) rate: 0 = rare, 50 = normal, 100 = frequent */
+  shotPlayRate:    number;
+
+  // ── Defensive ──
+  /** Blitz frequency: 0 = rare, 50 = normal, 100 = frequent */
+  blitzRate:           number;
+  /** Coverage aggression (press/man vs soft/zone): 0 = passive, 50 = balanced, 100 = aggressive */
+  coverageAggression:  number;
+  /** Run-stop commitment: 0 = light boxes, 50 = balanced, 100 = stacked boxes */
+  runCommitment:       number;
+}
+
+export const DEFAULT_TENDENCIES: TeamTendencies = {
+  runPassBias:        50,
+  aggressiveness:     50,
+  playActionRate:     50,
+  shotPlayRate:       50,
+  blitzRate:          50,
+  coverageAggression: 50,
+  runCommitment:      50,
+};
+
+/** Clamp every tendency field to [0, 100]. */
+export function clampTendencies(t: Partial<TeamTendencies>): TeamTendencies {
+  const c = (v: number | undefined) => Math.max(0, Math.min(100, v ?? 50));
+  return {
+    runPassBias:        c(t.runPassBias),
+    aggressiveness:     c(t.aggressiveness),
+    playActionRate:     c(t.playActionRate),
+    shotPlayRate:       c(t.shotPlayRate),
+    blitzRate:          c(t.blitzRate),
+    coverageAggression: c(t.coverageAggression),
+    runCommitment:      c(t.runCommitment),
+  };
+}
+
 // ── Front-office personality ──────────────────────────────────────────────────
 
 /**
@@ -95,6 +159,8 @@ export interface Team {
   playcalling:  PlaycallingWeights;
   /** High-level strategic settings for this team. */
   gameplan?:    GameplanSettings;
+  /** Identity-layer tendencies that nudge play-selection weights. */
+  tendencies:   TeamTendencies;
   /** Conference this team belongs to (e.g. 'IC', 'SC') */
   conference?:  string;
   /** Division within the conference (e.g. 'East', 'West', 'North', 'South') */
@@ -142,9 +208,17 @@ export interface Team {
    */
   defensivePlan?:      DefensivePlan;
 
-  // ── Custom playbooks (GM-created) ───────────────────────────────────────────
+  // ── Play effectiveness tracking ─────────────────────────────────────────────
+  /** Per-play cumulative stats for the current season. Keyed by play ID. */
+  playStats?: Record<string, PlayEffStats>;
+
+  // ── Custom plays & playbooks (GM-created) ───────────────────────────────────
+  /** Custom offensive plays created by the team's GM. Available in custom playbooks. */
+  customOffensivePlays?: OffensivePlay[];
   /** Offensive playbooks created by the team's GM. Merged with built-ins during play selection. */
   customOffensivePlaybooks?: Playbook[];
+  /** Custom defensive plays created by the team's GM. Available in custom defensive playbooks. */
+  customDefensivePlays?: DefPlayModel[];
   /** Defensive playbooks created by the team's GM. Merged with built-ins during play selection. */
   customDefensivePlaybooks?: DefPlaybookModel[];
 }
@@ -160,6 +234,7 @@ export function createTeam(
     division?:      string;
     playcalling?:   PlaycallingWeights;
     gameplan?:      GameplanSettings;
+    tendencies?:    TeamTendencies;
     scout?:         HeadScout;
     scoutingBudget?: number;
     frontOffice?:   FrontOfficePersonality;
@@ -175,6 +250,7 @@ export function createTeam(
     coaches,
     playcalling: opts.playcalling ?? derivePlaycalling(gameplan),
     gameplan,
+    tendencies: opts.tendencies ?? { ...DEFAULT_TENDENCIES },
     ...(opts.conference    !== undefined && { conference:    opts.conference }),
     ...(opts.division      !== undefined && { division:      opts.division   }),
     ...(opts.scout         !== undefined && { scout:         opts.scout }),

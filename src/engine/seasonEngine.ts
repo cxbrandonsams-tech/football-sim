@@ -251,6 +251,11 @@ export function startNextSeason(league: League): League {
     currentSeason:      nextSeason,
     currentWeek:        1,
     currentSeasonStats: {},
+    // Reset play effectiveness stats for the new season
+    teams: afterEnforcement.teams.map(t => {
+      const { playStats: _drop, ...rest } = t;
+      return rest;
+    }),
   };
   return resetGmSeasonCounters(nextLeague);
 }

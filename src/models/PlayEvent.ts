@@ -26,4 +26,6 @@ export interface PlayEvent {
   ballCarrierId?: string;      // player.id of ball carrier (QB for passes, RB for runs)
   targetId?:      string;      // player.id of receiver
   defPlayerId?:   string;      // player.id of defensive player (sacking DE or intercepting CB)
+  // ── Play selection explanation (optional, for UI "Show Play Logic" toggle) ──
+  explanation?:   string[];    // human-readable reasons for play choice
 }

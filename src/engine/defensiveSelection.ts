@@ -21,7 +21,7 @@
  *   FS   → S[0]     SS   → S[1]
  */
 
-import { type Team }                           from '../models/Team';
+import { type Team, type PlayEffStats }         from '../models/Team';
 import { type DepthChart, type DepthChartSlot } from '../models/DepthChart';
 import { type Player }                          from '../models/Player';
 import { type DefensiveSlot }                   from '../models/DefensivePackage';
@@ -34,6 +34,7 @@ import { type DownDistanceBucket }              from '../models/Playbook';
 import { DEFENSIVE_PLAYS }                      from '../data/defensivePlays';
 import { DEFENSIVE_PLAYBOOKS, DEFAULT_DEFENSIVE_PLAN } from '../data/defensivePlaybooks';
 import { classifyBucket }                       from './playSelection';
+import { OFFENSIVE_PLAYS }                      from '../data/plays';
 
 // GameSituation is imported as type-only to avoid a circular module reference.
 import type { GameSituation } from './simulateGame';
@@ -165,12 +166,206 @@ function weightedPick<T>(pool: { item: T; weight: number }[]): T | null {
   return pool[pool.length - 1]?.item ?? null;
 }
 
+// ── Opponent scouting ────────────────────────────────────────────────────────
+//
+// Derive a profile of the opponent's offensive tendencies from their playStats.
+// Used to tilt defensive play selection weights (max ±20%).
+
+export interface ScoutingProfile {
+  passRate:     number;  // 0–1 (fraction of pass plays)
+  runRate:      number;  // 0–1
+  deepRate:     number;  // 0–1 (fraction of deep passes among all passes)
+  shortRate:    number;  // 0–1 (fraction of short passes among all passes)
+  totalCalls:   number;
+}
+
+const RUN_ENGINE_TYPES = new Set(['inside_run', 'outside_run']);
+const DEEP_ENGINE_TYPES = new Set(['deep_pass']);
+const SHORT_ENGINE_TYPES = new Set(['short_pass']);
+const PASS_ENGINE_TYPES = new Set(['short_pass', 'medium_pass', 'deep_pass']);
+
+export function buildScoutingProfile(opponentPlayStats?: Record<string, PlayEffStats>, opponentCustomPlays?: import('../models/Playbook').OffensivePlay[]): ScoutingProfile {
+  const neutral: ScoutingProfile = { passRate: 0.5, runRate: 0.5, deepRate: 0.2, shortRate: 0.4, totalCalls: 0 };
+  if (!opponentPlayStats) return neutral;
+
+  // Build a play ID → engineType lookup
+  const allPlays = [...OFFENSIVE_PLAYS, ...(opponentCustomPlays ?? [])];
+  const engineTypeById = new Map(allPlays.map(p => [p.id, p.engineType]));
+
+  let runCalls = 0, passCalls = 0, deepCalls = 0, shortCalls = 0, totalCalls = 0;
+
+  for (const [playId, stats] of Object.entries(opponentPlayStats)) {
+    const engineType = engineTypeById.get(playId);
+    if (!engineType) continue;
+    totalCalls += stats.calls;
+    if (RUN_ENGINE_TYPES.has(engineType)) runCalls += stats.calls;
+    if (PASS_ENGINE_TYPES.has(engineType)) passCalls += stats.calls;
+    if (DEEP_ENGINE_TYPES.has(engineType)) deepCalls += stats.calls;
+    if (SHORT_ENGINE_TYPES.has(engineType)) shortCalls += stats.calls;
+  }
+
+  if (totalCalls < 10) return neutral; // not enough data to scout
+
+  const passRate = passCalls / totalCalls;
+  const deepRate = passCalls > 0 ? deepCalls / passCalls : 0.2;
+  const shortRate = passCalls > 0 ? shortCalls / passCalls : 0.4;
+
+  return { passRate, runRate: 1 - passRate, deepRate, shortRate, totalCalls };
+}
+
+// ── Coach intelligence ───────────────────────────────────────────────────────
+//
+// Derives a 0–1 intelligence factor from the defensive coaching staff.
+// Higher intelligence → stronger, more consistent scouting adjustments.
+// Lower intelligence → weaker adjustments with random noise.
+//
+// Inputs:
+//   DC overall (primary) — 1-99, the DC's general coaching ability
+//   HC gameManagement (secondary) — 1-99, the HC's in-game decision-making
+//   defensive_architect trait — flat bonus if present on any coach
+//
+// Output: 0.3–1.0 factor (floor ensures even bad coaches get some adaptation)
+
+export interface CoachIntelligence {
+  factor:    number;  // 0.3–1.0, scales scouting intensity
+  noiseAmpl: number;  // 0.0–0.15, random noise added to each multiplier
+}
+
+export function computeCoachIntelligence(team: Team): CoachIntelligence {
+  const dc = team.coaches.dc;
+  const hc = team.coaches.hc;
+
+  // DC overall is primary (default 50 if no DC)
+  const dcRating = dc?.overall ?? 50;
+  // HC gameManagement is secondary (default 50, weighted 30%)
+  const hcGm     = hc.gameManagement ?? 50;
+  // Composite: 70% DC + 30% HC gameManagement, normalized to 0–1
+  const composite = (dcRating * 0.7 + hcGm * 0.3) / 100;
+
+  // Trait bonus: defensive_architect on any coach adds +0.08
+  const coaches = [hc, dc, team.coaches.oc].filter(Boolean) as import('../models/Coach').Coach[];
+  const hasArchitect = coaches.some(c => c.trait === 'defensive_architect');
+  const traitBonus = hasArchitect ? 0.08 : 0;
+
+  // Factor: 0.3–1.0 range
+  const raw = composite + traitBonus;
+  const factor = Math.min(1.0, Math.max(0.3, raw));
+
+  // Noise: high intelligence → near-zero noise; low → up to ±15%
+  // Inverse relationship: noise = 0.15 × (1 - factor)
+  const noiseAmpl = 0.15 * (1 - factor);
+
+  return { factor, noiseAmpl };
+}
+
+/**
+ * Build a scouting profile from raw in-game play tracking (Map<playId, PlayEffStats>).
+ * Used for halftime adjustments based on first-half data.
+ */
+export function buildScoutingProfileFromGameStats(
+  playStatsMap: Map<string, PlayEffStats>,
+  opponentCustomPlays?: import('../models/Playbook').OffensivePlay[],
+): ScoutingProfile {
+  const neutral: ScoutingProfile = { passRate: 0.5, runRate: 0.5, deepRate: 0.2, shortRate: 0.4, totalCalls: 0 };
+  if (playStatsMap.size === 0) return neutral;
+
+  const allPlays = [...OFFENSIVE_PLAYS, ...(opponentCustomPlays ?? [])];
+  const engineTypeById = new Map(allPlays.map(p => [p.id, p.engineType]));
+
+  let runCalls = 0, passCalls = 0, deepCalls = 0, shortCalls = 0, totalCalls = 0;
+
+  for (const [playId, stats] of playStatsMap) {
+    const engineType = engineTypeById.get(playId);
+    if (!engineType) continue;
+    totalCalls += stats.calls;
+    if (RUN_ENGINE_TYPES.has(engineType)) runCalls += stats.calls;
+    if (PASS_ENGINE_TYPES.has(engineType)) passCalls += stats.calls;
+    if (DEEP_ENGINE_TYPES.has(engineType)) deepCalls += stats.calls;
+    if (SHORT_ENGINE_TYPES.has(engineType)) shortCalls += stats.calls;
+  }
+
+  if (totalCalls < 5) return neutral; // lower threshold for in-game (fewer plays)
+
+  const passRate = passCalls / totalCalls;
+  const deepRate = passCalls > 0 ? deepCalls / passCalls : 0.2;
+  const shortRate = passCalls > 0 ? shortCalls / passCalls : 0.4;
+
+  return { passRate, runRate: 1 - passRate, deepRate, shortRate, totalCalls };
+}
+
+/**
+ * Adjust a defensive play's weight based on opponent scouting.
+ *
+ * Coverage-heavy plays are boosted against pass-heavy offenses.
+ * Run-stopping fronts are boosted against run-heavy offenses.
+ * Blitzes are suppressed against deep-heavy offenses (high risk).
+ *
+ * @param intensity — multiplier on all shifts. 1.0 = pre-game scouting,
+ *                    1.5 = halftime adjustments (stronger, based on live data).
+ *                    Caps still enforce max ±30% per factor.
+ * @param coachInt — coach intelligence; scales intensity and adds noise.
+ */
+function scoutingMultiplier(play: DefensivePlay, scout: ScoutingProfile, intensity: number = 1.0, coachInt?: CoachIntelligence): number {
+  // Scale intensity by coach intelligence factor
+  const effectiveIntensity = intensity * (coachInt?.factor ?? 1.0);
+  let mult = 1.0;
+
+  // Is this a coverage-oriented play? (nickel, dime, quarter packages + zone/man coverage)
+  const isCoverageFocused = play.packageId.startsWith('nickel') || play.packageId.startsWith('dime')
+    || play.packageId.startsWith('quarter');
+  const isRunFocused = play.packageId.includes('goal_line') || play.front === 'goal_line'
+    || play.front === 'four_three' || play.front === 'three_four';
+  const hasBlitz = !!play.blitz;
+  const isDeepCoverage = play.coverage === 'cover_3' || play.coverage === 'cover_4' || play.coverage === 'cover_6';
+
+  // Pass-heavy opponent → boost coverage, suppress run-focus
+  if (scout.passRate > 0.55) {
+    const passShift = Math.min((scout.passRate - 0.5) * 2 * effectiveIntensity, 0.30);
+    if (isCoverageFocused) mult *= 1 + passShift;
+    if (isRunFocused && !isCoverageFocused) mult *= 1 - passShift * 0.5;
+  }
+
+  // Run-heavy opponent → boost run-stopping, suppress pure coverage
+  if (scout.runRate > 0.55) {
+    const runShift = Math.min((scout.runRate - 0.5) * 2 * effectiveIntensity, 0.30);
+    if (isRunFocused) mult *= 1 + runShift;
+    if (isCoverageFocused) mult *= 1 - runShift * 0.5;
+  }
+
+  // Deep-heavy passing → favor deep coverage, reduce blitz
+  if (scout.deepRate > 0.25) {
+    const deepShift = Math.min((scout.deepRate - 0.2) * 2 * effectiveIntensity, 0.25);
+    if (isDeepCoverage) mult *= 1 + deepShift;
+    if (hasBlitz) mult *= 1 - deepShift;
+  }
+
+  // Short-heavy passing → man coverage and blitz are more effective
+  if (scout.shortRate > 0.5) {
+    const shortShift = Math.min((scout.shortRate - 0.4) * 1.5 * effectiveIntensity, 0.25);
+    if (hasBlitz) mult *= 1 + shortShift;
+    if (play.coverage === 'man_under' || play.coverage === 'cover_0' || play.coverage === 'cover_1') {
+      mult *= 1 + shortShift * 0.5;
+    }
+  }
+
+  // Apply coach noise (low intelligence → inconsistent adjustments)
+  if (coachInt && coachInt.noiseAmpl > 0.001) {
+    mult *= 1 + (Math.random() * 2 - 1) * coachInt.noiseAmpl;
+  }
+
+  return Math.max(0.1, mult);
+}
+
 // ── Defensive play selection ──────────────────────────────────────────────────
 
 function selectDefensivePlay(
   plan:        DefensivePlan,
   bucket:      DownDistanceBucket,
   customBooks: DefensivePlaybook[] = [],
+  scout?:      ScoutingProfile,
+  halftimeScout?: ScoutingProfile,
+  coachInt?:   CoachIntelligence,
+  customPlays: DefensivePlay[] = [],
 ): DefensivePlay | null {
   const allPlaybooks = [...DEFENSIVE_PLAYBOOKS, ...customBooks];
   const playbookId   = plan[bucket] ?? DEFAULT_DEFENSIVE_PLAN[bucket];
@@ -180,8 +375,13 @@ function selectDefensivePlay(
 
   const pool = playbook.entries
     .map(entry => {
-      const play = DEFENSIVE_PLAYS.find(p => p.id === entry.playId);
-      return play ? { item: play, weight: entry.weight } : null;
+      const play = DEFENSIVE_PLAYS.find(p => p.id === entry.playId)
+                ?? customPlays.find(p => p.id === entry.playId);
+      if (!play) return null;
+      const baseWeight      = entry.weight;
+      const preGameMult     = scout ? scoutingMultiplier(play, scout, 1.0, coachInt) : 1.0;
+      const halftimeMult    = halftimeScout ? scoutingMultiplier(play, halftimeScout, 1.5, coachInt) : 1.0;
+      return { item: play, weight: baseWeight * preGameMult * halftimeMult };
     })
     .filter((p): p is { item: DefensivePlay; weight: number } => p !== null);
 
@@ -265,15 +465,19 @@ export interface ResolvedDefensivePlay {
  *   3. Playbook empty after resolution → return null (no depth chart remap)
  */
 export function resolveDefensivePlay(
-  team: Team,
-  sit:  GameSituation,
+  team:           Team,
+  sit:            GameSituation,
+  opponent?:      Team,
+  halftimeScout?: ScoutingProfile,
 ): ResolvedDefensivePlay | null {
   if (!team.defensivePlan) {
     defensiveSelectionStats.legacyFallback++;
     return null;
   }
-  const bucket = classifyBucket(sit.down, sit.distance);
-  const play   = selectDefensivePlay(team.defensivePlan, bucket, team.customDefensivePlaybooks ?? []);
+  const bucket   = classifyBucket(sit.down, sit.distance);
+  const scout    = opponent ? buildScoutingProfile(opponent.playStats, opponent.customOffensivePlays) : undefined;
+  const coachInt = computeCoachIntelligence(team);
+  const play     = selectDefensivePlay(team.defensivePlan, bucket, team.customDefensivePlaybooks ?? [], scout, halftimeScout, coachInt, team.customDefensivePlays ?? []);
   if (!play) {
     defensiveSelectionStats.newPathFallback++;
     return null;

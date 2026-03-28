@@ -9,7 +9,7 @@ _Source of truth for the playbook and formation system. All formation rules, pla
 - Player-to-slot assignment happens at game time based on depth charts.
 - Formations are **personnel-based** (e.g., 11 personnel = 1 RB, 1 TE, 3 WR).
 - Defensive **packages** are similarly personnel-based (base 4-3, nickel, dime, etc.).
-- Pre-authored plays only — no custom play creator.
+- Pre-authored plays form the base library; users can create custom plays (max 20/team) with structured route assignments and validation rules (max 3 deep, at least 1 short/medium).
 - Realism over arcade behavior at every layer.
 
 ---
@@ -252,7 +252,7 @@ On each snap, the engine executes this sequence:
 
 These are intentionally deferred. Do not implement without explicit approval:
 
-- **Custom play creator** — user-authored plays
+- ~~**Custom play creator**~~ — ✅ Implemented (Phase 1 MVP, 2026-03-27)
 - **Motion before the snap**
 - **Audibles** — changing the called play at the line
 - **Hot routes** — individual route adjustments

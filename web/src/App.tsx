@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { deriveBoxScore } from './boxScore';
+import { generateRecap, formatDriveSummary, generateScoutingReport, evaluateGameplan, generateSeasonGrade, generateSeasonSummary } from './gameRecap';
+import { generateWeeklyReport } from './weeklyReport';
+import { generateGameplanRecommendation } from './gameplanRec';
 import { aggregateSeasonStats, type SeasonPlayerStats } from './seasonStats';
 import { DashboardSchedule } from './DashboardSchedule';
 import {
@@ -17,13 +20,16 @@ import {
   setPackageSlot as setPackageSlotApi, setDefensivePlan as setDefensivePlanApi,
   saveOffensePlaybook as saveOffensePlaybookApi, deleteOffensePlaybook as deleteOffensePlaybookApi,
   saveDefensePlaybook as saveDefensePlaybookApi, deleteDefensePlaybook as deleteDefensePlaybookApi,
+  setTendencies as setTendenciesApi,
+  saveCustomPlay as saveCustomPlayApi, deleteCustomPlay as deleteCustomPlayApi,
+  saveCustomDefensePlay as saveCustomDefPlayApi, deleteCustomDefensePlay as deleteCustomDefPlayApi,
   getFormations,
   signup, login, getMyLeagues, getMe,
   getLeagueMembers as getLeagueMembersApi, updateLeagueSettings as updateLeagueSettingsApi, kickMember as kickMemberApi,
   setAuthToken, setAuthUser, clearAuth, authToken, authUserId, authUsername,
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
-import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type FrontOfficePersonality, type OffensiveSlot, type OffensiveFormation, type OffensivePlay, type Playbook, type PlaybookEntry, type DownDistanceBucket, type OffensivePlan, type Team, type DefensiveSlot, type DefensivePackage, type DefensivePlay, type DefPlaybook, type DefPlaybookEntry, type DefensivePlan } from './types';
+import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type FrontOfficePersonality, type OffensiveSlot, type OffensiveFormation, type OffensivePlay, type Playbook, type PlaybookEntry, type DownDistanceBucket, type OffensivePlan, type Team, type DefensiveSlot, type DefensivePackage, type DefensivePlay, type DefPlaybook, type DefPlaybookEntry, type DefensivePlan, type TeamTendencies, DEFAULT_TENDENCIES, COACH_ARCHETYPES, type RouteTag } from './types';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -561,10 +567,11 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<'dashboard' | 'standings' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner' | 'gameplan' | 'playbooks' | 'coaching' | 'scouting' | 'draft-board' | 'awards' | 'history' | 'hof' | 'legacy' | 'gm' | 'game-center'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'standings' | 'playoffs' | 'leaders' | 'roster' | 'depth' | 'injuries' | 'free-agents' | 'team' | 'contracts' | 'trades' | 'activity' | 'draft' | 'news' | 'commissioner' | 'gameplan' | 'playbooks' | 'coaching' | 'scouting' | 'college' | 'draft-board' | 'awards' | 'history' | 'hof' | 'legacy' | 'gm' | 'game-center'>('dashboard');
   const [rosterTeamId, setRosterTeamId] = useState(myTeamId);
   const [detailPlayerId, setDetailPlayerId] = useState<string | null>(null);
   const [watchedGameId, setWatchedGameId] = useState<string | null>(null);
+  const [scoutFocusId, setScoutFocusId] = useState<string | null>(null);
 
   async function action(fn: (id: string) => Promise<League>) {
     setBusy(true); setError(null);
@@ -751,6 +758,9 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
                 Draft{league.draft && !league.draft.complete && <span className="badge">!</span>}
               </button>
             )}
+            {league.collegeData && (
+              <button className={tab === 'college' ? 'active' : ''} onClick={() => setTab('college')}>College</button>
+            )}
             {league.draftClass && (
               <button className={tab === 'scouting' ? 'active' : ''} onClick={() => setTab('scouting')}>Scouting</button>
             )}
@@ -832,6 +842,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           teams={league.teams}
           seasonHistory={league.seasonHistory}
           history={league.history}
+          league={league}
           myTeamId={myTeamId}
           busy={busy}
           advanceBtnLabel={advanceBtnLabel()}
@@ -942,12 +953,25 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
         <DraftView
           league={league}
           myTeamId={myTeamId}
+          leagueId={leagueId}
           busy={busy}
           onPick={handleDraftPick}
           onSimDraft={handleSimDraft}
           onAdvance={() => action(advanceWeek)}
           onAdvanceOnePick={handleAdvanceDraftPick}
           onAdvanceToMyPick={handleAdvanceToUserPick}
+          onLeagueUpdated={setLeague}
+        />
+      )}
+      {tab === 'college' && league.collegeData && (
+        <CollegeView
+          data={league.collegeData}
+          prospects={league.draftClass?.prospects ?? []}
+          scoutingData={league.teams.find(t => t.id === myTeamId)?.scoutingData ?? {}}
+          scoutingPoints={league.teams.find(t => t.id === myTeamId)?.scoutingPoints ?? 0}
+          busy={busy}
+          onScout={handleScoutProspect}
+          onViewInScouting={(prospectId) => { setTab('scouting'); setScoutFocusId(prospectId); }}
         />
       )}
       {tab === 'scouting' && league.draftClass && (
@@ -956,6 +980,8 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           myTeam={league.teams.find(t => t.id === myTeamId)!}
           busy={busy}
           onScout={handleScoutProspect}
+          focusProspectId={scoutFocusId}
+          onFocusConsumed={() => setScoutFocusId(null)}
         />
       )}
       {tab === 'draft-board' && league.draftClass && (
@@ -974,7 +1000,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
         />
       )}
       {tab === 'coaching'  && <CoachingView  team={league.teams.find(t => t.id === myTeamId)!} league={league} leagueId={leagueId} onLeagueUpdated={setLeague} />}
-      {tab === 'playbooks' && <PlaybooksView team={league.teams.find(t => t.id === myTeamId)!} leagueId={leagueId} onLeagueUpdated={setLeague} />}
+      {tab === 'playbooks' && <PlaybooksView team={league.teams.find(t => t.id === myTeamId)!} league={league} leagueId={leagueId} onLeagueUpdated={setLeague} />}
 
       {detailPlayerId && (() => {
         const allPlayers = league.teams.flatMap(t => t.roster).concat(league.freeAgents);
@@ -1273,9 +1299,10 @@ function eligibleDefensivePlayers(team: Team, slot: DefensiveSlot): Player[] {
 }
 
 function PlaybooksView({
-  team, leagueId, onLeagueUpdated,
+  team, league: leagueObj, leagueId, onLeagueUpdated,
 }: {
   team: Team;
+  league: League;
   leagueId: string;
   onLeagueUpdated: (l: League) => void;
 }) {
@@ -1339,6 +1366,31 @@ function PlaybooksView({
   const [defPbNameError, setDefPbNameError] = useState<string | null>(null);
   const [deletingPbId, setDeletingPbId]     = useState<string | null>(null);
 
+  // ── Tendencies state ─────────────────────────────────────────────────────────
+  const [tendencyEdits, setTendencyEdits] = useState<Partial<TeamTendencies>>({});
+  const [tendencySaving, setTendencySaving] = useState(false);
+  const [tendencyError, setTendencyError]   = useState<string | null>(null);
+  const [showTendencies, setShowTendencies] = useState(true);
+
+  const savedTendencies: TeamTendencies = team.tendencies ?? DEFAULT_TENDENCIES;
+  const mergedTendencies: TeamTendencies = { ...savedTendencies, ...tendencyEdits };
+  const tendenciesHaveChanges = (Object.keys(tendencyEdits) as (keyof TeamTendencies)[]).some(
+    k => tendencyEdits[k] !== undefined && tendencyEdits[k] !== savedTendencies[k],
+  );
+
+  async function saveTendencies() {
+    if (!tendenciesHaveChanges) return;
+    setTendencySaving(true);
+    setTendencyError(null);
+    try {
+      const updated = await setTendenciesApi(leagueId, mergedTendencies);
+      onLeagueUpdated(updated);
+      setTendencyEdits({});
+      showToast('Gameplan saved');
+    } catch (e) { setTendencyError(friendlyError(e)); }
+    finally { setTendencySaving(false); }
+  }
+
   // ── Success toast ────────────────────────────────────────────────────────────
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1347,6 +1399,175 @@ function PlaybooksView({
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(msg);
     toastTimer.current = setTimeout(() => setToast(null), 2500);
+  }
+
+  // ── Custom play creator state ────────────────────────────────────────────────
+  const [showPlayCreator, setShowPlayCreator] = useState(false);
+  const [cpFormation, setCpFormation]   = useState('');
+  const [cpName, setCpName]             = useState('');
+  const [cpEngine, setCpEngine]         = useState<string>('short_pass');
+  const [cpRoutes, setCpRoutes]         = useState<Record<string, { route: string; depth: RouteTag }>>({});
+  const [cpBallCarrier, setCpBallCarrier] = useState<string>('RB');
+  const [cpPlayAction, setCpPlayAction] = useState(false);
+  const [cpSaving, setCpSaving]         = useState(false);
+  const [cpError, setCpError]           = useState<string | null>(null);
+  const [cpEditId, setCpEditId]         = useState<string | null>(null); // null = new play
+  const [cpDeleting, setCpDeleting]     = useState<string | null>(null);
+
+  const cpIsRun = cpEngine === 'inside_run' || cpEngine === 'outside_run';
+  const cpFormationObj = formations.find(f => f.id === cpFormation) ?? null;
+
+  function resetPlayCreator() {
+    setCpName(''); setCpEngine('short_pass'); setCpRoutes({});
+    setCpBallCarrier('RB'); setCpPlayAction(false); setCpError(null); setCpEditId(null);
+  }
+
+  function openPlayCreator(play?: OffensivePlay) {
+    if (play) {
+      setCpEditId(play.id);
+      setCpName(play.name);
+      setCpFormation(play.formationId);
+      setCpEngine(play.engineType);
+      setCpPlayAction(!!play.isPlayAction);
+      if (play.ballCarrierSlot) setCpBallCarrier(play.ballCarrierSlot);
+      const routes: Record<string, { route: string; depth: RouteTag }> = {};
+      for (const r of play.routes ?? []) {
+        routes[r.slot] = { route: r.routeTag, depth: r.routeTag };
+      }
+      setCpRoutes(routes);
+    } else {
+      resetPlayCreator();
+      if (formations.length > 0 && !cpFormation) setCpFormation(formations[0]!.id);
+    }
+    setShowPlayCreator(true);
+  }
+
+  // Validate custom play client-side
+  function validateCustomPlay(): string | null {
+    if (!cpName.trim()) return 'Play name is required.';
+    if (cpName.trim().length > 60) return 'Play name must be 60 characters or fewer.';
+    if (!cpFormationObj) return 'Select a formation.';
+    if (!cpIsRun) {
+      const routeEntries = Object.entries(cpRoutes);
+      if (routeEntries.length === 0) return 'Assign at least one route.';
+      let deepCount = 0, hasShortMed = false;
+      for (const [, r] of routeEntries) {
+        if (r.depth === 'DEEP') deepCount++;
+        if (r.depth === 'SHORT' || r.depth === 'MEDIUM') hasShortMed = true;
+      }
+      if (deepCount > 3) return 'Maximum 3 deep routes.';
+      if (!hasShortMed) return 'At least one SHORT or MEDIUM route required.';
+    } else {
+      if (!cpFormationObj.slots.includes(cpBallCarrier as OffensiveSlot)) {
+        return `Ball carrier slot '${cpBallCarrier}' not in this formation.`;
+      }
+    }
+    return null;
+  }
+
+  async function handleSaveCustomPlay() {
+    const err = validateCustomPlay();
+    if (err) { setCpError(err); return; }
+    setCpSaving(true); setCpError(null);
+    const id = cpEditId ?? `custom_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const play: OffensivePlay = {
+      id,
+      name: cpName.trim(),
+      formationId: cpFormation,
+      engineType: cpEngine as OffensivePlay['engineType'],
+      ...(cpIsRun
+        ? { ballCarrierSlot: cpBallCarrier as OffensiveSlot }
+        : {
+            routes: Object.entries(cpRoutes).map(([slot, r]) => ({
+              slot: slot as OffensiveSlot,
+              routeTag: r.depth,
+            })),
+          }),
+      ...(cpPlayAction ? { isPlayAction: true } : {}),
+    };
+    try {
+      const updated = await saveCustomPlayApi(leagueId, play);
+      onLeagueUpdated(updated);
+      showToast(cpEditId ? 'Play updated' : 'Play created');
+      setShowPlayCreator(false);
+      resetPlayCreator();
+    } catch (e) { setCpError(friendlyError(e)); }
+    finally { setCpSaving(false); }
+  }
+
+  async function handleDeleteCustomPlay(playId: string) {
+    setCpDeleting(playId);
+    try {
+      const updated = await deleteCustomPlayApi(leagueId, playId);
+      onLeagueUpdated(updated);
+      showToast('Play deleted');
+    } catch (e) { setCpError(friendlyError(e)); }
+    finally { setCpDeleting(null); }
+  }
+
+  // ── Custom defensive play creator state ──────────────────────────────────────
+  const [showDefPlayCreator, setShowDefPlayCreator] = useState(false);
+  const [cdpName, setCdpName]         = useState('');
+  const [cdpPackage, setCdpPackage]   = useState('');
+  const [cdpFront, setCdpFront]       = useState('four_three');
+  const [cdpCoverage, setCdpCoverage] = useState('cover_3');
+  const [cdpBlitz, setCdpBlitz]       = useState('');
+  const [cdpSaving, setCdpSaving]     = useState(false);
+  const [cdpError, setCdpError]       = useState<string | null>(null);
+  const [cdpEditId, setCdpEditId]     = useState<string | null>(null);
+  const [cdpDeleting, setCdpDeleting] = useState<string | null>(null);
+
+  function resetDefPlayCreator() {
+    setCdpName(''); setCdpFront('four_three'); setCdpCoverage('cover_3');
+    setCdpBlitz(''); setCdpError(null); setCdpEditId(null);
+  }
+
+  function openDefPlayCreator(play?: DefensivePlay) {
+    if (play) {
+      setCdpEditId(play.id);
+      setCdpName(play.name);
+      setCdpPackage(play.packageId);
+      setCdpFront(play.front);
+      setCdpCoverage(play.coverage);
+      setCdpBlitz(play.blitz ?? '');
+    } else {
+      resetDefPlayCreator();
+      if (packages.length > 0 && !cdpPackage) setCdpPackage(packages[0]!.id);
+    }
+    setShowDefPlayCreator(true);
+  }
+
+  async function handleSaveDefPlay() {
+    if (!cdpName.trim()) { setCdpError('Play name is required.'); return; }
+    if (!cdpPackage) { setCdpError('Select a package.'); return; }
+    if (cdpBlitz && (cdpCoverage === 'cover_4' || cdpCoverage === 'cover_6')) {
+      setCdpError(`Cannot blitz with ${cdpCoverage}.`); return;
+    }
+    setCdpSaving(true); setCdpError(null);
+    const id = cdpEditId ?? `custom_def_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const play: DefensivePlay = {
+      id, name: cdpName.trim(), packageId: cdpPackage,
+      front: cdpFront as DefensivePlay['front'],
+      coverage: cdpCoverage as DefensivePlay['coverage'],
+      ...(cdpBlitz ? { blitz: cdpBlitz as DefensivePlay['blitz'] } : {}),
+    };
+    try {
+      const updated = await saveCustomDefPlayApi(leagueId, play);
+      onLeagueUpdated(updated);
+      showToast(cdpEditId ? 'Defensive play updated' : 'Defensive play created');
+      setShowDefPlayCreator(false); resetDefPlayCreator();
+    } catch (e) { setCdpError(friendlyError(e)); }
+    finally { setCdpSaving(false); }
+  }
+
+  async function handleDeleteDefPlay(playId: string) {
+    setCdpDeleting(playId);
+    try {
+      const updated = await deleteCustomDefPlayApi(leagueId, playId);
+      onLeagueUpdated(updated);
+      showToast('Defensive play deleted');
+    } catch (e) { setCdpError(friendlyError(e)); }
+    finally { setCdpDeleting(null); }
   }
 
   // ── Load library ─────────────────────────────────────────────────────────────
@@ -1916,6 +2137,136 @@ function PlaybooksView({
         </button>
       </div>
 
+      {/* ── Gameplan ────────────────────────────────────────────────────── */}
+      <div className="td-section">
+        <button className="td-toggle" onClick={() => setShowTendencies(v => !v)}>
+          <span className="td-toggle-icon">{showTendencies ? '▾' : '▸'}</span>
+          Gameplan
+          {tendenciesHaveChanges && <span className="td-unsaved">unsaved</span>}
+          <span className="td-profile-badge">
+            {COACH_ARCHETYPES.find(a =>
+              (Object.keys(a.tendencies) as (keyof TeamTendencies)[]).every(
+                k => a.tendencies[k] === mergedTendencies[k],
+              ),
+            )?.name ?? 'Custom'}
+          </span>
+        </button>
+        {showTendencies && (
+          <div className="td-panel">
+            {/* Recommendation */}
+            {(() => {
+              const rec = generateGameplanRecommendation(team, leagueObj);
+              if (!rec) return null;
+              const arch = COACH_ARCHETYPES.find(a => a.id === rec.presetId);
+              if (!arch) return null;
+              return (
+                <div className="td-rec">
+                  <div className="td-rec-header">
+                    <span className="td-rec-label">Recommended</span>
+                    <span className="td-rec-name">{rec.presetName}</span>
+                    <button className="td-rec-apply" onClick={() => setTendencyEdits(arch.tendencies)}>Apply</button>
+                  </div>
+                  <div className="td-rec-reasons">
+                    {rec.reasons.map((r, i) => (
+                      <span key={i} className="td-rec-reason">{r}</span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {(() => {
+              const activeId = COACH_ARCHETYPES.find(a =>
+                (Object.keys(a.tendencies) as (keyof TeamTendencies)[]).every(
+                  k => a.tendencies[k] === mergedTendencies[k],
+                ),
+              )?.id ?? '';
+              const activeDesc = COACH_ARCHETYPES.find(a => a.id === activeId)?.description
+                ?? 'Fine-tune each slider to build your own scheme.';
+              return (
+                <div className="td-presets">
+                  <div className="td-presets-row">
+                    {COACH_ARCHETYPES.map(a => (
+                      <button
+                        key={a.id}
+                        className={`td-preset-btn${activeId === a.id ? ' active' : ''}`}
+                        onClick={() => setTendencyEdits(a.tendencies)}
+                        title={a.description}
+                      >
+                        {a.name}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="td-presets-desc">{activeDesc}</p>
+                </div>
+              );
+            })()}
+            <div className="td-group">
+              <h4 className="td-group-title">Offensive Philosophy</h4>
+              {([
+                ['runPassBias',    'Run / Pass Balance', 'Run-heavy', 'Pass-heavy', 'Controls how often your offense runs vs passes. Affects play selection weights in playbooks.'],
+                ['aggressiveness', 'Aggressiveness',     'Conservative', 'Aggressive', 'How often you target deep plays. Conservative favors short routes; aggressive pushes the ball downfield.'],
+                ['playActionRate', 'Play-Action Rate',   'Rare',    'Frequent', 'How often play-action fakes are called. More effective with a credible run game.'],
+                ['shotPlayRate',   'Shot Play Rate',     'Rare',    'Frequent', 'Frequency of deep bomb attempts. Stacks with aggressiveness for maximum vertical attack.'],
+              ] as const).map(([key, label, lo, hi, desc]) => (
+                <div className="td-slider-block" key={key}>
+                  <label className="td-slider-row">
+                    <span className="td-slider-label">{label}</span>
+                    <span className="td-slider-lo">{lo}</span>
+                    <input
+                      type="range" min={0} max={100}
+                      value={mergedTendencies[key]}
+                      onChange={e => setTendencyEdits(prev => ({ ...prev, [key]: +e.target.value }))}
+                      className="td-slider"
+                    />
+                    <span className="td-slider-hi">{hi}</span>
+                    <span className="td-slider-val">{mergedTendencies[key]}</span>
+                  </label>
+                  <p className="td-slider-desc">{desc}</p>
+                </div>
+              ))}
+            </div>
+            <div className="td-group">
+              <h4 className="td-group-title">Defensive Philosophy</h4>
+              {([
+                ['blitzRate',          'Blitz Frequency',  'Rare',    'Frequent', 'How often extra rushers are sent. More blitzes create pressure but leave the secondary vulnerable.'],
+                ['coverageAggression', 'Coverage Style',   'Soft zone', 'Press man', 'Passive zones give up short gains but limit big plays. Aggressive press coverage risks getting beaten deep.'],
+                ['runCommitment',      'Run Focus',        'Light boxes', 'Stacked boxes', 'How many defenders commit to stopping the run. Heavy boxes stop the ground game but weaken pass defense.'],
+              ] as const).map(([key, label, lo, hi, desc]) => (
+                <div className="td-slider-block" key={key}>
+                  <label className="td-slider-row">
+                    <span className="td-slider-label">{label}</span>
+                    <span className="td-slider-lo">{lo}</span>
+                    <input
+                      type="range" min={0} max={100}
+                      value={mergedTendencies[key]}
+                      onChange={e => setTendencyEdits(prev => ({ ...prev, [key]: +e.target.value }))}
+                      className="td-slider"
+                    />
+                    <span className="td-slider-hi">{hi}</span>
+                    <span className="td-slider-val">{mergedTendencies[key]}</span>
+                  </label>
+                  <p className="td-slider-desc">{desc}</p>
+                </div>
+              ))}
+            </div>
+            {tendencyError && <div className="pb-error">{tendencyError}</div>}
+            <div className="td-actions">
+              <button
+                className="btn-primary"
+                disabled={!tendenciesHaveChanges || tendencySaving}
+                onClick={saveTendencies}
+              >
+                {tendencySaving ? 'Saving…' : 'Save Gameplan'}
+              </button>
+              {tendenciesHaveChanges && (
+                <button className="btn-secondary" onClick={() => setTendencyEdits({})}>Reset</button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ════════════════ OFFENSE ════════════════════════════════════════ */}
       {playbookSide === 'offense' && <>
 
@@ -2122,6 +2473,154 @@ function PlaybooksView({
         </div>
       </section>
 
+      {/* ── Custom Plays ────────────────────────────────────────────── */}
+      <section className="pb-section">
+        <div className="pb-section-header">
+          <div>
+            <h2 className="pb-section-title">Custom Plays</h2>
+            <p className="pb-section-desc">
+              Create custom offensive plays with route assignments. Add them to your playbooks to use in games.
+            </p>
+          </div>
+          <div className="pb-section-actions">
+            <button className="btn-primary" onClick={() => openPlayCreator()}>+ Create Play</button>
+          </div>
+        </div>
+
+        {(team.customOffensivePlays ?? []).length > 0 && (
+          <div className="cp-list">
+            {(team.customOffensivePlays ?? []).map(p => {
+              const fm = formations.find(f => f.id === p.formationId);
+              return (
+                <div key={p.id} className="cp-card">
+                  <div className="cp-card-header">
+                    <span className="cp-card-name">{p.name}</span>
+                    <span className="cp-card-type">{p.engineType.replace('_', ' ')}</span>
+                  </div>
+                  <div className="cp-card-meta">
+                    <span>{fm?.name ?? p.formationId}</span>
+                    {p.isPlayAction && <span className="cp-badge-pa">PA</span>}
+                    {p.routes && <span>{p.routes.length} routes</span>}
+                  </div>
+                  {p.routes && (
+                    <div className="cp-card-routes">
+                      {p.routes.map(r => (
+                        <span key={r.slot} className={`cp-route-tag cp-route-${r.routeTag.toLowerCase()}`}>
+                          {r.slot}: {r.routeTag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {(() => {
+                    const ps = team.playStats?.[p.id];
+                    return ps && ps.calls > 0 ? (
+                      <div className="cp-card-stats">
+                        <span>{ps.calls} calls</span>
+                        <span>{(ps.totalYards / ps.calls).toFixed(1)} avg</span>
+                        <span>{((ps.successes / ps.calls) * 100).toFixed(0)}% success</span>
+                        {ps.touchdowns > 0 && <span className="cp-stat-td">{ps.touchdowns} TD</span>}
+                        {ps.turnovers > 0 && <span className="cp-stat-to">{ps.turnovers} TO</span>}
+                      </div>
+                    ) : null;
+                  })()}
+                  <div className="cp-card-actions">
+                    <button className="btn-sm" onClick={() => openPlayCreator(p)}>Edit</button>
+                    <button className="btn-sm btn-danger" disabled={cpDeleting === p.id} onClick={() => handleDeleteCustomPlay(p.id)}>
+                      {cpDeleting === p.id ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {(team.customOffensivePlays ?? []).length === 0 && !showPlayCreator && (
+          <p className="muted" style={{ padding: '0.5rem 0' }}>No custom plays yet. Create one to get started.</p>
+        )}
+
+        {showPlayCreator && (
+          <div className="cp-creator">
+            <h3 className="cp-creator-title">{cpEditId ? 'Edit Play' : 'New Custom Play'}</h3>
+            <div className="cp-form-row">
+              <label className="cp-label">Name</label>
+              <input className="cp-input" value={cpName} onChange={e => setCpName(e.target.value)} placeholder="e.g. Smash Deep" maxLength={60} />
+            </div>
+            <div className="cp-form-row">
+              <label className="cp-label">Formation</label>
+              <select className="cp-select" value={cpFormation} onChange={e => { setCpFormation(e.target.value); setCpRoutes({}); }}>
+                {formations.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+            <div className="cp-form-row">
+              <label className="cp-label">Play Type</label>
+              <select className="cp-select" value={cpEngine} onChange={e => setCpEngine(e.target.value)}>
+                <option value="short_pass">Short Pass</option>
+                <option value="medium_pass">Medium Pass</option>
+                <option value="deep_pass">Deep Pass</option>
+                <option value="inside_run">Inside Run</option>
+                <option value="outside_run">Outside Run</option>
+              </select>
+            </div>
+            <div className="cp-form-row">
+              <label className="cp-label cp-checkbox-label">
+                <input type="checkbox" checked={cpPlayAction} onChange={e => setCpPlayAction(e.target.checked)} />
+                Play Action
+              </label>
+            </div>
+
+            {!cpIsRun && cpFormationObj && (
+              <div className="cp-routes-editor">
+                <label className="cp-label">Routes</label>
+                {cpFormationObj.slots.map(slot => (
+                  <div key={slot} className="cp-route-row">
+                    <span className="cp-route-slot">{slot}</span>
+                    <select
+                      className="cp-select cp-select-sm"
+                      value={cpRoutes[slot]?.depth ?? ''}
+                      onChange={e => {
+                        const val = e.target.value as RouteTag | '';
+                        setCpRoutes(prev => {
+                          if (!val) { const n = { ...prev }; delete n[slot]; return n; }
+                          return { ...prev, [slot]: { route: val, depth: val } };
+                        });
+                      }}
+                    >
+                      <option value="">— none —</option>
+                      <option value="SHORT">SHORT</option>
+                      <option value="MEDIUM">MEDIUM</option>
+                      <option value="DEEP">DEEP</option>
+                    </select>
+                    {cpRoutes[slot] && (
+                      <span className={`cp-route-tag cp-route-${cpRoutes[slot]!.depth.toLowerCase()}`}>{cpRoutes[slot]!.depth}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {cpIsRun && cpFormationObj && (
+              <div className="cp-form-row">
+                <label className="cp-label">Ball Carrier</label>
+                <select className="cp-select" value={cpBallCarrier} onChange={e => setCpBallCarrier(e.target.value)}>
+                  {cpFormationObj.slots.filter(s => s === 'RB' || s === 'FB').map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {cpError && <div className="pb-error">{cpError}</div>}
+            <div className="cp-form-actions">
+              <button className="btn-primary" disabled={cpSaving} onClick={handleSaveCustomPlay}>
+                {cpSaving ? 'Saving…' : cpEditId ? 'Update Play' : 'Create Play'}
+              </button>
+              <button className="btn-secondary" onClick={() => { setShowPlayCreator(false); resetPlayCreator(); }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* ── Playbook Library ──────────────────────────────────────────── */}
       <section className="pb-section">
         <div className="pb-section-header">
@@ -2160,19 +2659,21 @@ function PlaybooksView({
                 {isOpen && (
                   <div className="pb-book-entries">
                     <table className="pb-plays-table">
-                      <thead><tr><th>Play</th><th>Formation</th><th>Type</th><th>Wt</th><th>Routes / Carrier</th></tr></thead>
+                      <thead><tr><th>Play</th><th>Formation</th><th>Type</th><th>Wt</th><th>Stats</th><th>Routes / Carrier</th></tr></thead>
                       <tbody>
                         {pb.entries.map(entry => {
                           const play = playById.get(entry.playId);
                           const formation = play ? formations.find(f => f.id === play.formationId) : null;
                           const isRun = play?.engineType === 'inside_run' || play?.engineType === 'outside_run';
                           const routeInfo = play?.routes?.length ? play.routes.map(r => `${r.slot} ${r.routeTag.toLowerCase()}`).join(', ') : play?.ballCarrierSlot ? `${play.ballCarrierSlot} carries` : '—';
+                          const ps = team.playStats?.[entry.playId];
                           return (
                             <tr key={entry.playId} className={isRun ? 'pb-row-run' : 'pb-row-pass'}>
                               <td><span className="pb-play-name">{play?.name ?? entry.playId}</span>{play?.isPlayAction && <span className="pb-pa-badge">PA</span>}</td>
                               <td className="pb-play-formation">{formation ? <>{formation.name}<span className="pb-personnel-badge pb-personnel-badge--sm">{formation.personnel}</span></> : '—'}</td>
                               <td><span className={`pb-type-chip pb-type-chip--${isRun ? 'run' : 'pass'}`}>{ENGINE_TYPE_LABELS[play?.engineType ?? ''] ?? '—'}</span></td>
                               <td className="pb-play-weight">{entry.weight}</td>
+                              <td className="pb-play-stats">{ps && ps.calls > 0 ? `${(ps.totalYards / ps.calls).toFixed(1)} avg · ${((ps.successes / ps.calls) * 100).toFixed(0)}%` : '—'}</td>
                               <td className="pb-play-routes">{routeInfo}</td>
                             </tr>
                           );
@@ -2224,7 +2725,8 @@ function PlaybooksView({
                 {isEditing && edits && (() => {
                   const totalW    = edits.entries.reduce((s, e) => s + e.weight, 0);
                   const pbWarns   = getOffPbWarnings(edits.entries);
-                  const available = allPlays
+                  const allPlaysWithCustom = [...allPlays, ...(team.customOffensivePlays ?? [])];
+                  const available = allPlaysWithCustom
                     .filter(p => !edits.entries.some(e => e.playId === p.id))
                     .filter(p => !offPlayFilter || p.name.toLowerCase().includes(offPlayFilter.toLowerCase()))
                     .sort((a, b) => {
@@ -2335,19 +2837,21 @@ function PlaybooksView({
                 {!isEditing && isOpen && (
                   <div className="pb-book-entries">
                     <table className="pb-plays-table">
-                      <thead><tr><th>Play</th><th>Formation</th><th>Type</th><th>Wt</th><th>Routes / Carrier</th></tr></thead>
+                      <thead><tr><th>Play</th><th>Formation</th><th>Type</th><th>Wt</th><th>Stats</th><th>Routes / Carrier</th></tr></thead>
                       <tbody>
                         {pb.entries.map(entry => {
                           const play = playById.get(entry.playId);
                           const formation = play ? formations.find(f => f.id === play.formationId) : null;
                           const isRun = play?.engineType === 'inside_run' || play?.engineType === 'outside_run';
                           const routeInfo = play?.routes?.length ? play.routes.map(r => `${r.slot} ${r.routeTag.toLowerCase()}`).join(', ') : play?.ballCarrierSlot ? `${play.ballCarrierSlot} carries` : '—';
+                          const ps = team.playStats?.[entry.playId];
                           return (
                             <tr key={entry.playId} className={isRun ? 'pb-row-run' : 'pb-row-pass'}>
                               <td><span className="pb-play-name">{play?.name ?? entry.playId}</span>{play?.isPlayAction && <span className="pb-pa-badge">PA</span>}</td>
                               <td className="pb-play-formation">{formation ? <>{formation.name}<span className="pb-personnel-badge pb-personnel-badge--sm">{formation.personnel}</span></> : '—'}</td>
                               <td><span className={`pb-type-chip pb-type-chip--${isRun ? 'run' : 'pass'}`}>{ENGINE_TYPE_LABELS[play?.engineType ?? ''] ?? '—'}</span></td>
                               <td className="pb-play-weight">{entry.weight}</td>
+                              <td className="pb-play-stats">{ps && ps.calls > 0 ? `${(ps.totalYards / ps.calls).toFixed(1)} avg · ${((ps.successes / ps.calls) * 100).toFixed(0)}%` : '—'}</td>
                               <td className="pb-play-routes">{routeInfo}</td>
                             </tr>
                           );
@@ -2573,6 +3077,107 @@ function PlaybooksView({
         </div>
       </section>
 
+      {/* ── Custom Defensive Plays ──────────────────────────────────── */}
+      <section className="pb-section">
+        <div className="pb-section-header">
+          <div>
+            <h2 className="pb-section-title">Custom Defensive Plays</h2>
+            <p className="pb-section-desc">Create custom defensive schemes. Add them to your defensive playbooks.</p>
+          </div>
+          <div className="pb-section-actions">
+            <button className="btn-primary" onClick={() => openDefPlayCreator()}>+ Create Play</button>
+          </div>
+        </div>
+
+        {(team.customDefensivePlays ?? []).length > 0 && (
+          <div className="cp-list">
+            {(team.customDefensivePlays ?? []).map(p => {
+              const pkg = packages.find(k => k.id === p.packageId);
+              return (
+                <div key={p.id} className="cp-card">
+                  <div className="cp-card-header">
+                    <span className="cp-card-name">{p.name}</span>
+                    <span className="cp-card-type">{p.coverage.replace('_', ' ')}</span>
+                  </div>
+                  <div className="cp-card-meta">
+                    <span>{pkg?.name ?? p.packageId}</span>
+                    <span>{p.front.replace('_', ' ')}</span>
+                    {p.blitz && <span className="cp-badge-pa">{p.blitz.replace('_', ' ')}</span>}
+                  </div>
+                  <div className="cp-card-actions">
+                    <button className="btn-sm" onClick={() => openDefPlayCreator(p)}>Edit</button>
+                    <button className="btn-sm btn-danger" disabled={cdpDeleting === p.id} onClick={() => handleDeleteDefPlay(p.id)}>
+                      {cdpDeleting === p.id ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {(team.customDefensivePlays ?? []).length === 0 && !showDefPlayCreator && (
+          <p className="muted" style={{ padding: '0.5rem 0' }}>No custom defensive plays yet.</p>
+        )}
+
+        {showDefPlayCreator && (
+          <div className="cp-creator">
+            <h3 className="cp-creator-title">{cdpEditId ? 'Edit Defensive Play' : 'New Defensive Play'}</h3>
+            <div className="cp-form-row">
+              <label className="cp-label">Name</label>
+              <input className="cp-input" value={cdpName} onChange={e => setCdpName(e.target.value)} placeholder="e.g. Nickel Zone Blitz" maxLength={60} />
+            </div>
+            <div className="cp-form-row">
+              <label className="cp-label">Package</label>
+              <select className="cp-select" value={cdpPackage} onChange={e => setCdpPackage(e.target.value)}>
+                {packages.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div className="cp-form-row">
+              <label className="cp-label">Front</label>
+              <select className="cp-select" value={cdpFront} onChange={e => setCdpFront(e.target.value)}>
+                <option value="four_three">4-3</option>
+                <option value="three_four">3-4</option>
+                <option value="nickel">Nickel</option>
+                <option value="dime">Dime</option>
+                <option value="quarter">Quarter</option>
+                <option value="goal_line">Goal Line</option>
+              </select>
+            </div>
+            <div className="cp-form-row">
+              <label className="cp-label">Coverage</label>
+              <select className="cp-select" value={cdpCoverage} onChange={e => setCdpCoverage(e.target.value)}>
+                <option value="cover_0">Cover 0 (Man, no safety help)</option>
+                <option value="cover_1">Cover 1 (Man-Free)</option>
+                <option value="cover_2">Cover 2 (Two-High Zone)</option>
+                <option value="cover_3">Cover 3 (Three-Deep Zone)</option>
+                <option value="cover_4">Cover 4 (Quarters)</option>
+                <option value="cover_6">Cover 6 (Split Coverage)</option>
+                <option value="tampa_2">Tampa 2</option>
+                <option value="man_under">Man Under</option>
+              </select>
+            </div>
+            <div className="cp-form-row">
+              <label className="cp-label">Blitz</label>
+              <select className="cp-select" value={cdpBlitz} onChange={e => setCdpBlitz(e.target.value)}>
+                <option value="">None</option>
+                <option value="lb_blitz">LB Blitz</option>
+                <option value="cb_blitz">CB Blitz</option>
+                <option value="safety_blitz">Safety Blitz</option>
+                <option value="zone_blitz">Zone Blitz</option>
+              </select>
+            </div>
+            {cdpError && <div className="pb-error">{cdpError}</div>}
+            <div className="cp-form-actions">
+              <button className="btn-primary" disabled={cdpSaving} onClick={handleSaveDefPlay}>
+                {cdpSaving ? 'Saving…' : cdpEditId ? 'Update Play' : 'Create Play'}
+              </button>
+              <button className="btn-secondary" onClick={() => { setShowDefPlayCreator(false); resetDefPlayCreator(); }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* ── Defensive Playbook Library ────────────────────────────────── */}
       <section className="pb-section">
         <div className="pb-section-header">
@@ -2677,7 +3282,8 @@ function PlaybooksView({
                 {isEditing && edits && (() => {
                   const totalW    = edits.entries.reduce((s, e) => s + e.weight, 0);
                   const pbWarns   = getDefPbWarnings(edits.entries);
-                  const available = defPlays
+                  const allDefPlaysWithCustom = [...defPlays, ...(team.customDefensivePlays ?? [])];
+                  const available = allDefPlaysWithCustom
                     .filter(p => !edits.entries.some(e => e.playId === p.id))
                     .filter(p => !defPlayFilter || p.name.toLowerCase().includes(defPlayFilter.toLowerCase()))
                     .sort((a, b) => {
@@ -4379,6 +4985,8 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
     ...allNews.filter(n => !n.teamIds.includes(myTeamId)).slice(0, 8),
   ].slice(0, 12);
 
+  const weeklyReport = useMemo(() => generateWeeklyReport(league, standings), [league, standings]);
+
   return (
     <div className="dashboard">
 
@@ -4491,8 +5099,73 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
       {/* ── Body: news feed (left) + sidebar (right) ────────────── */}
       <div className="dash-body">
 
-        {/* News feed */}
+        {/* Weekly Report + News feed */}
         <div className="dash-feed">
+          {weeklyReport && (
+            <div className="wr-panel">
+              <div className="wr-header">
+                <span className="wr-title">Week {weeklyReport.week} Report</span>
+                <span className="wr-year">{weeklyReport.year} Season</span>
+              </div>
+
+              {/* Headlines */}
+              <div className="wr-headlines">
+                {weeklyReport.headlines.map((h, i) => (
+                  <div key={i} className="wr-headline">{h}</div>
+                ))}
+              </div>
+
+              {/* Notable games */}
+              {weeklyReport.notableGames.length > 0 && (
+                <div className="wr-section">
+                  <div className="wr-section-title">Notable Games</div>
+                  <div className="wr-games">
+                    {weeklyReport.notableGames.map((g, i) => (
+                      <div key={i} className="wr-game">
+                        <span className="wr-game-score">{g.away} {g.awayScore} – {g.homeScore} {g.home}</span>
+                        <span className="wr-game-tag">{g.tag}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Standout players */}
+              {weeklyReport.standoutPlayers.length > 0 && (
+                <div className="wr-section">
+                  <div className="wr-section-title">Top Performers</div>
+                  <div className="wr-performers">
+                    {weeklyReport.standoutPlayers.map((p, i) => (
+                      <div key={i} className="wr-performer">
+                        <span className="wr-performer-name">{p.name}</span>
+                        <span className="wr-performer-team">{p.teamAbbr}</span>
+                        <span className="wr-performer-line">{p.line}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Standout teams */}
+              {weeklyReport.standoutTeams.length > 0 && (
+                <div className="wr-section">
+                  <div className="wr-section-title">Teams to Watch</div>
+                  {weeklyReport.standoutTeams.map((t, i) => (
+                    <div key={i} className="wr-team-line">
+                      <span className="wr-team-abbr">{t.abbr}</span>
+                      <span className="wr-team-detail">{t.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Meta summary */}
+              {weeklyReport.metaSummary && (
+                <div className="wr-meta">{weeklyReport.metaSummary}</div>
+              )}
+            </div>
+          )}
+
           <div className="dash-feed-header">
             <span className="dash-panel-title">League Feed</span>
             <button className="dash-panel-link" onClick={() => onNavTo('news')}>All news →</button>
@@ -4598,6 +5271,34 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
             const champs  = gm.seasons.filter(s => s.wonChampionship).length;
             const playoffCount = gm.seasons.filter(s => s.madePlayoffs).length;
             const tier    = gmLegacyTier(gm.legacyScore);
+
+            // Reputation
+            const rep = gm.reputation ?? 40;
+            const prevRep = gm.prevReputation;
+            const repTier: string =
+              rep >= 80 ? 'Elite' :
+              rep >= 60 ? 'Proven Winner' :
+              rep >= 40 ? 'Respected' :
+              rep >= 20 ? 'Unproven' : 'Hot Seat';
+            const trend: string | null = prevRep != null
+              ? (rep > prevRep + 2 ? '↑' : rep < prevRep - 2 ? '↓' : '→')
+              : null;
+            const repColor: Record<string, string> = {
+              'Elite': '#34d399', 'Proven Winner': '#60a5fa', 'Respected': '#fbbf24',
+              'Unproven': '#f97316', 'Hot Seat': '#f87171',
+            };
+
+            // Short explanation
+            let repExplain = '';
+            if (gm.seasons.length >= 2) {
+              const last = gm.seasons[gm.seasons.length - 1]!;
+              const winPct = last.wins / Math.max(1, last.wins + last.losses);
+              if (last.wonChampionship) repExplain = 'Championship season boosted your standing.';
+              else if (winPct >= 0.7) repExplain = 'Strong winning record elevated your reputation.';
+              else if (winPct >= 0.5) repExplain = 'Solid season kept your reputation steady.';
+              else repExplain = 'Losing record put pressure on your standing.';
+            }
+
             return (
               <div className="dash-panel">
                 <div className="dash-panel-header">
@@ -4612,6 +5313,228 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
                   <span>{gm.seasons.length} season{gm.seasons.length !== 1 ? 's' : ''}</span>
                   <span>{playoffCount}x playoffs</span>
                   {champs > 0 && <span>🏆 {champs}x champ</span>}
+                </div>
+                {gm.seasons.length >= 1 && (
+                  <div className="rep-section">
+                    <div className="rep-row">
+                      <span className="rep-label" style={{ color: repColor[repTier] ?? 'var(--text-primary)' }}>{repTier}</span>
+                      {trend && <span className="rep-trend">{trend}</span>}
+                      <span className="rep-score">{rep}</span>
+                    </div>
+                    {repExplain && <p className="rep-explain">{repExplain}</p>}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Coaching Grade */}
+          {(() => {
+            const grade = generateSeasonGrade(games, myTeamId);
+            if (!grade) return null;
+            const gradeColor: Record<string, string> = {
+              A: '#34d399', 'A-': '#34d399', 'B+': '#60a5fa', B: '#60a5fa', 'B-': '#60a5fa',
+              'C+': '#fbbf24', C: '#fbbf24', D: '#f97316', F: '#f87171',
+            };
+            return (
+              <div className="dash-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">Coaching Grade</span>
+                  <span className="cg-games">{grade.gamesEval} games</span>
+                </div>
+                <div className="cg-body">
+                  <span className="cg-grade" style={{ color: gradeColor[grade.grade] ?? 'var(--text-primary)' }}>{grade.grade}</span>
+                  <div className="cg-record">{grade.wins}W – {grade.losses}L</div>
+                </div>
+                {grade.strengths.length > 0 && (
+                  <div className="cg-list">
+                    {grade.strengths.map((s, i) => (
+                      <div key={i} className="cg-item cg-item--good">{s}</div>
+                    ))}
+                  </div>
+                )}
+                {grade.weaknesses.length > 0 && (
+                  <div className="cg-list">
+                    {grade.weaknesses.map((w, i) => (
+                      <div key={i} className="cg-item cg-item--bad">{w}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* League Meta */}
+          {league.metaProfile && league.metaProfile.totalCalls >= 50 && (() => {
+            const m = league.metaProfile;
+            const passPct = (m.passRate * 100).toFixed(0);
+            const runPct  = (m.runRate * 100).toFixed(0);
+            const deepPct = (m.deepRate * 100).toFixed(0);
+
+            // Trend indicators relative to neutral baselines
+            const passDir = m.passRate > 0.55 ? '↑' : m.passRate < 0.45 ? '↓' : '→';
+            const deepDir = m.deepRate > 0.28 ? '↑' : m.deepRate < 0.15 ? '↓' : '→';
+
+            // Generate insight
+            let insight = '';
+            if (m.passRate > 0.60)      insight = 'The league is pass-heavy — run-first teams may find openings.';
+            else if (m.passRate < 0.40) insight = 'Run games are dominating — pass rushers and coverage are key.';
+            else if (m.deepRate > 0.30) insight = 'Deep shots are trending up — safeties are being tested often.';
+            else if (m.deepRate < 0.12) insight = 'Short passing dominates — press coverage and blitzes have an edge.';
+            else                        insight = 'The league meta is balanced — no clear exploitable trend.';
+
+            return (
+              <div className="dash-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">League Meta</span>
+                </div>
+                <div className="meta-bars">
+                  <div className="meta-bar-row">
+                    <span className="meta-bar-label">Pass</span>
+                    <div className="meta-bar-track">
+                      <div className="meta-bar-fill meta-bar-fill--pass" style={{ width: `${passPct}%` }} />
+                    </div>
+                    <span className="meta-bar-val">{passPct}% {passDir}</span>
+                  </div>
+                  <div className="meta-bar-row">
+                    <span className="meta-bar-label">Run</span>
+                    <div className="meta-bar-track">
+                      <div className="meta-bar-fill meta-bar-fill--run" style={{ width: `${runPct}%` }} />
+                    </div>
+                    <span className="meta-bar-val">{runPct}%</span>
+                  </div>
+                  <div className="meta-bar-row">
+                    <span className="meta-bar-label">Deep</span>
+                    <div className="meta-bar-track">
+                      <div className="meta-bar-fill meta-bar-fill--deep" style={{ width: `${deepPct}%` }} />
+                    </div>
+                    <span className="meta-bar-val">{deepPct}% {deepDir}</span>
+                  </div>
+                </div>
+                <p className="meta-insight">{insight}</p>
+              </div>
+            );
+          })()}
+
+          {/* Weekly Prep */}
+          {(() => {
+            const nextGame = games.find(g => g.status === 'scheduled' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId));
+            if (!nextGame) return null;
+            const opp = nextGame.homeTeam.id === myTeamId ? nextGame.awayTeam : nextGame.homeTeam;
+            const isHome = nextGame.homeTeam.id === myTeamId;
+            const rec = generateGameplanRecommendation(team, league);
+            const oppReport = generateScoutingReport(opp);
+            const hasScouting = !!oppReport;
+            const hasRec = !!rec;
+
+            return (
+              <div className="dash-panel wp-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">Week {nextGame.week} Prep</span>
+                </div>
+
+                {/* Matchup */}
+                <div className="wp-matchup">
+                  <span className="wp-matchup-context">{isHome ? 'Home' : 'Away'} vs</span>
+                  <span className="wp-matchup-opp">{opp.abbreviation}</span>
+                  <span className="wp-matchup-name">{opp.name}</span>
+                </div>
+
+                {/* Checklist items */}
+                <div className="wp-steps">
+                  <div className={`wp-step${hasScouting ? ' wp-step--done' : ''}`}>
+                    <span className="wp-step-icon">{hasScouting ? '✓' : '○'}</span>
+                    <span className="wp-step-text">
+                      {hasScouting ? oppReport!.summary : 'Scouting data builds as the season progresses.'}
+                    </span>
+                  </div>
+                  <div className={`wp-step${hasRec ? ' wp-step--done' : ''}`}>
+                    <span className="wp-step-icon">{hasRec ? '✓' : '○'}</span>
+                    <span className="wp-step-text">
+                      {hasRec ? `Suggested: ${rec!.presetName}` : 'Play more games to unlock a recommendation.'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Recommendation detail */}
+                {rec && (
+                  <div className="wp-rec">
+                    <div className="wp-rec-tag">Suggested for this matchup</div>
+                    <div className="wp-rec-header">
+                      <span className="wp-rec-name">{rec.presetName}</span>
+                    </div>
+                    {rec.reasons.map((r, i) => (
+                      <span key={i} className="wp-rec-reason">{r}</span>
+                    ))}
+                  </div>
+                )}
+
+                <button className="wp-cta" onClick={() => onNavTo('playbooks')}>
+                  Open Gameplan
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Team Insights */}
+          {(() => {
+            const insights: { icon: string; text: string }[] = [];
+            const ps = team.playStats;
+            const meta = league.metaProfile;
+
+            if (ps) {
+              // Find best and worst plays (minimum 5 calls)
+              const entries = Object.entries(ps).filter(([, s]) => s.calls >= 5);
+              if (entries.length >= 2) {
+                const sorted = entries.sort((a, b) => (b[1].totalYards / b[1].calls) - (a[1].totalYards / a[1].calls));
+                const best = sorted[0]!;
+                const worst = sorted[sorted.length - 1]!;
+                const bestAvg = (best[1].totalYards / best[1].calls).toFixed(1);
+                const worstAvg = (worst[1].totalYards / worst[1].calls).toFixed(1);
+                // Use play ID as display name (strip formation suffix for readability)
+                const bestName = best[0].replace(/_\d+$/, '').replace(/_/g, ' ');
+                const worstName = worst[0].replace(/_\d+$/, '').replace(/_/g, ' ');
+                insights.push({ icon: '📈', text: `Your most effective play is ${bestName} (${bestAvg} avg yds).` });
+                if (parseFloat(worstAvg) < 3.0) {
+                  insights.push({ icon: '📉', text: `${worstName} is underperforming at ${worstAvg} avg yds — consider reducing its weight.` });
+                }
+              }
+
+              // Compare team vs meta
+              if (meta && meta.totalCalls >= 50) {
+                let teamRun = 0, teamPass = 0, teamTotal = 0;
+                for (const [id, s] of entries) {
+                  teamTotal += s.calls;
+                  if (id.includes('zone') || id.includes('power') || id.includes('counter') || id.includes('dive') || id.includes('slam') || id.includes('lead') || id.includes('inside') || id.includes('outside')) {
+                    teamRun += s.calls;
+                  } else {
+                    teamPass += s.calls;
+                  }
+                }
+                if (teamTotal >= 20) {
+                  const teamPassRate = teamPass / teamTotal;
+                  if (teamPassRate > meta.passRate + 0.12) {
+                    insights.push({ icon: '🎯', text: 'You pass more than the league average — defenses may be scheming for it.' });
+                  } else if (teamPassRate < meta.passRate - 0.12) {
+                    insights.push({ icon: '🎯', text: 'You run more than the league average — your ground game may catch defenses off guard.' });
+                  }
+                }
+              }
+            }
+
+            if (insights.length === 0) return null;
+            return (
+              <div className="dash-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">Performance Notes</span>
+                </div>
+                <div className="ti-list">
+                  {insights.slice(0, 4).map((ins, i) => (
+                    <div key={i} className="ti-item">
+                      <span className="ti-icon">{ins.icon}</span>
+                      <span className="ti-text">{ins.text}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             );
@@ -4664,6 +5587,9 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
   }, [playing, atEnd, idx]);
 
   useEffect(() => { setIdx(0); setPlaying(false); }, [watchedGameId]);
+
+  // Play logic toggle
+  const [showPlayLogic, setShowPlayLogic] = useState(false);
 
   // Box score team toggle
   const [boxSide, setBoxSide] = useState<'home' | 'away'>('home');
@@ -4764,6 +5690,44 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
 
       {/* Center: Scoreboard + Viewer */}
       <div className="gc-main">
+        {/* Pre-game scouting report (when user is involved and game hasn't started) */}
+        {isMyGame && focusGame.status === 'scheduled' && (() => {
+          const opponent = focusGame.homeTeam.id === myTeamId ? focusGame.awayTeam : focusGame.homeTeam;
+          const report = generateScoutingReport(opponent);
+          return report ? (
+            <div className="gc-scout">
+              <div className="gc-scout-title">Scouting Report: {report.teamAbbr}</div>
+              <p className="gc-scout-summary">{report.summary}</p>
+              <div className="gc-scout-bars">
+                <div className="gc-scout-bar">
+                  <span className="gc-scout-label">Run/Pass</span>
+                  <div className="gc-scout-track">
+                    <div className="gc-scout-fill gc-scout-fill--run" style={{ width: `${(report.runRate * 100).toFixed(0)}%` }} />
+                  </div>
+                  <span className="gc-scout-pct">{(report.runRate * 100).toFixed(0)}% run</span>
+                </div>
+                {report.passRate > 0.3 && (
+                  <div className="gc-scout-bar">
+                    <span className="gc-scout-label">Deep Rate</span>
+                    <div className="gc-scout-track">
+                      <div className="gc-scout-fill gc-scout-fill--deep" style={{ width: `${(report.deepRate * 100).toFixed(0)}%` }} />
+                    </div>
+                    <span className="gc-scout-pct">{(report.deepRate * 100).toFixed(0)}%</span>
+                  </div>
+                )}
+              </div>
+              {report.topPlays.length > 0 && (
+                <div className="gc-scout-plays">
+                  <span className="gc-scout-label">Top Plays</span>
+                  {report.topPlays.slice(0, 3).map((p, i) => (
+                    <span key={i} className="gc-scout-play">{p.name} ({p.calls}x, {p.avgYards} avg)</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null;
+        })()}
+
         <div className="gc-scoreboard">
           <div className="gc-team gc-away">
             <div className="gc-team-abbr">{focusGame.awayTeam.abbreviation}</div>
@@ -4790,7 +5754,7 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
                   ? 'Game not yet played. The commissioner can advance the week to simulate games.'
                   : 'Play-by-play data not available for this game.'}
               </p>
-            : <PbpLine line={playText} game={focusGame} />}
+            : <PbpLine line={playText} game={focusGame} explanation={showPlayLogic ? currentEvent?.explanation : undefined} />}
         </div>
 
         <div className="gc-controls">
@@ -4803,6 +5767,13 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
             {playing ? '⏸ Pause' : '▶ Play'}
           </button>
           <button onClick={() => setIdx(i => Math.min(events.length - 1, i + 1))} disabled={playing || atEnd}>Next ▶</button>
+          <button
+            className={`btn-logic-toggle${showPlayLogic ? ' active' : ''}`}
+            onClick={() => setShowPlayLogic(v => !v)}
+            title="Show why each play was selected"
+          >
+            {showPlayLogic ? '🧠 Logic On' : '🧠 Logic'}
+          </button>
         </div>
 
         <div className="gc-back-row">
@@ -4892,6 +5863,13 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
           <p className="muted gc-bs-empty">No stats yet.</p>
         )}
       </div>
+
+      {/* Postgame Recap — shown when game is final and viewer reached the end */}
+      {focusGame.status === 'final' && focusGame.boxScore && atEnd && events.length > 0 && (
+        <div className="gc-recap">
+          <GameRecapView game={focusGame} myTeamId={myTeamId} />
+        </div>
+      )}
 
     </div>
   );
@@ -4994,6 +5972,175 @@ const AWARD_SHORT_LABELS: Record<string, string> = {
   Coach_of_Year:   'Coach of the Year',
   Comeback_Player: 'Comeback Player',
 };
+
+// ── College View ──────────────────────────────────────────────────────────────
+
+function CollegeView({ data, prospects, scoutingData, scoutingPoints, busy, onScout, onViewInScouting }: {
+  data: import('./types').CollegeData;
+  prospects: import('./types').ClientProspect[];
+  scoutingData: Record<string, import('./types').ProspectScoutingState>;
+  scoutingPoints: number;
+  busy: boolean;
+  onScout: (prospectId: string) => void;
+  onViewInScouting: (prospectId: string) => void;
+}) {
+  const [activeConf, setActiveConf] = useState(data.conferences[0]?.name ?? '');
+  const [activeCategory, setActiveCategory] = useState<string>('passing');
+  const COSTS = [10, 20, 35];
+  const LEVEL_LABELS = ['Unscouted', 'Level 1', 'Level 2', 'Full'];
+
+  const conf = data.conferences.find(c => c.name === activeConf);
+  const leaders = data.statLeaders.filter(l => l.category === activeCategory);
+
+  const catLabels: Record<string, string> = {
+    passing: 'Passing', rushing: 'Rushing', receiving: 'Receiving',
+    sacks: 'Sacks', interceptions: 'Interceptions',
+  };
+
+  return (
+    <section className="college-view">
+      <h2 className="section-title">College Football — {data.year} Draft Class</h2>
+
+      {/* Conference Standings */}
+      <div className="col-section">
+        <h3 className="col-section-title">Conference Standings</h3>
+        <div className="col-conf-tabs">
+          {data.conferences.map(c => (
+            <button key={c.name} className={`col-conf-tab${activeConf === c.name ? ' active' : ''}`} onClick={() => setActiveConf(c.name)}>
+              {c.name}
+            </button>
+          ))}
+        </div>
+        {conf && (
+          <table className="col-standings-table">
+            <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th></tr></thead>
+            <tbody>
+              {conf.teams.map((t, i) => (
+                <tr key={t.name}>
+                  <td className="col-rank">{i + 1}</td>
+                  <td className="col-team-name">{t.name}</td>
+                  <td className="col-w">{t.wins}</td>
+                  <td className="col-l">{t.losses}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Stat Leaders */}
+      <div className="col-section">
+        <h3 className="col-section-title">Stat Leaders</h3>
+        <div className="col-cat-tabs">
+          {Object.entries(catLabels).map(([key, label]) => (
+            <button key={key} className={`col-cat-tab${activeCategory === key ? ' active' : ''}`} onClick={() => setActiveCategory(key)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="col-leaders">
+          {leaders.length === 0 && <p className="muted">No leaders in this category.</p>}
+          {leaders.map((l, i) => (
+            <div key={i} className="col-leader">
+              <span className="col-leader-rank">{i + 1}</span>
+              <div className="col-leader-info">
+                <span className="col-leader-name">{l.name}</span>
+                <span className="col-leader-college">{l.college}</span>
+              </div>
+              <span className="col-leader-stat">{l.stat}</span>
+              <button className="col-leader-view" onClick={() => onViewInScouting(l.prospectId)}>View</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Combine Results */}
+      {prospects.some(p => p.combine) && (
+        <div className="col-section">
+          <h3 className="col-section-title">Combine / Pro Day Results</h3>
+          <div className="combine-list">
+            {prospects.filter(p => p.combine).slice(0, 15).map(p => {
+              const c = p.combine!;
+              const stockCls = c.stockMove === 'rising' ? 'combine-rising' : c.stockMove === 'falling' ? 'combine-falling' : 'combine-neutral';
+              return (
+                <div key={p.id} className={`combine-row ${stockCls}`}>
+                  <div className="combine-player">
+                    <span className="combine-pos">{p.position}</span>
+                    <span className="combine-name">{p.name}</span>
+                    <span className={`combine-stock combine-stock--${c.stockMove}`}>
+                      {c.stockMove === 'rising' ? '↑' : c.stockMove === 'falling' ? '↓' : '—'}
+                    </span>
+                  </div>
+                  <div className="combine-metrics">
+                    <span className="combine-metric"><span className="combine-metric-label">40</span> {c.fortyYard}s</span>
+                    <span className="combine-metric"><span className="combine-metric-label">Bench</span> {c.benchPress}</span>
+                    <span className="combine-metric"><span className="combine-metric-label">Vert</span> {c.vertJump}"</span>
+                    <span className="combine-metric"><span className="combine-metric-label">Broad</span> {c.broadJump}"</span>
+                    <span className="combine-metric"><span className="combine-metric-label">3-cone</span> {c.threeCone}s</span>
+                  </div>
+                  <p className="combine-headline">{c.headline}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Top Prospects */}
+      <div className="col-section">
+        <div className="col-section-header">
+          <h3 className="col-section-title">Top Prospects</h3>
+          <span className="col-points">{scoutingPoints} scouting pts</span>
+        </div>
+        <table className="col-prospects-table">
+          <thead><tr><th>#</th><th>Name</th><th>Pos</th><th>College</th><th>Size</th><th>Scout</th><th></th></tr></thead>
+          <tbody>
+            {prospects.slice(0, 25).map((p, i) => {
+              const state = scoutingData[p.id];
+              const level = state?.scoutLevel ?? 0;
+              const report = state?.report ?? null;
+              const nextCost = level < 3 ? COSTS[level]! : null;
+              const canAfford = nextCost !== null && scoutingPoints >= nextCost;
+              return (
+                <tr key={p.id} className={level > 0 ? 'col-row-scouted' : ''}>
+                  <td className="col-rank">{i + 1}</td>
+                  <td className="col-prospect-name">{p.name}</td>
+                  <td className="col-prospect-pos">{p.position}</td>
+                  <td className="col-prospect-college">{p.college}</td>
+                  <td className="col-prospect-size">{p.height}, {p.weight} lbs</td>
+                  <td className="col-scout-cell">
+                    {level >= 3 ? (
+                      <span className="col-scout-done">{LEVEL_LABELS[level]}</span>
+                    ) : report ? (
+                      <span className="col-scout-partial">Lv{level} · Rd {report.projectedRound.min}–{report.projectedRound.max}</span>
+                    ) : (
+                      <span className="col-scout-none">Unscouted</span>
+                    )}
+                  </td>
+                  <td className="col-actions">
+                    {nextCost !== null && (
+                      <button
+                        className="col-scout-btn"
+                        disabled={busy || !canAfford}
+                        onClick={() => onScout(p.id)}
+                        title={canAfford ? `Scout (${nextCost} pts)` : `Need ${nextCost} pts`}
+                      >
+                        Scout ({nextCost})
+                      </button>
+                    )}
+                    <button className="col-view-btn" onClick={() => onViewInScouting(p.id)} title="View full report">
+                      View
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
 
 function SeasonRecapView({ seasonHistory, history, teams, myTeamId, onViewPlayer }: {
   seasonHistory: SeasonRecord[];
@@ -5149,18 +6296,19 @@ function SeasonRecapView({ seasonHistory, history, teams, myTeamId, onViewPlayer
   );
 }
 
-function PlayoffView({ playoff, teams, seasonHistory, history, myTeamId, busy, advanceBtnLabel, onAdvance, onViewPlayer }: {
+function PlayoffView({ playoff, teams, seasonHistory, history, league: leagueObj, myTeamId, busy, advanceBtnLabel, onAdvance, onViewPlayer }: {
   playoff?: PlayoffBracket;
   teams: League['teams'];
   seasonHistory: SeasonRecord[];
   history: LeagueHistory;
+  league: League;
   myTeamId: string;
   busy: boolean;
   advanceBtnLabel: string;
   onAdvance: () => void;
   onViewPlayer?: (id: string) => void;
 }) {
-  const [mode, setMode] = useState<'bracket' | 'recap'>('bracket');
+  const [mode, setMode] = useState<'bracket' | 'recap' | 'report'>('bracket');
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
 
   const teamName  = (id: string) => teams.find(t => t.id === id)?.name ?? id;
@@ -5241,6 +6389,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, myTeamId, busy, a
           {hasHistory && (
             <button className={mode === 'recap' ? 'active' : ''} onClick={() => setMode('recap')}>Season Recap</button>
           )}
+          <button className={mode === 'report' ? 'active' : ''} onClick={() => setMode('report')}>Year-End Report</button>
         </div>
       )}
 
@@ -5294,6 +6443,72 @@ function PlayoffView({ playoff, teams, seasonHistory, history, myTeamId, busy, a
         />
       )}
 
+      {mode === 'report' && (() => {
+        const myTeam = teams.find(t => t.id === myTeamId);
+        if (!myTeam) return <p className="muted">Team not found.</p>;
+        const gm = leagueObj.gmCareer;
+        const madePlayoffs = playoff?.matchups.some(m => m.topSeedId === myTeamId || m.bottomSeedId === myTeamId) ?? false;
+        const wonChampionship = playoff?.championId === myTeamId;
+        const summary = generateSeasonSummary(
+          leagueObj.currentSeason.games, myTeamId, myTeam.name, myTeam.abbreviation,
+          leagueObj.currentSeason.year, madePlayoffs, wonChampionship,
+          gm?.reputation, gm?.prevReputation,
+        );
+        if (!summary) return <p className="muted" style={{ padding: '1rem' }}>Not enough games played yet for a season report.</p>;
+
+        const gradeColor: Record<string, string> = {
+          A: '#34d399', 'A-': '#34d399', 'B+': '#60a5fa', B: '#60a5fa', 'B-': '#60a5fa',
+          'C+': '#fbbf24', C: '#fbbf24', D: '#f97316', F: '#f87171',
+        };
+        const repColor: Record<string, string> = {
+          'Elite': '#34d399', 'Proven Winner': '#60a5fa', 'Respected': '#fbbf24',
+          'Unproven': '#f97316', 'Hot Seat': '#f87171',
+        };
+
+        return (
+          <div className="yer-container">
+            <div className="yer-header">
+              <span className="yer-year">{summary.year} Season</span>
+              <span className="yer-team">{summary.teamAbbr}</span>
+              <span className="yer-record">{summary.record}</span>
+            </div>
+            <div className="yer-headline">{summary.headline}</div>
+
+            <div className="yer-metrics">
+              {summary.grade && (
+                <div className="yer-metric">
+                  <span className="yer-metric-label">Coaching Grade</span>
+                  <span className="yer-metric-value" style={{ color: gradeColor[summary.grade] ?? 'var(--text-primary)' }}>{summary.grade}</span>
+                </div>
+              )}
+              {summary.repChange && (
+                <div className="yer-metric">
+                  <span className="yer-metric-label">Reputation</span>
+                  <span className="yer-metric-value" style={{ color: repColor[summary.repChange.tier] ?? 'var(--text-primary)' }}>{summary.repChange.tier}</span>
+                  <span className="yer-metric-delta">
+                    {summary.repChange.to > summary.repChange.from ? '+' : ''}{summary.repChange.to - summary.repChange.from}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {summary.highlights.length > 0 && (
+              <div className="yer-section">
+                <h4 className="yer-section-title">Season Highlights</h4>
+                {summary.highlights.map((h, i) => (
+                  <div key={i} className="yer-highlight">{h}</div>
+                ))}
+              </div>
+            )}
+
+            <div className="yer-outlook">
+              <h4 className="yer-section-title">Looking Ahead</h4>
+              <p className="yer-outlook-text">{summary.outlook}</p>
+            </div>
+          </div>
+        );
+      })()}
+
       {selectedGame && (
         <div className="pd-overlay" onClick={() => setSelectedGame(null)}>
           <div className="pd-modal po-game-modal" onClick={e => e.stopPropagation()}>
@@ -5304,7 +6519,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, myTeamId, busy, a
               <button className="pd-close" onClick={() => setSelectedGame(null)}>✕</button>
             </div>
             <div style={{ padding: '0 1rem 1rem' }}>
-              <GameDetail game={selectedGame} onViewPlayer={onViewPlayer} />
+              <GameDetail game={selectedGame} onViewPlayer={onViewPlayer} myTeamId={myTeamId} />
             </div>
           </div>
         </div>
@@ -5313,12 +6528,114 @@ function PlayoffView({ playoff, teams, seasonHistory, history, myTeamId, busy, a
   );
 }
 
+// ── Game Recap View ───────────────────────────────────────────────────────────
+
+function GameRecapView({ game, myTeamId }: { game: Game; myTeamId?: string }) {
+  const recap = useMemo(() => generateRecap(game), [game]);
+  if (!recap) return <p className="muted">Recap not available.</p>;
+
+  const [showDrives, setShowDrives] = useState(false);
+  const isMyGame = myTeamId && (game.homeTeam.id === myTeamId || game.awayTeam.id === myTeamId);
+  const review = useMemo(() => isMyGame ? evaluateGameplan(game, myTeamId!) : null, [game, myTeamId]);
+
+  const momentIcon: Record<string, string> = {
+    touchdown: '🏈', turnover: '⚠', big_play: '⚡', sack: '💥', field_goal: '🥅', long_drive: '📏',
+  };
+
+  return (
+    <div className="recap-container">
+      {/* Headline + Paragraph */}
+      <div className="recap-headline">{recap.headline}</div>
+      <p className="recap-paragraph">{recap.paragraph}</p>
+
+      {/* Gameplan Review */}
+      {review && (
+        <div className="recap-section">
+          <h4 className="recap-section-title">Gameplan Review</h4>
+          <div className={`gpr-card gpr-${review.verdict}`}>
+            <div className="gpr-header">
+              <span className={`gpr-verdict gpr-verdict--${review.verdict}`}>
+                {review.verdict === 'effective' ? '●' : review.verdict === 'mixed' ? '◐' : '○'}
+              </span>
+              <span className="gpr-label">{review.label}</span>
+            </div>
+            <div className="gpr-metrics">
+              {review.metrics.map((m, i) => (
+                <div key={i} className="gpr-metric">
+                  <span className="gpr-metric-label">{m.label}</span>
+                  <span className={`gpr-metric-value${m.good ? ' gpr-good' : ' gpr-bad'}`}>{m.value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="gpr-insights">
+              {review.insights.map((ins, i) => (
+                <p key={i} className="gpr-insight">{ins}</p>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Standout Players */}
+      {recap.standouts.length > 0 && (
+        <div className="recap-section">
+          <h4 className="recap-section-title">Standout Performances</h4>
+          <div className="recap-standouts">
+            {recap.standouts.map((s, i) => (
+              <div key={i} className="recap-standout">
+                <span className="recap-standout-name">{s.name}</span>
+                <span className="recap-standout-line">{s.line}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Key Moments */}
+      {recap.keyMoments.length > 0 && (
+        <div className="recap-section">
+          <h4 className="recap-section-title">Key Moments</h4>
+          <div className="recap-moments">
+            {recap.keyMoments.map((m, i) => (
+              <div key={i} className={`recap-moment recap-moment-${m.type}`}>
+                <span className="recap-moment-q">Q{m.quarter}</span>
+                <span className="recap-moment-icon">{momentIcon[m.type] ?? '•'}</span>
+                <span className="recap-moment-desc">{m.description}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Drive Summaries */}
+      <div className="recap-section">
+        <button className="recap-drives-toggle" onClick={() => setShowDrives(v => !v)}>
+          {showDrives ? '▾' : '▸'} Drive Summaries ({recap.drives.length} drives)
+        </button>
+        {showDrives && (
+          <div className="recap-drives">
+            {recap.drives.map((d, i) => (
+              <div key={i} className={`recap-drive recap-drive-${d.result}`}>
+                <span className="recap-drive-team">{d.teamAbbr}</span>
+                <span className="recap-drive-q">Q{d.quarter}</span>
+                <span className="recap-drive-text">{formatDriveSummary(d)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Game Detail ────────────────────────────────────────────────────────────────
 
-function GameDetail({ game, onViewPlayer }: { game: Game; onViewPlayer?: (id: string) => void }) {
+function GameDetail({ game, onViewPlayer, myTeamId }: { game: Game; onViewPlayer?: (id: string) => void; myTeamId?: string }) {
   const isFinal = game.status === 'final';
-  const [tab, setTab] = useState<'pbp' | 'box' | 'watch'>('pbp');
+  const [tab, setTab] = useState<'recap' | 'pbp' | 'box' | 'watch'>('recap');
   const lines = isFinal ? formatGameLog(game) : null;
+
+  const tabLabels: Record<string, string> = { recap: 'Recap', pbp: 'Play-by-Play', box: 'Box Score', watch: 'Watch' };
 
   return (
     <section className="game-detail">
@@ -5334,14 +6651,15 @@ function GameDetail({ game, onViewPlayer }: { game: Game; onViewPlayer?: (id: st
 
       {isFinal && (
         <nav className="detail-tabs">
-          {(['pbp', 'box', 'watch'] as const).map(t => (
+          {(['recap', 'pbp', 'box', 'watch'] as const).map(t => (
             <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-              {t === 'pbp' ? 'Play-by-Play' : t === 'box' ? 'Box Score' : 'Watch'}
+              {tabLabels[t]}
             </button>
           ))}
         </nav>
       )}
 
+      {isFinal && tab === 'recap' && <GameRecapView game={game} myTeamId={myTeamId} />}
       {(!isFinal || tab === 'pbp') && (
         <div className="pbp-scroll">
           {lines
@@ -5355,7 +6673,7 @@ function GameDetail({ game, onViewPlayer }: { game: Game; onViewPlayer?: (id: st
   );
 }
 
-function PbpLine({ line, game }: { line: string; game: Game }) {
+function PbpLine({ line, game, explanation }: { line: string; game: Game; explanation?: string[] }) {
   const isHeader  = line.includes('── Q') || line.includes('Score:') || line.includes('FINAL:');
   const isTd      = line.includes('TOUCHDOWN');
   const isTurnover = line.includes('INTERCEPTED') || line.includes('FUMBLE');
@@ -5371,7 +6689,16 @@ function PbpLine({ line, game }: { line: string; game: Game }) {
   if (isHome)     cls += ' pbp-home';
   if (isAway)     cls += ' pbp-away';
 
-  return <div className={cls}>{line || '\u00a0'}</div>;
+  return (
+    <div className={cls}>
+      {line || '\u00a0'}
+      {explanation && explanation.length > 0 && (
+        <div className="pbp-explanation">
+          {explanation.map((r, i) => <span key={i} className="pbp-reason">{r}</span>)}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Box Score ──────────────────────────────────────────────────────────────────
@@ -5591,6 +6918,7 @@ function GameViewer({ game }: { game: Game }) {
   const events = game.events ?? [];
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [showPlayLogic, setShowPlayLogic] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const homeId = game.homeTeam.id;
@@ -5632,7 +6960,7 @@ function GameViewer({ game }: { game: Game }) {
       <div className="viewer-play">
         {events.length === 0
           ? <p className="muted">No play data available for this game.</p>
-          : <PbpLine line={playText} game={game} />}
+          : <PbpLine line={playText} game={game} explanation={showPlayLogic ? currentEvent?.explanation : undefined} />}
       </div>
 
       {events.length > 0 && (
@@ -5651,6 +6979,13 @@ function GameViewer({ game }: { game: Game }) {
           {playing ? '⏸ Pause' : '▶ Play'}
         </button>
         <button onClick={() => setIdx(i => Math.min(events.length - 1, i + 1))} disabled={playing || atEnd}>Next ▶</button>
+        <button
+          className={`btn-logic-toggle${showPlayLogic ? ' active' : ''}`}
+          onClick={() => setShowPlayLogic(v => !v)}
+          title="Show why each play was selected"
+        >
+          {showPlayLogic ? '🧠 Logic On' : '🧠 Logic'}
+        </button>
       </div>
     </div>
   );
@@ -5666,26 +7001,257 @@ function fieldPos(yardLine: number): string {
   if (yardLine === 50) return `Mid`;
   return `OPP ${100 - yardLine}`;
 }
+// Seeded pick: deterministic per-event so commentary doesn't change on re-render
+function pickTemplate(templates: string[], ev: PlayEvent): string {
+  const seed = ((ev.quarter * 1000 + ev.down * 100 + ev.yardLine + ev.yards + ev.distance) >>> 0) % templates.length;
+  return templates[seed]!;
+}
+
 function formatPlay(ev: PlayEvent): string {
   const sit   = `${downStr(ev.down)}&${ev.distance} ${fieldPos(ev.yardLine).padEnd(7)}`;
   const qb    = ev.ballCarrier ?? '?';
   const wr    = ev.target ?? '?';
-  const ydStr = `${ev.yards} yd${Math.abs(ev.yards) !== 1 ? 's' : ''}`;
+  const yds   = Math.abs(ev.yards);
+  const ydStr = `${ev.yards} yd${yds !== 1 ? 's' : ''}`;
+  const isBig = yds >= 15;
   let action: string;
+
   switch (ev.type) {
-    case 'inside_run':   action = ev.result === 'touchdown' ? `${qb} dives in — TOUCHDOWN` : `${qb} inside run ${ydStr}`; break;
-    case 'outside_run':  action = ev.result === 'touchdown' ? `${qb} sweeps in — TOUCHDOWN` : `${qb} outside run ${ydStr}`; break;
-    case 'short_pass':   action = ev.result === 'touchdown' ? `${qb} → ${wr} short — TOUCHDOWN` : ev.result === 'success' ? `${qb} → ${wr} short, ${ydStr}` : `${qb} → ${wr} incomplete`; break;
-    case 'medium_pass':  action = ev.result === 'touchdown' ? `${qb} → ${wr} — TOUCHDOWN` : ev.result === 'success' ? `${qb} → ${wr}, ${ydStr}` : `${qb} → ${wr} incomplete`; break;
-    case 'deep_pass':    action = ev.result === 'touchdown' ? `${qb} deep → ${wr} — TOUCHDOWN` : ev.result === 'success' ? `${qb} deep → ${wr}, ${ydStr}` : `${qb} deep → ${wr} incomplete`; break;
-    case 'sack':         action = `${qb} sacked ${ydStr}`; break;
-    case 'interception': action = `${qb} → ${wr} — INTERCEPTED`; break;
-    case 'fumble':       action = `${qb} FUMBLE — turnover`; break;
-    case 'field_goal':   action = ev.result === 'field_goal_good' ? `${qb} FG ${(100 - ev.yardLine) + 17} yds — GOOD` : `${qb} FG — NO GOOD`; break;
-    case 'punt':         action = `Punt ${ydStr}`; break;
-    default:             action = ev.type;
+    case 'inside_run': {
+      if (ev.result === 'touchdown') {
+        action = pickTemplate([
+          `${qb} dives in — TOUCHDOWN`,
+          `${qb} punches it in — TOUCHDOWN`,
+          `${qb} finds the hole and scores — TOUCHDOWN`,
+          `${qb} bulls his way into the end zone — TOUCHDOWN`,
+        ], ev);
+      } else if (ev.yards < 0) {
+        action = pickTemplate([
+          `${qb} stuffed at the line — loss of ${yds}`,
+          `${qb} hit in the backfield for a ${yds}-yard loss`,
+          `Nowhere to go — ${qb} brought down for a loss of ${yds}`,
+        ], ev);
+      } else if (ev.yards === 0) {
+        action = pickTemplate([
+          `${qb} stopped for no gain`,
+          `${qb} runs into a wall — no gain`,
+          `${qb} gets nothing on the carry`,
+        ], ev);
+      } else if (isBig) {
+        action = pickTemplate([
+          `${qb} bursts through the middle for ${ydStr}!`,
+          `Huge hole up the gut — ${qb} rumbles for ${ydStr}`,
+          `${qb} breaks free inside for a gain of ${yds}`,
+        ], ev);
+      } else {
+        action = pickTemplate([
+          `${qb} runs up the middle for ${ydStr}`,
+          `${qb} pushes forward for ${ydStr}`,
+          `${qb} picks up ${ydStr} between the tackles`,
+          `Handoff to ${qb} — ${ydStr} on the ground`,
+          `${qb} finds a crease for ${ydStr}`,
+        ], ev);
+      }
+      break;
+    }
+    case 'outside_run': {
+      if (ev.result === 'touchdown') {
+        action = pickTemplate([
+          `${qb} sweeps in — TOUCHDOWN`,
+          `${qb} turns the corner and scores — TOUCHDOWN`,
+          `${qb} takes it to the house — TOUCHDOWN`,
+          `${qb} races to the pylon — TOUCHDOWN`,
+        ], ev);
+      } else if (ev.yards < 0) {
+        action = pickTemplate([
+          `${qb} strung out for a ${yds}-yard loss`,
+          `${qb} caught behind the line — loss of ${yds}`,
+          `${qb} tries to bounce outside, loses ${yds}`,
+        ], ev);
+      } else if (ev.yards === 0) {
+        action = pickTemplate([
+          `${qb} contained at the edge — no gain`,
+          `${qb} goes nowhere on the outside`,
+        ], ev);
+      } else if (isBig) {
+        action = pickTemplate([
+          `${qb} breaks it outside for ${ydStr}!`,
+          `${qb} turns the corner and picks up ${ydStr}`,
+          `Big run to the outside — ${qb} for ${ydStr}`,
+        ], ev);
+      } else {
+        action = pickTemplate([
+          `${qb} takes it outside for ${ydStr}`,
+          `${qb} bounces it to the edge — ${ydStr}`,
+          `${qb} sweeps right for ${ydStr}`,
+          `Outside handoff to ${qb}, ${ydStr}`,
+          `${qb} skirts the edge for a gain of ${yds}`,
+        ], ev);
+      }
+      break;
+    }
+    case 'short_pass': {
+      if (ev.result === 'touchdown') {
+        action = pickTemplate([
+          `${qb} fires to ${wr} — TOUCHDOWN`,
+          `Quick throw to ${wr}, he's in — TOUCHDOWN`,
+          `${qb} finds ${wr} for the score — TOUCHDOWN`,
+        ], ev);
+      } else if (ev.result === 'success') {
+        if (isBig) {
+          action = pickTemplate([
+            `${qb} finds ${wr} underneath, breaks loose for ${ydStr}!`,
+            `Quick pass to ${wr} — ${ydStr} after the catch`,
+            `${qb} hits ${wr} on a short throw, ${wr} does the rest — ${ydStr}`,
+          ], ev);
+        } else {
+          action = pickTemplate([
+            `${qb} dumps it off to ${wr} for ${ydStr}`,
+            `${qb} finds ${wr} for ${ydStr}`,
+            `Quick throw to ${wr}, ${ydStr}`,
+            `${qb} connects with ${wr} underneath — ${ydStr}`,
+            `Short pass to ${wr} — picks up ${ydStr}`,
+          ], ev);
+        }
+      } else {
+        action = pickTemplate([
+          `${qb} throws to ${wr} — incomplete`,
+          `Pass to ${wr} falls incomplete`,
+          `${qb} can't connect with ${wr}`,
+          `Incomplete — ${wr} couldn't bring it in`,
+        ], ev);
+      }
+      break;
+    }
+    case 'medium_pass': {
+      if (ev.result === 'touchdown') {
+        action = pickTemplate([
+          `${qb} hits ${wr} in stride — TOUCHDOWN`,
+          `${qb} threads it to ${wr} — TOUCHDOWN`,
+          `Beautiful throw to ${wr}, he scores — TOUCHDOWN`,
+        ], ev);
+      } else if (ev.result === 'success') {
+        if (isBig) {
+          action = pickTemplate([
+            `${qb} hits ${wr} over the middle for ${ydStr}!`,
+            `Nice throw from ${qb} — ${wr} picks up ${ydStr}`,
+            `${qb} connects with ${wr} for a big gain of ${yds}`,
+          ], ev);
+        } else {
+          action = pickTemplate([
+            `${qb} hits ${wr} for ${ydStr}`,
+            `${qb} throws to ${wr} — ${ydStr}`,
+            `${qb} finds ${wr} across the middle for ${ydStr}`,
+            `Pass to ${wr} is complete — ${ydStr}`,
+            `${qb} connects with ${wr}, gain of ${yds}`,
+          ], ev);
+        }
+      } else {
+        action = pickTemplate([
+          `${qb} throws over the middle — incomplete`,
+          `Pass intended for ${wr} — broken up`,
+          `${qb} can't find ${wr} — incomplete`,
+          `Incomplete pass — ${wr} was covered`,
+        ], ev);
+      }
+      break;
+    }
+    case 'deep_pass': {
+      if (ev.result === 'touchdown') {
+        action = pickTemplate([
+          `${qb} goes deep to ${wr} — TOUCHDOWN!`,
+          `Bomb to ${wr}! He hauls it in — TOUCHDOWN`,
+          `${qb} airs it out to ${wr} — TOUCHDOWN!`,
+          `${wr} gets behind the defense — ${qb} finds him for the score — TOUCHDOWN`,
+        ], ev);
+      } else if (ev.result === 'success') {
+        action = pickTemplate([
+          `${qb} goes deep to ${wr} — ${ydStr}!`,
+          `${qb} launches it downfield, ${wr} comes down with it — ${ydStr}`,
+          `Deep ball to ${wr}, he makes the grab — ${ydStr}`,
+          `Big play! ${qb} connects with ${wr} for ${ydStr}`,
+        ], ev);
+      } else {
+        action = pickTemplate([
+          `${qb} goes long to ${wr} — overthrown`,
+          `Deep shot to ${wr} — incomplete`,
+          `${qb} takes a shot downfield — ${wr} can't get there`,
+          `${qb} fires deep but ${wr} can't haul it in`,
+        ], ev);
+      }
+      break;
+    }
+    case 'scramble': {
+      if (ev.result === 'touchdown') {
+        action = pickTemplate([
+          `${qb} scrambles and scores — TOUCHDOWN`,
+          `${qb} takes off and runs it in — TOUCHDOWN`,
+        ], ev);
+      } else {
+        action = pickTemplate([
+          `${qb} scrambles for ${ydStr}`,
+          `${qb} takes off — picks up ${ydStr}`,
+          `Nothing open — ${qb} scrambles for ${ydStr}`,
+        ], ev);
+      }
+      break;
+    }
+    case 'sack': {
+      action = pickTemplate([
+        `${qb} is sacked — loss of ${yds}`,
+        `${qb} brought down behind the line — ${ydStr}`,
+        `Sack! ${qb} goes down for a loss of ${yds}`,
+        `The rush gets home — ${qb} sacked for ${ydStr}`,
+      ], ev);
+      break;
+    }
+    case 'interception': {
+      action = pickTemplate([
+        `${qb} throws to ${wr} — INTERCEPTED!`,
+        `Picked off! ${qb}'s pass intended for ${wr} is INTERCEPTED`,
+        `${qb} forces one to ${wr} — INTERCEPTED`,
+        `Turnover! ${qb}'s pass is picked off`,
+      ], ev);
+      break;
+    }
+    case 'fumble': {
+      action = pickTemplate([
+        `${qb} puts it on the ground — FUMBLE! Turnover`,
+        `Fumble! ${qb} loses the ball`,
+        `${qb} coughs it up — turnover on the FUMBLE`,
+      ], ev);
+      break;
+    }
+    case 'field_goal': {
+      const fgDist = (100 - ev.yardLine) + 17;
+      if (ev.result === 'field_goal_good') {
+        action = pickTemplate([
+          `${fgDist}-yard field goal is GOOD`,
+          `FG from ${fgDist} — right through the uprights`,
+          `The ${fgDist}-yarder is GOOD — three points`,
+        ], ev);
+      } else {
+        action = pickTemplate([
+          `${fgDist}-yard field goal attempt — NO GOOD`,
+          `FG from ${fgDist} is wide — NO GOOD`,
+          `He misses the ${fgDist}-yarder — NO GOOD`,
+        ], ev);
+      }
+      break;
+    }
+    case 'punt': {
+      action = pickTemplate([
+        `Punt — ${ydStr} downfield`,
+        `Punted away for ${ydStr}`,
+        `Booming punt — ${ydStr}`,
+      ], ev);
+      break;
+    }
+    default: action = ev.type;
   }
-  return `${sit} | ${action}${ev.firstDown ? ' ↑' : ''}`;
+
+  const fd = ev.firstDown ? ' ↑' : '';
+  return `${sit} | ${action}${fd}`;
 }
 function formatGameLog(game: Game): string[] {
   const lines: string[] = [];
@@ -7439,19 +9005,22 @@ function ContractsView({ team, isOffseason, busy, onExtend, onRelease }: {
 
 // ── Draft View ─────────────────────────────────────────────────────────────────
 
-function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance, onAdvanceOnePick, onAdvanceToMyPick }: {
+function DraftView({ league, myTeamId, leagueId, busy, onPick, onSimDraft, onAdvance, onAdvanceOnePick, onAdvanceToMyPick, onLeagueUpdated }: {
   league: League;
   myTeamId: string;
+  leagueId: string;
   busy: boolean;
   onPick: (playerId: string) => void;
   onSimDraft: () => void;
   onAdvance: () => void;
   onAdvanceOnePick: () => void;
   onAdvanceToMyPick: () => void;
+  onLeagueUpdated: (l: League) => void;
 }) {
   const [posFilter, setPosFilter] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'board' | 'ovr' | 'pos'>('board');
   const [showResults, setShowResults] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const draft = league.draft;
 
   if (!draft) {
@@ -7521,14 +9090,144 @@ function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance, onAd
   // All completed picks for results view
   const completedPicks = draft.slots.filter(s => s.playerId);
 
+  // Your picks this draft
+  const myPicks = draft.slots.filter(s => s.teamId === myTeamId && s.playerId);
+
+  // Selected prospect detail
+  const selectedPlayer = selectedId ? draft.players.find(p => p.id === selectedId) : null;
+  const selectedInfo   = selectedPlayer ? prospectInfo(selectedPlayer) : null;
+
+  // ── Draft feedback: board target alerts, pick commentary, falling players ──
+
+  // Board targets taken by other teams (check recent picks)
+  const boardAlerts: string[] = [];
+  for (const s of recentPicks) {
+    if (s.teamId === myTeamId) continue;
+    // Check if the drafted player's prospectId was on our board
+    // We need to match via player name since we don't have prospectId on DraftSlot
+    const boardProspectIds = draftBoard;
+    const draftedProspects = league.draftClass?.prospects ?? [];
+    for (const bid of boardProspectIds) {
+      const bp = draftedProspects.find(pr => pr.id === bid);
+      if (bp && s.playerName === bp.name && s.playerPos === bp.position) {
+        boardAlerts.push(`${s.playerPos} ${s.playerName} was taken by ${s.teamName} (R${s.round}P${s.pick})`);
+      }
+    }
+  }
+
+  // Pick commentary helper
+  function pickCommentary(slot: DraftSlot): string | null {
+    if (!slot.playerId || !slot.playerName) return null;
+    // Find prospect info for this pick
+    const draftedProspects = league.draftClass?.prospects ?? [];
+    const prospect = draftedProspects.find(pr => pr.name === slot.playerName);
+    if (!prospect) return null;
+    const state = scoutingData[prospect.id];
+    const proj = state?.report?.projectedRound;
+    if (!proj) return null;
+    const round = slot.round;
+    if (round < proj.min) return 'Reach';
+    if (round > proj.max) return 'Value';
+    return null;
+  }
+
+  // Falling players: past their projected max round
+  function fallingTag(player: Player): string | null {
+    const info = prospectInfo(player);
+    if (!info?.report?.projectedRound) return null;
+    const proj = info.report.projectedRound;
+    const currentRound = currentSlot?.round ?? 1;
+    if (currentRound > proj.max) return 'Falling';
+    return null;
+  }
+
+  // Best available: top 3 by OVR among remaining
+  const bestAvailableIds = new Set(
+    [...draft.players].sort((a, b) => b.scoutedOverall - a.scoutedOverall).slice(0, 3).map(p => p.id),
+  );
+
   function tierLabel(ovr: number): string {
     if (ovr >= 70) return '★';
     if (ovr >= 57) return '◆';
     return '·';
   }
 
+  // ── Draft trade state ──────────────────────────────────────────────────────
+  const [showTrade, setShowTrade] = useState(false);
+  const [tradeTeamId, setTradeTeamId] = useState('');
+  const [tradeGive, setTradeGive] = useState<Set<string>>(new Set());   // slot keys: "round:pick"
+  const [tradeGet, setTradeGet] = useState<Set<string>>(new Set());
+  const [tradeResult, setTradeResult] = useState<string | null>(null);
+  const [tradeBusy, setTradeBusy] = useState(false);
+
+  // Available picks per team (undrafted slots)
+  const myUndrafted = draft.slots.filter(s => s.teamId === myTeamId && !s.playerId && s.overallPick >= draft.currentSlotIdx);
+  const otherTeams = league.teams.filter(t => t.id !== myTeamId);
+  const theirUndrafted = tradeTeamId
+    ? draft.slots.filter(s => s.teamId === tradeTeamId && !s.playerId && s.overallPick >= draft.currentSlotIdx)
+    : [];
+
+  function slotKey(s: DraftSlot): string { return `${s.round}:${s.pick}`; }
+
+  function toggleGive(key: string) {
+    setTradeGive(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setTradeResult(null);
+  }
+  function toggleGet(key: string) {
+    setTradeGet(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setTradeResult(null);
+  }
+
+  // Find the original team for a slot (needed for TradeAsset)
+  function findOriginalTeam(slot: DraftSlot): { id: string; name: string } {
+    // The slot's original team is the one at this draft position based on standings order
+    // For simplicity, we scan draftPickOwnership to find who originally held this slot
+    // If no ownership entry, the original team IS the current team
+    for (const [key, ownerId] of Object.entries(league.draftPickOwnership ?? {})) {
+      const [_yr, rd, origId] = key.split(':');
+      if (Number(rd) === slot.round && ownerId === slot.teamId) {
+        const origTeam = league.teams.find(t => t.id === origId);
+        if (origTeam) return { id: origTeam.id, name: origTeam.name };
+      }
+    }
+    return { id: slot.teamId, name: slot.teamName };
+  }
+
+  async function submitDraftTrade() {
+    if (tradeGive.size === 0 || tradeGet.size === 0 || !tradeTeamId) return;
+    setTradeBusy(true); setTradeResult(null);
+    const fromAssets: TradeAsset[] = myUndrafted
+      .filter(s => tradeGive.has(slotKey(s)))
+      .map(s => {
+        const orig = findOriginalTeam(s);
+        return { type: 'pick' as const, year: draft!.year, round: s.round, originalTeamId: orig.id, originalTeamName: orig.name };
+      });
+    const toAssets: TradeAsset[] = theirUndrafted
+      .filter(s => tradeGet.has(slotKey(s)))
+      .map(s => {
+        const orig = findOriginalTeam(s);
+        return { type: 'pick' as const, year: draft!.year, round: s.round, originalTeamId: orig.id, originalTeamName: orig.name };
+      });
+    try {
+      const updated = await proposeTradeApi(leagueId, myTeamId, tradeTeamId, fromAssets, toAssets);
+      // Check if accepted (last trade proposal status)
+      const lastProposal = updated.tradeProposals[updated.tradeProposals.length - 1];
+      if (lastProposal?.status === 'accepted') {
+        setTradeResult('Trade accepted!');
+        onLeagueUpdated(updated);
+        setTradeGive(new Set()); setTradeGet(new Set());
+      } else {
+        setTradeResult('Trade rejected — they want more value.');
+        onLeagueUpdated(updated);
+      }
+    } catch (e) {
+      setTradeResult(friendlyError(e));
+    }
+    finally { setTradeBusy(false); }
+  }
+
   const ROUNDS = [1, 2, 3, 4, 5, 6, 7];
-  const totalCols = isMyTurn ? 9 : 8; // extra col for Draft button
+  const totalCols = isMyTurn ? 9 : 8;
 
   return (
     <section className="panel draft-event-panel">
@@ -7541,7 +9240,10 @@ function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance, onAd
         </h2>
         <div className="draft-header-actions">
           {!draft.complete && (
-            <button className="btn-sm" disabled={busy} onClick={onSimDraft}>Sim All Remaining</button>
+            <>
+              <button className={`btn-sm${showTrade ? ' active' : ''}`} onClick={() => { setShowTrade(v => !v); setTradeResult(null); }}>Trade Picks</button>
+              <button className="btn-sm" disabled={busy} onClick={onSimDraft}>Sim All Remaining</button>
+            </>
           )}
           {draft.complete && (
             <button className="advance-btn" disabled={busy} onClick={onAdvance}>
@@ -7591,6 +9293,83 @@ function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance, onAd
         <div className="draft-onclock">
           <span className="draft-onclock-label">Draft Complete — {completedPicks.length} picks made</span>
           <span className="draft-onclock-team">Click "Start Season" to begin the regular season.</span>
+        </div>
+      )}
+
+      {/* ── Board Target Alerts ── */}
+      {boardAlerts.length > 0 && (
+        <div className="draft-alerts">
+          {boardAlerts.slice(0, 3).map((a, i) => (
+            <div key={i} className="draft-alert">
+              <span className="draft-alert-icon">⚠</span>
+              <span className="draft-alert-text">{a}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Draft Trade Panel ── */}
+      {showTrade && !draft.complete && (
+        <div className="draft-trade-panel">
+          <div className="draft-trade-header">
+            <h3>Trade Draft Picks</h3>
+            <button className="btn-sm" onClick={() => setShowTrade(false)}>Close</button>
+          </div>
+          <div className="draft-trade-body">
+            <div className="draft-trade-col">
+              <label className="draft-trade-label">Trade with</label>
+              <select className="draft-trade-select" value={tradeTeamId} onChange={e => { setTradeTeamId(e.target.value); setTradeGive(new Set()); setTradeGet(new Set()); setTradeResult(null); }}>
+                <option value="">Select team…</option>
+                {otherTeams.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            {tradeTeamId && (
+              <>
+                <div className="draft-trade-sides">
+                  <div className="draft-trade-side">
+                    <div className="draft-trade-side-label">You give</div>
+                    {myUndrafted.length === 0 && <p className="muted">No picks available</p>}
+                    {myUndrafted.map(s => {
+                      const key = slotKey(s);
+                      return (
+                        <label key={key} className={`draft-trade-pick${tradeGive.has(key) ? ' selected' : ''}`}>
+                          <input type="checkbox" checked={tradeGive.has(key)} onChange={() => toggleGive(key)} />
+                          R{s.round} P{s.pick} (#{s.overallPick})
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="draft-trade-side">
+                    <div className="draft-trade-side-label">You get</div>
+                    {theirUndrafted.length === 0 && <p className="muted">No picks available</p>}
+                    {theirUndrafted.map(s => {
+                      const key = slotKey(s);
+                      return (
+                        <label key={key} className={`draft-trade-pick${tradeGet.has(key) ? ' selected' : ''}`}>
+                          <input type="checkbox" checked={tradeGet.has(key)} onChange={() => toggleGet(key)} />
+                          R{s.round} P{s.pick} (#{s.overallPick})
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+                {tradeResult && (
+                  <div className={`draft-trade-result${tradeResult.includes('accepted') ? ' draft-trade-ok' : ' draft-trade-fail'}`}>
+                    {tradeResult}
+                  </div>
+                )}
+                <button
+                  className="btn-primary"
+                  disabled={tradeBusy || tradeGive.size === 0 || tradeGet.size === 0}
+                  onClick={submitDraftTrade}
+                >
+                  {tradeBusy ? 'Proposing…' : 'Propose Trade'}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -7668,7 +9447,7 @@ function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance, onAd
                   const projRd  = info?.report?.projectedRound ?? null;
                   const bdRank  = info?.boardRank ?? null;
                   return (
-                    <tr key={p.id} className={`draft-prospect-row${bdRank ? ' draft-on-board' : ''}`}>
+                    <tr key={p.id} className={`draft-prospect-row${bdRank ? ' draft-on-board' : ''}${selectedId === p.id ? ' draft-selected' : ''}`} onClick={() => setSelectedId(selectedId === p.id ? null : p.id)}>
                       <td className="draft-tier">{tierLabel(p.scoutedOverall)}</td>
                       <td className="draft-bd-rank">{bdRank ? `#${bdRank}` : '—'}</td>
                       <td className="draft-name">{p.name}</td>
@@ -7683,6 +9462,8 @@ function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance, onAd
                             {projRd && <span className="proj-rd-mini"> Rd{projRd.min}</span>}
                           </span>
                         ) : '—'}
+                        {bestAvailableIds.has(p.id) && <span className="draft-tag-ba">BPA</span>}
+                        {fallingTag(p) && <span className="draft-tag-fall">Falling</span>}
                       </td>
                       {isMyTurn && (
                         <td>
@@ -7706,19 +9487,128 @@ function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance, onAd
           </div>
         </div>
 
-        {/* ── Recent Picks Log ── */}
-        <div className="draft-log">
-          <div className="draft-log-title">Recent Picks</div>
-          {recentPicks.length === 0 && (
-            <p className="muted" style={{ padding: '0.5rem' }}>No picks yet.</p>
-          )}
-          {recentPicks.map(s => (
-            <div key={s.overallPick} className={`draft-log-row${s.teamId === myTeamId ? ' draft-log-user' : ''}`}>
-              <span className="draft-log-pick">R{s.round}P{s.pick}</span>
-              <span className="draft-log-team">{s.teamName.split(' ').pop()}</span>
-              <span className="draft-log-player">{s.playerPos} {s.playerName}</span>
+        {/* ── Right Panel: Detail + Picks ── */}
+        <div className="draft-right">
+          {/* Prospect Detail */}
+          {selectedPlayer && (
+            <div className="draft-detail">
+              <div className="draft-detail-header">
+                <span className="draft-detail-pos">{selectedPlayer.position}</span>
+                <span className="draft-detail-name">{selectedPlayer.name}</span>
+                <span className="draft-detail-ovr">{selectedPlayer.scoutedOverall} OVR</span>
+              </div>
+              <div className="draft-detail-meta">
+                <span>{selectedPlayer.college ?? '—'}</span>
+                <span>Age {selectedPlayer.age}</span>
+                {(() => {
+                  const cp = league.draftClass?.prospects.find(pr => pr.id === selectedPlayer.prospectId);
+                  return cp ? <><span>{cp.height}</span><span>{cp.weight} lbs</span></> : null;
+                })()}
+              </div>
+              {selectedInfo?.boardRank && (
+                <div className="draft-detail-board">#{selectedInfo.boardRank} on your board</div>
+              )}
+              {selectedInfo?.report ? (
+                <div className="draft-detail-report">
+                  <div className="draft-detail-report-row">
+                    <span className="draft-detail-grade">{selectedInfo.report.grade}</span>
+                    <span className={`draft-detail-conf ${selectedInfo.report.confidence}`}>
+                      {selectedInfo.report.confidence === 'low' ? 'Low Conf.' : selectedInfo.report.confidence === 'medium' ? 'Med Conf.' : 'High Conf.'}
+                    </span>
+                    <span className="draft-detail-proj">Proj Rd {selectedInfo.report.projectedRound.min}–{selectedInfo.report.projectedRound.max}</span>
+                  </div>
+                  {selectedInfo.report.strengths.length > 0 && (
+                    <div className="draft-detail-tags">
+                      {selectedInfo.report.strengths.map((s, i) => <span key={i} className="draft-tag draft-tag-str">{s}</span>)}
+                    </div>
+                  )}
+                  {selectedInfo.report.weaknesses.length > 0 && (
+                    <div className="draft-detail-tags">
+                      {selectedInfo.report.weaknesses.map((w, i) => <span key={i} className="draft-tag draft-tag-wk">{w}</span>)}
+                    </div>
+                  )}
+                  {selectedInfo.report.notes && <p className="draft-detail-notes">{selectedInfo.report.notes}</p>}
+                </div>
+              ) : (
+                <p className="muted" style={{ fontSize: '0.72rem', margin: '0.3rem 0 0' }}>No scouting report available.</p>
+              )}
+              {(() => {
+                const cp = league.draftClass?.prospects.find(pr => pr.id === selectedPlayer.prospectId);
+                const c = cp?.combine;
+                if (!c) return null;
+                return (
+                  <div className="draft-detail-combine">
+                    <div className="draft-detail-combine-row">
+                      <span className="combine-metric"><span className="combine-metric-label">40</span> {c.fortyYard}s</span>
+                      <span className="combine-metric"><span className="combine-metric-label">Bench</span> {c.benchPress}</span>
+                      <span className="combine-metric"><span className="combine-metric-label">Vert</span> {c.vertJump}"</span>
+                    </div>
+                    <span className={`combine-stock-tag combine-stock--${c.stockMove}`}>
+                      {c.stockMove === 'rising' ? '↑ Rising' : c.stockMove === 'falling' ? '↓ Falling' : '— Neutral'}
+                    </span>
+                  </div>
+                );
+              })()}
+              {isMyTurn && (() => {
+                const proj = selectedInfo?.report?.projectedRound;
+                const curRound = currentSlot?.round ?? 1;
+                const valueTag = proj
+                  ? curRound > proj.max ? 'Great value — falling past projection'
+                  : curRound < proj.min ? 'Potential reach — projected later'
+                  : null
+                  : null;
+                return (
+                  <>
+                    {valueTag && <p className={`draft-detail-value ${curRound > (proj?.max ?? 99) ? 'draft-val-good' : 'draft-val-reach'}`}>{valueTag}</p>}
+                    <button className="draft-detail-pick-btn" disabled={busy} onClick={() => onPick(selectedPlayer.id)}>
+                      Draft {selectedPlayer.name}
+                    </button>
+                  </>
+                );
+              })()}
             </div>
-          ))}
+          )}
+          {!selectedPlayer && (
+            <div className="draft-detail draft-detail-empty">
+              <p className="muted">Click a prospect to view details</p>
+            </div>
+          )}
+
+          {/* Your Picks */}
+          {myPicks.length > 0 && (
+            <div className="draft-my-picks">
+              <div className="draft-log-title">Your Picks</div>
+              {myPicks.map(s => {
+                const comment = pickCommentary(s);
+                return (
+                  <div key={s.overallPick} className="draft-log-row draft-log-user">
+                    <span className="draft-log-pick">R{s.round}P{s.pick}</span>
+                    <span className="draft-log-player">{s.playerPos} {s.playerName}</span>
+                    {comment && <span className={`draft-log-comment draft-log-comment--${comment.toLowerCase()}`}>{comment}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Recent Picks */}
+          <div className="draft-log">
+            <div className="draft-log-title">Recent Picks</div>
+            {recentPicks.length === 0 && (
+              <p className="muted" style={{ padding: '0.5rem' }}>No picks yet.</p>
+            )}
+            {recentPicks.map(s => {
+              const comment = pickCommentary(s);
+              return (
+                <div key={s.overallPick} className={`draft-log-row${s.teamId === myTeamId ? ' draft-log-user' : ''}`}>
+                  <span className="draft-log-pick">R{s.round}P{s.pick}</span>
+                  <span className="draft-log-team">{s.teamName.split(' ').pop()}</span>
+                  <span className="draft-log-player">{s.playerPos} {s.playerName}</span>
+                  {comment && <span className={`draft-log-comment draft-log-comment--${comment.toLowerCase()}`}>{comment}</span>}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </section>
@@ -7727,14 +9617,29 @@ function DraftView({ league, myTeamId, busy, onPick, onSimDraft, onAdvance, onAd
 
 // ── Scouting View ──────────────────────────────────────────────────────────────
 
-function ScoutingView({ draftClass, myTeam, busy, onScout }: {
+function ScoutingView({ draftClass, myTeam, busy, onScout, focusProspectId, onFocusConsumed }: {
   draftClass: NonNullable<League['draftClass']>;
   myTeam: import('./types').Team;
   busy: boolean;
   onScout: (prospectId: string) => void;
+  focusProspectId?: string | null;
+  onFocusConsumed?: () => void;
 }) {
   const [posFilter, setPosFilter] = useState<string>('ALL');
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // Auto-focus a prospect when navigated from College tab
+  useEffect(() => {
+    if (focusProspectId) {
+      const prospect = draftClass.prospects.find(p => p.id === focusProspectId);
+      if (prospect) {
+        // Clear position filter so the prospect is visible
+        setPosFilter('ALL');
+        setExpanded(focusProspectId);
+      }
+      onFocusConsumed?.();
+    }
+  }, [focusProspectId]);
 
   const scoutingData = myTeam.scoutingData ?? {};
   const scoutingPoints = myTeam.scoutingPoints ?? 0;

@@ -63,6 +63,43 @@ export function incrementGmStat(
   return { ...league, gmCareer: updated };
 }
 
+// ── Reputation ───────────────────────────────────────────────────────────────
+//
+// 0–100 scale. Updated once per season based on win/loss record and achievements.
+// Changes are gradual: ±5–15 per season depending on performance.
+//
+// Tier thresholds:
+//   0–19  Hot Seat
+//   20–39 Unproven
+//   40–59 Respected
+//   60–79 Proven Winner
+//   80–100 Elite
+
+function computeReputation(prev: number, season: GmSeasonRecord): number {
+  const totalGames = season.wins + season.losses + season.ties;
+  if (totalGames === 0) return prev;
+
+  const winPct = season.wins / totalGames;
+  let delta = 0;
+
+  // Win rate drives the bulk of the change
+  if (winPct >= 0.75)      delta += 12;
+  else if (winPct >= 0.60) delta += 7;
+  else if (winPct >= 0.50) delta += 3;
+  else if (winPct >= 0.40) delta -= 3;
+  else if (winPct >= 0.25) delta -= 7;
+  else                     delta -= 12;
+
+  // Playoffs / championship bonuses
+  if (season.wonChampionship) delta += 8;
+  else if (season.madePlayoffs) delta += 3;
+
+  // Clamp change to ±15 per season
+  delta = Math.max(-15, Math.min(15, delta));
+
+  return Math.max(0, Math.min(100, prev + delta));
+}
+
 // ── End-of-season rollup ──────────────────────────────────────────────────────
 
 /**
@@ -111,12 +148,18 @@ export function updateGmSeasonRecord(league: League): { league: League; newsItem
   const updatedSeasons = [...career.seasons, seasonRecord];
   const newScore       = computeGmLegacyScore({ ...career, seasons: updatedSeasons });
 
+  // Update reputation
+  const prevRep    = career.reputation ?? 40; // new careers start at 40 ("Unproven")
+  const newRep     = computeReputation(prevRep, seasonRecord);
+
   const updatedCareer: GmCareer = {
     ...career,
     teamId:   userTeam.id,
     teamName: userTeam.name,
     seasons:  updatedSeasons,
     legacyScore: newScore,
+    reputation:     newRep,
+    prevReputation: prevRep,
     // Counters will be reset in startNextSeason
   };
 
