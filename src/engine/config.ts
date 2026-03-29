@@ -445,8 +445,8 @@ export const TUNING = {
     distancePenalty:     0.007,  // per yard beyond 20
     kickPowerBonus:      0.004,  // per point of kickPower above 70
     minChance:           0.25,
-    attemptYardLine:     62,     // was 67 — increased range to opponent's 38 ≈ 55-yard FG; more FG attempts = more NFL-like scoring
-    desperationYardLine: 59,     // trailing 2+ scores Q4 late: attempt from opponent's 41 ≈ 58-yard FG  (was 62)
+    attemptYardLine:     58,     // was 62 → 58; opponent's 42 ≈ 59-yard FG; target ~3.7 FGs/game
+    desperationYardLine: 55,     // was 59 → 55; desperation ~62-yard FG attempt
   },
 
   // ── PAT / 2-point conversion ───────────────────────────────────────────
@@ -456,9 +456,9 @@ export const TUNING = {
     twoPtBaseChance:    0.48,    // NFL 2PT success rate ~48%
     twoPtOffBonus:      0.003,   // per point of QB overall above 70
     // AI decision: go for 2 when trailing by these amounts
-    goFor2Diffs:        [2, 5],  // trailing by exactly 2 or 5 points
-    goFor2LateQtr:      4,       // also go for 2 in Q4 when trailing by any amount ≤ 8
-    goFor2LateDiff:     8,
+    goFor2Diffs:        [2, 5],  // trailing by exactly 2 or 5 points only
+    goFor2LateQtr:      4,       // Q4 only
+    goFor2LateDiff:     5,       // was 8 — only go for 2 when trailing by ≤5 late (more conservative)
   },
 
   // ── Talent gap compression ───────────────────────────────────────────────
@@ -604,7 +604,7 @@ export const TUNING = {
      * structural advantage; this is just a small residual edge.
      * Set to 0 to restore perfect parity; raise to give offense more edge.
      */
-    offenseAdvantage: 0.10,    // raised to push scoring toward NFL 46 PPG with penalty system active
+    offenseAdvantage: 0.115,   // fine-tuned for ~44-46 PPG target
   },
 
   // ── Two-minute drill / timeouts ───────────────────────────────────────────
