@@ -1,4 +1,5 @@
 import { type Game } from './types';
+import { TeamLogo } from './TeamLogo';
 
 const SEASON_WEEKS = 18; // NFL: 17 games + 1 bye per team across 18 weeks
 
@@ -103,6 +104,7 @@ export function DashboardSchedule({ games, myTeamId, currentWeek, onViewGame }: 
               ) : (
                 <div className="sched-opp">
                   {tile.homeAway === 'A' && <span className="sched-at">@</span>}
+                  <TeamLogo abbr={tile.oppAbbr} size={16} />
                   {tile.oppAbbr}
                 </div>
               )}

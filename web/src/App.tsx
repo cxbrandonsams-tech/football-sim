@@ -7,6 +7,7 @@ import { aggregateSeasonStats, type SeasonPlayerStats } from './seasonStats';
 import { DashboardSchedule } from './DashboardSchedule';
 import { PlaybooksView } from './views/PlaybooksView';
 import { FieldView } from './FieldView';
+import { TeamLogo } from './TeamLogo';
 import {
   listLeagues, createLeague, joinLeague, fetchLeague, advanceWeek,
   claimTeam as claimTeamApi, proposeTrade as proposeTradeApi, respondTrade as respondTradeApi,
@@ -2893,7 +2894,7 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
 
       {/* ── Team header ─────────────────────────────────────────── */}
       <div className="dash-team-header">
-        <div className="dash-team-logo">{team.abbreviation}</div>
+        <div className="dash-team-logo"><TeamLogo abbr={team.abbreviation} size={60} /></div>
         <div className="dash-team-info">
           <div className="dash-team-name">{team.name}</div>
           <div className="dash-team-meta">
@@ -3068,6 +3069,7 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
             {divStandings.slice(0, 4).map((s, i) => (
               <div key={s.team.id} className={`dash-stand-row${s.team.id === myTeamId ? ' dash-my-team' : ''}`}>
                 <span className="dash-stand-rank">{i + 1}</span>
+                <TeamLogo abbr={s.team.abbreviation} size={20} />
                 <button className="link-btn dash-stand-abbr" onClick={() => onViewTeam?.(s.team.id)}>{s.team.abbreviation}</button>
                 <span className="dash-stand-rec">{s.w}–{s.l}</span>
                 <span className={`dash-stand-diff ${s.pf - s.pa >= 0 ? 'pos' : 'neg'}`}>
@@ -3296,6 +3298,7 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
 
                 {/* Matchup */}
                 <div className="wp-matchup">
+                  <TeamLogo abbr={opp.abbreviation} size={28} />
                   <span className="wp-matchup-context">{isHome ? 'Home' : 'Away'} vs</span>
                   <span className="wp-matchup-opp">{opp.abbreviation}</span>
                   <span className="wp-matchup-name">{opp.name}</span>
@@ -3530,9 +3533,11 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
           return (
             <div key={g.id} className={`atl-card${isFocus ? ' atl-focus' : ''}${isUser ? ' atl-mine' : ''}`}>
               <div className="atl-teams">
+                <TeamLogo abbr={g.awayTeam.abbreviation} size={18} />
                 <span className="atl-abbr">{g.awayTeam.abbreviation}</span>
                 <span className="atl-at">@</span>
                 <span className="atl-abbr">{g.homeTeam.abbreviation}</span>
+                <TeamLogo abbr={g.homeTeam.abbreviation} size={18} />
               </div>
               {g.status === 'final' ? (
                 <div className="atl-score">{g.awayScore} – {g.homeScore}</div>
@@ -3589,6 +3594,7 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
           <>
             <div className="gc-scoreboard">
               <div className="gc-team gc-away">
+                <TeamLogo abbr={focusGame.awayTeam.abbreviation} size={44} />
                 <div className="gc-team-abbr">{focusGame.awayTeam.abbreviation}</div>
                 <div className="gc-team-name">{focusGame.awayTeam.name}</div>
                 <div className="gc-team-score">0</div>
@@ -3600,6 +3606,7 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
                 <div className="gc-team-score">0</div>
                 <div className="gc-team-name">{focusGame.homeTeam.name}</div>
                 <div className="gc-team-abbr">{focusGame.homeTeam.abbreviation}</div>
+                <TeamLogo abbr={focusGame.homeTeam.abbreviation} size={44} />
               </div>
             </div>
             <div className="gc-play-area">
@@ -3775,6 +3782,7 @@ function StandingsView({ standings, userTeamId, divisions, onViewTeam }: {
             {rows.map(s => (
               <tr key={s.team.id} className={s.team.id === userTeamId ? 'user-row' : ''}>
                 <td>
+                  <TeamLogo abbr={s.team.abbreviation} size={22} />
                   <button className="link-btn stand-team-name" onClick={() => onViewTeam?.(s.team.id)}>{s.team.name}</button>
                   {s.team.id === userTeamId && <span className="you">YOU</span>}
                   {s.team.frontOffice && s.team.id !== userTeamId && (
@@ -4188,6 +4196,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, league: leagueObj
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
 
   const teamName  = (id: string) => teams.find(t => t.id === id)?.name ?? id;
+  const teamAbbr  = (id: string) => teams.find(t => t.id === id)?.abbreviation ?? '';
   const isMyTeam  = (id: string) => id === myTeamId;
   const done      = advanceBtnLabel === 'Season Complete' || advanceBtnLabel === 'Draft In Progress';
   const hasHistory = seasonHistory.length > 0;
@@ -4223,6 +4232,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, league: leagueObj
             isMyTeam(m.topSeedId) ? 'my-team' : '',
           ].filter(Boolean).join(' ')}>
             {m.topSeed !== undefined && <span className="po-seed">{m.topSeed}</span>}
+            <TeamLogo abbr={teamAbbr(m.topSeedId)} size={20} />
             <span className="po-name">{teamName(m.topSeedId)}</span>
             {topScore !== null && <span className="po-score">{topScore}</span>}
             {topWon && <span className="po-win-mark">✓</span>}
@@ -4233,6 +4243,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, league: leagueObj
             isMyTeam(m.bottomSeedId) ? 'my-team' : '',
           ].filter(Boolean).join(' ')}>
             {m.bottomSeed !== undefined && <span className="po-seed">{m.bottomSeed}</span>}
+            <TeamLogo abbr={teamAbbr(m.bottomSeedId)} size={20} />
             <span className="po-name">{teamName(m.bottomSeedId)}</span>
             {botScore !== null && <span className="po-score">{botScore}</span>}
             {botWon && <span className="po-win-mark">✓</span>}
@@ -4282,6 +4293,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, league: leagueObj
               <div className="bracket-wrap">
                 {playoff.championId && (
                   <div className={`bracket-champion${isMyTeam(playoff.championId) ? ' bracket-champion-mine' : ''}`}>
+                    <TeamLogo abbr={teamAbbr(playoff.championId)} size={56} />
                     <div className="bracket-champion-trophy">🏆</div>
                     <div className="bracket-champion-year">{playoff.year} Champions</div>
                     <div className="bracket-champion-name">{playoff.championName}</div>
@@ -6544,6 +6556,7 @@ function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason
       {/* Header */}
       <div className="roster-header">
         <div className="roster-header-left">
+          <TeamLogo abbr={team.abbreviation} size={36} />
           <h2 className="roster-title">
             Roster
             {!isMyTeam && team.frontOffice && (

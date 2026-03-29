@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import type { PlayEvent, PenaltyInfo } from './types';
+import { TeamLogo } from './TeamLogo';
 
 // ── Broadcaster commentary ──────────────────────────────────────────────────
 
@@ -213,6 +214,7 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
       {/* Scoreboard strip */}
       <div className="field-scoreboard">
         <div className="field-sb-team field-sb-away">
+          <TeamLogo abbr={awayAbbr} size={28} />
           <span className="field-sb-abbr">{awayAbbr}</span>
           <span className="field-sb-score">{awayScore}</span>
         </div>
@@ -223,6 +225,7 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
         <div className="field-sb-team field-sb-home">
           <span className="field-sb-score">{homeScore}</span>
           <span className="field-sb-abbr">{homeAbbr}</span>
+          <TeamLogo abbr={homeAbbr} size={28} />
         </div>
       </div>
 
@@ -230,9 +233,11 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
       <div className="field-container">
         {/* End zones */}
         <div className="field-endzone field-endzone-left">
+          <TeamLogo abbr={defAbbr} size={30} className="field-ez-logo" />
           <span className="field-ez-text">{defAbbr}</span>
         </div>
         <div className="field-endzone field-endzone-right">
+          <TeamLogo abbr={offAbbr} size={30} className="field-ez-logo" />
           <span className="field-ez-text">{offAbbr}</span>
         </div>
 
