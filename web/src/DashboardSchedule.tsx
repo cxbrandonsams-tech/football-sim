@@ -1,5 +1,7 @@
 import { type Game } from './types';
 
+const SEASON_WEEKS = 18; // NFL: 17 games + 1 bye per team across 18 weeks
+
 interface ScheduleTile {
   week: number;
   gameId?: string;
@@ -18,12 +20,11 @@ interface Props {
 }
 
 export function DashboardSchedule({ games, myTeamId, currentWeek, onViewGame }: Props) {
-  const maxWeek = games.length > 0 ? Math.max(...games.map(g => g.week)) : 0;
-  if (maxWeek === 0) return null;
+  if (games.length === 0) return null;
 
   const tiles: ScheduleTile[] = [];
 
-  for (let w = 1; w <= maxWeek; w++) {
+  for (let w = 1; w <= SEASON_WEEKS; w++) {
     const game = games.find(
       g => g.week === w && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId)
     );
@@ -50,24 +51,42 @@ export function DashboardSchedule({ games, myTeamId, currentWeek, onViewGame }: 
   const losses = tiles.filter(t => t.status === 'loss').length;
   const ties   = tiles.filter(t => t.status === 'tie').length;
   const played = wins + losses + ties;
+  const remaining = SEASON_WEEKS - played - tiles.filter(t => t.status === 'bye' && t.week < currentWeek).length;
+
+  // Streak
+  let streak = '';
+  const results = tiles.filter(t => t.status === 'win' || t.status === 'loss' || t.status === 'tie');
+  if (results.length > 0) {
+    const last = results[results.length - 1]!.status;
+    let count = 0;
+    for (let i = results.length - 1; i >= 0; i--) {
+      if (results[i]!.status === last) count++;
+      else break;
+    }
+    streak = `${last === 'win' ? 'W' : last === 'loss' ? 'L' : 'T'}${count}`;
+  }
 
   return (
     <div className="sched-wrap">
       <div className="sched-header">
-        <span className="sched-title">Schedule</span>
+        <span className="sched-label">Schedule</span>
         {played > 0 && (
-          <span className="sched-record">
-            {wins}–{losses}{ties > 0 ? `–${ties}` : ''}
-          </span>
+          <span className="sched-record">{wins}–{losses}{ties > 0 ? `–${ties}` : ''}</span>
         )}
+        {streak && streak.length > 1 && (
+          <span className={`sched-streak ${streak.startsWith('W') ? 'pos' : streak.startsWith('L') ? 'neg' : ''}`}>{streak}</span>
+        )}
+        <span className="sched-meta">{played > 0 ? `${remaining} left` : `Wk ${currentWeek} of ${SEASON_WEEKS}`}</span>
       </div>
       <div className="sched-track">
         {tiles.map(tile => {
           const isCurrent = tile.week === currentWeek;
+          const isPast = tile.status === 'win' || tile.status === 'loss' || tile.status === 'tie' || (tile.status === 'bye' && tile.week < currentWeek);
           const cls = [
             'sched-tile',
             `sched-${tile.status}`,
             isCurrent ? 'sched-current' : '',
+            isPast && !isCurrent ? 'sched-past' : '',
             tile.gameId && onViewGame ? 'sched-clickable' : '',
           ].filter(Boolean).join(' ');
 
@@ -77,7 +96,7 @@ export function DashboardSchedule({ games, myTeamId, currentWeek, onViewGame }: 
 
           return (
             <div key={tile.week} className={cls} onClick={handleClick} role={handleClick ? 'button' : undefined} tabIndex={handleClick ? 0 : undefined}>
-              <div className="sched-wk">WK {tile.week}</div>
+              <div className="sched-wk">{tile.week}</div>
 
               {tile.status === 'bye' ? (
                 <div className="sched-opp sched-opp-bye">BYE</div>
@@ -88,13 +107,17 @@ export function DashboardSchedule({ games, myTeamId, currentWeek, onViewGame }: 
                 </div>
               )}
 
-              {tile.status !== 'upcoming' && tile.status !== 'bye' && (
+              {(tile.status === 'win' || tile.status === 'loss' || tile.status === 'tie') && (
                 <div className="sched-result">
                   <span className="sched-rl">
                     {tile.status === 'win' ? 'W' : tile.status === 'loss' ? 'L' : 'T'}
                   </span>
                   <span className="sched-score">{tile.myScore}–{tile.oppScore}</span>
                 </div>
+              )}
+
+              {tile.status === 'upcoming' && (
+                <div className="sched-upcoming-dot" />
               )}
             </div>
           );

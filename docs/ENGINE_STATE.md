@@ -4,6 +4,14 @@
 > **STATUS: LOCKED — Engine calibration complete. No further play-resolution tuning.**
 > Validation baseline: 1000 games, `scripts/nfl-compare.ts` + 496 games, `scripts/dist-analysis.ts`
 
+**This document owns:** Final engine metrics, validation baselines, accepted structural gaps, and engine architecture notes.
+
+**See also:**
+- [`LOCKED_VALUES.md`](LOCKED_VALUES.md) — frozen config constants
+- [`TUNING_LOG.md`](TUNING_LOG.md) — chronological calibration history
+- [`game-design.md`](game-design.md) — ratings architecture and simulation pipeline
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — full system design
+
 ---
 
 ## Final Snapshot vs NFL Targets

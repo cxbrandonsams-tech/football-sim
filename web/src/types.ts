@@ -508,6 +508,7 @@ export interface Team {
   packageDepthCharts?:   Record<string, Partial<Record<DefensiveSlot, string | null>>>;
   defensivePlan?:        DefensivePlan;
   playStats?: Record<string, PlayEffStats>;
+  bucketStats?: Record<string, Record<string, PlayEffStats>>;
   customOffensivePlays?: OffensivePlay[];
   customOffensivePlaybooks?: Playbook[];
   customDefensivePlays?: DefensivePlay[];

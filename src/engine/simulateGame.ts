@@ -14,7 +14,7 @@ import { buildBoxScoreFromGame } from './gameStats';
 import { computeSchemeAdjustment } from './schemeBonus';
 import { getPersonality } from '../models/Coach';
 import { TUNING } from './config';
-import { resolvePlay, applyFormationToTeam, createPlayHistory } from './playSelection';
+import { resolvePlay, applyFormationToTeam, createPlayHistory, classifyBucket } from './playSelection';
 import { resolveDefensivePlay, applyPackageToTeam, buildScoutingProfileFromGameStats, type ScoutingProfile } from './defensiveSelection';
 
 const cfg = TUNING;
@@ -32,6 +32,8 @@ export interface GameResult {
   injuries:  GameInjury[];
   /** Per-team play effectiveness from this game. Keyed by teamId → playId → stats. */
   playStats: Map<string, Map<string, import('../models/Team').PlayEffStats>>;
+  /** Per-team, per-play, per-bucket stats. Keyed by teamId → playId → bucketId → stats. */
+  bucketStats: Map<string, Map<string, Map<string, import('../models/Team').PlayEffStats>>>;
 }
 
 // ── Depth-chart helpers ───────────────────────────────────────────────────────
@@ -1331,6 +1333,8 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
   const playHistory = createPlayHistory();
   // Play effectiveness tracking — accumulated per team per play
   const gamePlayStats = new Map<string, Map<string, PlayEffStats>>();
+  // Per-bucket breakdown — teamId → playId → bucketId → stats
+  const gameBucketStats = new Map<string, Map<string, Map<string, PlayEffStats>>>();
   // First-half offensive stats per team (for halftime defensive adjustments)
   const firstHalfStats = new Map<string, Map<string, PlayEffStats>>();
   // Halftime scouting profiles per team (built from opponent's first-half data)
@@ -1493,6 +1497,20 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
         if (ev.firstDown) s.firstDowns++;
         if (ev.result === 'touchdown') s.touchdowns++;
         if (ev.result === 'turnover') s.turnovers++;
+        // Per-bucket stats
+        const bucket = classifyBucket(down, distance);
+        if (!gameBucketStats.has(teamId)) gameBucketStats.set(teamId, new Map());
+        const teamBuckets = gameBucketStats.get(teamId)!;
+        if (!teamBuckets.has(playId)) teamBuckets.set(playId, new Map());
+        const playBuckets = teamBuckets.get(playId)!;
+        if (!playBuckets.has(bucket)) playBuckets.set(bucket, { calls: 0, totalYards: 0, successes: 0, firstDowns: 0, touchdowns: 0, turnovers: 0 });
+        const bs = playBuckets.get(bucket)!;
+        bs.calls++;
+        bs.totalYards += ev.yards;
+        if (ev.yards >= 4 || ev.firstDown) bs.successes++;
+        if (ev.firstDown) bs.firstDowns++;
+        if (ev.result === 'touchdown') bs.touchdowns++;
+        if (ev.result === 'turnover') bs.turnovers++;
         // First-half stats (quarters 1–2 only, for halftime adjustments)
         if (quarter <= 2) {
           if (!firstHalfStats.has(teamId)) firstHalfStats.set(teamId, new Map());
@@ -1575,5 +1593,6 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
     },
     injuries,
     playStats: gamePlayStats,
+    bucketStats: gameBucketStats,
   };
 }

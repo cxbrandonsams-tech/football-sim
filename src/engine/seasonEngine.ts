@@ -253,7 +253,7 @@ export function startNextSeason(league: League): League {
     currentSeasonStats: {},
     // Reset play effectiveness stats for the new season
     teams: afterEnforcement.teams.map(t => {
-      const { playStats: _drop, ...rest } = t;
+      const { playStats: _drop, bucketStats: _dropBucket, ...rest } = t;
       return rest;
     }),
   };

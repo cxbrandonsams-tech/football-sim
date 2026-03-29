@@ -126,6 +126,7 @@ export function simulateWeek(league: League): League {
   const teamMap      = new Map(teams.map(t => [t.id, t]));
   const allInjuries: GameInjury[] = [];
   const allPlayStats = new Map<string, Map<string, PlayEffStats>>(); // teamId → playId → stats
+  const allBucketStats = new Map<string, Map<string, Map<string, PlayEffStats>>>(); // teamId → playId → bucket → stats
   const updatedGames = league.currentSeason.games.map(g => {
     if (g.week !== league.currentWeek || g.status !== 'scheduled') return g;
     const result = simulateGame({
@@ -152,6 +153,28 @@ export function simulateWeek(league: League): League {
         }
       }
     }
+    // Merge per-bucket stats from this game
+    for (const [teamId, playMap] of result.bucketStats) {
+      if (!allBucketStats.has(teamId)) allBucketStats.set(teamId, new Map());
+      const teamDest = allBucketStats.get(teamId)!;
+      for (const [playId, bucketMap] of playMap) {
+        if (!teamDest.has(playId)) teamDest.set(playId, new Map());
+        const playDest = teamDest.get(playId)!;
+        for (const [bucket, stats] of bucketMap) {
+          const existing = playDest.get(bucket);
+          if (existing) {
+            existing.calls      += stats.calls;
+            existing.totalYards += stats.totalYards;
+            existing.successes  += stats.successes;
+            existing.firstDowns += stats.firstDowns;
+            existing.touchdowns += stats.touchdowns;
+            existing.turnovers  += stats.turnovers;
+          } else {
+            playDest.set(bucket, { ...stats });
+          }
+        }
+      }
+    }
     return result.game;
   });
 
@@ -159,24 +182,51 @@ export function simulateWeek(league: League): League {
   // Merge cumulative play stats onto teams
   teams = teams.map(t => {
     const gameStats = allPlayStats.get(t.id);
-    if (!gameStats) return t;
+    const gameBucket = allBucketStats.get(t.id);
+    if (!gameStats && !gameBucket) return t;
+    // Merge aggregate play stats
     const existing = { ...(t.playStats ?? {}) };
-    for (const [playId, stats] of gameStats) {
-      const prev = existing[playId];
-      if (prev) {
-        existing[playId] = {
-          calls:      prev.calls      + stats.calls,
-          totalYards: prev.totalYards + stats.totalYards,
-          successes:  prev.successes  + stats.successes,
-          firstDowns: prev.firstDowns + stats.firstDowns,
-          touchdowns: prev.touchdowns + stats.touchdowns,
-          turnovers:  prev.turnovers  + stats.turnovers,
-        };
-      } else {
-        existing[playId] = { ...stats };
+    if (gameStats) {
+      for (const [playId, stats] of gameStats) {
+        const prev = existing[playId];
+        if (prev) {
+          existing[playId] = {
+            calls:      prev.calls      + stats.calls,
+            totalYards: prev.totalYards + stats.totalYards,
+            successes:  prev.successes  + stats.successes,
+            firstDowns: prev.firstDowns + stats.firstDowns,
+            touchdowns: prev.touchdowns + stats.touchdowns,
+            turnovers:  prev.turnovers  + stats.turnovers,
+          };
+        } else {
+          existing[playId] = { ...stats };
+        }
       }
     }
-    return { ...t, playStats: existing };
+    // Merge per-bucket stats
+    const existingBucket: Record<string, Record<string, PlayEffStats>> = { ...(t.bucketStats ?? {}) };
+    if (gameBucket) {
+      for (const [playId, bucketMap] of gameBucket) {
+        if (!existingBucket[playId]) existingBucket[playId] = {};
+        const playBuckets = existingBucket[playId] = { ...existingBucket[playId] };
+        for (const [bucket, stats] of bucketMap) {
+          const prev = playBuckets[bucket];
+          if (prev) {
+            playBuckets[bucket] = {
+              calls:      prev.calls      + stats.calls,
+              totalYards: prev.totalYards + stats.totalYards,
+              successes:  prev.successes  + stats.successes,
+              firstDowns: prev.firstDowns + stats.firstDowns,
+              touchdowns: prev.touchdowns + stats.touchdowns,
+              turnovers:  prev.turnovers  + stats.turnovers,
+            };
+          } else {
+            playBuckets[bucket] = { ...stats };
+          }
+        }
+      }
+    }
+    return { ...t, playStats: existing, bucketStats: existingBucket };
   });
 
   for (const inj of allInjuries) {

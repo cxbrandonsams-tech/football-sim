@@ -1,7 +1,25 @@
-# Football Simulation Game Design
+# Simulation & Ratings Design
 
-Version: 1.1
-Last Updated: 2026-03-26
+> **Version:** 2.0
+> **Last Updated:** 2026-03-27
+> **Status:** LOCKED — Ratings architecture and engine pipeline are finalized.
+
+---
+
+## Scope of This Document
+
+This document is the canonical reference for:
+- **Player ratings** — every position's rating definitions, purposes, and overall formulas
+- **Derived / hidden ratings** — engine-only computed values (e.g., Safety Range)
+- **Simulation pipeline** — the sequential phase-by-phase resolution of pass and run plays
+- **Engine-facing design rules** — principles that govern how ratings map to outcomes
+
+This document does NOT cover:
+- League structure, coaching, awards, history, or multi-league architecture — see [`FRANCHISE_SOURCE_OF_TRUTH.md`](FRANCHISE_SOURCE_OF_TRUTH.md)
+- Playbooks, formations, play selection, or weight modifiers — see [`PLAYBOOKS_AND_FORMATIONS.md`](../PLAYBOOKS_AND_FORMATIONS.md)
+- Frozen tuning constants — see [`LOCKED_VALUES.md`](LOCKED_VALUES.md)
+- Engine calibration metrics and validation baselines — see [`ENGINE_STATE.md`](ENGINE_STATE.md)
+- Calibration change history — see [`TUNING_LOG.md`](TUNING_LOG.md)
 
 ---
 
@@ -14,6 +32,7 @@ Last Updated: 2026-03-26
 - Ratings map directly to engine phases
 - Advanced behavior is handled by logic, not excess ratings
 - Hidden derived stats are used where appropriate to reduce UI clutter
+- System is built for tuning via weight adjustments, not structural changes
 
 ---
 
@@ -39,7 +58,7 @@ Minor simulation impact — primarily used for scramble events and scoring formu
 Ball placement on routes under 10 yards. Highest-weight accuracy rating.
 
 **Medium Accuracy**
-Ball placement on routes 10–20 yards.
+Ball placement on routes 10-20 yards.
 
 **Deep Accuracy**
 Ball placement on routes 20+ yards.
@@ -56,14 +75,14 @@ High decision making = throws the ball away more, avoids forcing into coverage.
 ### Overall Rating Formula
 
 ```
-decisionMaking  × 0.22
-shortAccuracy   × 0.18
-mediumAccuracy  × 0.15
-pocketPresence  × 0.15
-deepAccuracy    × 0.10
-processing      × 0.10
-armStrength     × 0.07
-mobility        × 0.03
+decisionMaking  x 0.22
+shortAccuracy   x 0.18
+mediumAccuracy  x 0.15
+pocketPresence  x 0.15
+deepAccuracy    x 0.10
+processing      x 0.10
+armStrength     x 0.07
+mobility        x 0.03
 ```
 
 > Decision making being the top weight is intentional — a QB who avoids mistakes is more valuable than one with a cannon arm.
@@ -92,11 +111,11 @@ Fumble resistance. Affects fumble probability during contact and at the end of r
 ### Overall Rating Formula
 
 ```
-speed        × 0.25
-vision       × 0.20
-power        × 0.20
-elusiveness  × 0.20
-ballSecurity × 0.15
+speed        x 0.25
+vision       x 0.20
+power        x 0.20
+elusiveness  x 0.20
+ballSecurity x 0.15
 ```
 
 ---
@@ -110,9 +129,9 @@ Ability to create separation vs. coverage. Primary factor in man coverage matchu
 
 **Speed**
 Separation at all depths:
-- Short routes → minor impact
-- Medium routes → moderate impact
-- Deep routes → major impact
+- Short routes -> minor impact
+- Medium routes -> moderate impact
+- Deep routes -> major impact
 
 **Hands**
 Ability to catch the ball. Used for open catch success and contested catch resolution.
@@ -128,11 +147,11 @@ Physical presence. Influences contested catch outcomes and used in the overall f
 ### Overall Rating Formula
 
 ```
-hands        × 0.30
-routeRunning × 0.25
-speed        × 0.25
-yac          × 0.12
-size         × 0.08
+hands        x 0.30
+routeRunning x 0.25
+speed        x 0.25
+yac          x 0.12
+size         x 0.08
 ```
 
 ---
@@ -143,34 +162,27 @@ TE shares most ratings with WR but adds **Blocking** as a distinct dimension. Th
 
 ### Core Ratings
 
-**Route Running**
-Same as WR — ability to create separation vs. coverage.
+**Route Running** — Same as WR: ability to create separation vs. coverage.
 
-**Speed**
-Same depth-scaling as WR. TEs typically lower than WR but still meaningful on seam routes.
+**Speed** — Same depth-scaling as WR. TEs typically lower than WR but still meaningful on seam routes.
 
-**Hands**
-Catch ability in both open and contested situations.
+**Hands** — Catch ability in both open and contested situations.
 
-**YAC**
-Post-catch yardage production.
+**YAC** — Post-catch yardage production.
 
-**Size**
-More impactful for TE than WR — TEs are larger targets and win more contested catches.
+**Size** — More impactful for TE than WR: TEs are larger targets and win more contested catches.
 
-**Blocking**
-Ability to block in both run and pass protection. Used in the blocking phase of run plays.
-A high blocking TE meaningfully improves run game; a low blocking TE reduces it.
+**Blocking** — Ability to block in both run and pass protection. Used in the blocking phase of run plays. A high blocking TE meaningfully improves run game; a low blocking TE reduces it.
 
 ### Overall Rating Formula
 
 ```
-hands        × 0.25
-blocking     × 0.22
-routeRunning × 0.20
-speed        × 0.15
-yac          × 0.10
-size         × 0.08
+hands        x 0.25
+blocking     x 0.22
+routeRunning x 0.20
+speed        x 0.15
+yac          x 0.10
+size         x 0.08
 ```
 
 ---
@@ -181,27 +193,21 @@ Applies to OT, OG, and C. No distinction between positions in the rating system.
 
 ### Core Ratings
 
-**Pass Blocking**
-Ability to protect the QB against pass rush. Primary factor in protection resolution.
+**Pass Blocking** — Ability to protect the QB against pass rush. Primary factor in protection resolution.
 
-**Run Blocking**
-Ability to create running lanes. Primary factor in blocking phase of run plays.
+**Run Blocking** — Ability to create running lanes. Primary factor in blocking phase of run plays.
 
-**Awareness**
-Assignment correctness — blitz pickup, stunt recognition, pulling assignments.
-Poor awareness results in missed or delayed assignments.
+**Awareness** — Assignment correctness: blitz pickup, stunt recognition, pulling assignments. Poor awareness results in missed or delayed assignments.
 
-**Discipline**
-Penalty avoidance — false starts, holding, illegal formation. A low discipline lineman is a drive-killer.
-Distinct from Awareness: Awareness is about knowing assignments; Discipline is about not losing composure and committing penalties.
+**Discipline** — Penalty avoidance: false starts, holding, illegal formation. A low discipline lineman is a drive-killer. Distinct from Awareness: Awareness is about knowing assignments; Discipline is about not losing composure and committing penalties.
 
 ### Overall Rating Formula
 
 ```
-passBlocking × 0.42
-runBlocking  × 0.37
-awareness    × 0.13
-discipline   × 0.08
+passBlocking x 0.42
+runBlocking  x 0.37
+awareness    x 0.13
+discipline   x 0.08
 ```
 
 ---
@@ -212,24 +218,20 @@ Applies to DE and DT.
 
 ### Core Ratings
 
-**Pass Rush**
-Ability to generate pressure on the QB. Compared against OL Pass Blocking in protection resolution.
+**Pass Rush** — Ability to generate pressure on the QB. Compared against OL Pass Blocking in protection resolution.
 
-**Run Defense**
-Ability to stop ball carriers and control gaps. Used in blocking phase of run plays.
+**Run Defense** — Ability to stop ball carriers and control gaps. Used in blocking phase of run plays.
 
-**Discipline**
-Gap control, contain integrity, and assignment consistency.
-A high discipline DL doesn't get sucked inside on counters or lose contain on mobile QBs.
+**Discipline** — Gap control, contain integrity, and assignment consistency. A high discipline DL doesn't get sucked inside on counters or lose contain on mobile QBs.
 
-> Note: This is a position-specific simulation rating, distinct from `PersonalityRatings.discipline` (see below).
+> Note: This is a position-specific simulation rating, distinct from `PersonalityRatings.discipline` (see Personality Ratings below).
 
 ### Overall Rating Formula
 
 ```
-passRush   × 0.45
-runDefense × 0.35
-discipline × 0.20
+passRush   x 0.45
+runDefense x 0.35
+discipline x 0.20
 ```
 
 ---
@@ -240,38 +242,30 @@ Applies to OLB and MLB.
 
 ### Core Ratings
 
-**Run Defense**
-Ability to stop the run and finish plays at the point of attack.
+**Run Defense** — Ability to stop the run and finish plays at the point of attack.
 
-**Pass Rush**
-Ability to pressure the QB when blitzing. Lower weight than DL — LBs are secondary rushers.
+**Pass Rush** — Ability to pressure the QB when blitzing. Lower weight than DL: LBs are secondary rushers.
 
-**Coverage**
-Ability to defend against the pass in both man and zone assignments.
+**Coverage** — Ability to defend against the pass in both man and zone assignments.
 
-**Speed**
-Athleticism and lateral range. Affects pursuit, coverage range, and closing ability.
+**Speed** — Athleticism and lateral range. Affects pursuit, coverage range, and closing ability.
 
-**Pursuit**
-Angles and tracking — ability to take correct pursuit angles and run down ball carriers.
-Distinct from Speed: a slow LB with high Pursuit can still make plays; a fast LB with poor Pursuit over-runs them.
+**Pursuit** — Angles and tracking: ability to take correct pursuit angles and run down ball carriers. Distinct from Speed: a slow LB with high Pursuit can still make plays; a fast LB with poor Pursuit over-runs them.
 
-**Awareness**
-Assignment correctness, pre-snap reads, and zone effectiveness.
+**Awareness** — Assignment correctness, pre-snap reads, and zone effectiveness.
 
-**Discipline**
-Penalty avoidance — offsides, late hits, roughing the passer. Also affects assignment integrity under pressure and misdirection.
+**Discipline** — Penalty avoidance: offsides, late hits, roughing the passer. Also affects assignment integrity under pressure and misdirection.
 
 ### Overall Rating Formula
 
 ```
-runDefense × 0.24
-speed      × 0.18
-pursuit    × 0.16
-coverage   × 0.16
-awareness  × 0.10
-passRush   × 0.06
-discipline × 0.10
+runDefense x 0.24
+speed      x 0.18
+pursuit    x 0.16
+coverage   x 0.16
+awareness  x 0.10
+passRush   x 0.06
+discipline x 0.10
 ```
 
 ---
@@ -280,41 +274,33 @@ discipline × 0.10
 
 ### Core Ratings
 
-**Man Coverage**
-Ability to stay with receivers in 1-on-1 coverage. Compared against WR Route Running + Speed.
+**Man Coverage** — Ability to stay with receivers in 1-on-1 coverage. Compared against WR Route Running + Speed.
 
-**Zone Coverage**
-Ability to defend assigned areas, read route combinations, and pass off receivers correctly.
+**Zone Coverage** — Ability to defend assigned areas, read route combinations, and pass off receivers correctly.
 
-**Ball Skills**
-Ability to contest passes, deflect, and create turnovers. Drives INT and PBU generation.
+**Ball Skills** — Ability to contest passes, deflect, and create turnovers. Drives INT and PBU generation.
 
-**Speed**
-Ability to match receiver speed and recover on deep routes. Paired with man coverage in separation matchups.
+**Speed** — Ability to match receiver speed and recover on deep routes. Paired with man coverage in separation matchups.
 
-**Size**
-Physical presence. Minor influence on contested catches; small weight in overall formula.
+**Size** — Physical presence. Minor influence on contested catches; small weight in overall formula.
 
-**Tackling**
-Open-field tackle success. Used in YAC resolution — limits yards after catch.
+**Tackling** — Open-field tackle success. Used in YAC resolution: limits yards after catch.
 
-**Awareness**
-Pre-snap reads, route recognition, and zone discipline.
+**Awareness** — Pre-snap reads, route recognition, and zone discipline.
 
-**Discipline**
-Pass interference and holding avoidance. A low discipline CB gives up big plays through penalties even when in good position.
+**Discipline** — Pass interference and holding avoidance. A low discipline CB gives up big plays through penalties even when in good position.
 
 ### Overall Rating Formula
 
 ```
-manCoverage  × 0.23
-speed        × 0.23
-zoneCoverage × 0.18
-ballSkills   × 0.14
-awareness    × 0.09
-discipline   × 0.08
-tackling     × 0.03
-size         × 0.02
+manCoverage  x 0.23
+speed        x 0.23
+zoneCoverage x 0.18
+ballSkills   x 0.14
+awareness    x 0.09
+discipline   x 0.08
+tackling     x 0.03
+size         x 0.02
 ```
 
 ---
@@ -325,41 +311,33 @@ Applies to FS and SS. Both share the same rating set; the Range derived stat ske
 
 ### Core Ratings
 
-**Zone Coverage**
-Ability to defend deep zones and read developing plays. Primary rating for most safeties.
+**Zone Coverage** — Ability to defend deep zones and read developing plays. Primary rating for most safeties.
 
-**Man Coverage**
-Ability to cover receivers when matched up — relevant for TE coverage and slot assignments.
+**Man Coverage** — Ability to cover receivers when matched up: relevant for TE coverage and slot assignments.
 
-**Ball Skills**
-Ability to make plays on the ball (INTs, deflections). Same role as CB Ball Skills.
+**Ball Skills** — Ability to make plays on the ball (INTs, deflections). Same role as CB Ball Skills.
 
-**Speed**
-Ability to cover ground, close on deep passes, and recover.
+**Speed** — Ability to cover ground, close on deep passes, and recover.
 
-**Size**
-Physical presence. Minor weight in contested situations and overall formula.
+**Size** — Physical presence. Minor weight in contested situations and overall formula.
 
-**Tackling**
-Open-field tackle success. Safeties are often the last line of defense.
+**Tackling** — Open-field tackle success. Safeties are often the last line of defense.
 
-**Awareness**
-Read recognition, positioning, and reaction timing. Also feeds the hidden Range derivation.
+**Awareness** — Read recognition, positioning, and reaction timing. Also feeds the hidden Range derivation.
 
-**Discipline**
-Unnecessary roughness and pass interference avoidance. Safeties who blitz or play the ball aggressively are most at risk without this rating.
+**Discipline** — Unnecessary roughness and pass interference avoidance. Safeties who blitz or play the ball aggressively are most at risk without this rating.
 
 ### Overall Rating Formula
 
 ```
-zoneCoverage × 0.23
-speed        × 0.20
-manCoverage  × 0.14
-awareness    × 0.14
-ballSkills   × 0.12
-discipline   × 0.08
-tackling     × 0.06
-size         × 0.03
+zoneCoverage x 0.23
+speed        x 0.20
+manCoverage  x 0.14
+awareness    x 0.14
+ballSkills   x 0.12
+discipline   x 0.08
+tackling     x 0.06
+size         x 0.03
 ```
 
 ---
@@ -368,21 +346,18 @@ size         × 0.03
 
 ### Core Ratings
 
-**Kick Power**
-Distance potential on field goals, kickoffs, and punts.
+**Kick Power** — Distance potential on field goals, kickoffs, and punts.
 
-**Kick Accuracy**
-Accuracy on field goal attempts. Applied against distance and pressure modifiers.
+**Kick Accuracy** — Accuracy on field goal attempts. Applied against distance and pressure modifiers.
 
-**Composure**
-Consistency under pressure. Affects performance in high-leverage kick situations (late game, loud crowd, long distance).
+**Composure** — Consistency under pressure. Affects performance in high-leverage kick situations (late game, loud crowd, long distance).
 
 ### Overall Rating Formula
 
 ```
-kickPower    × 0.45
-kickAccuracy × 0.40
-composure    × 0.15
+kickPower    x 0.45
+kickAccuracy x 0.40
+composure    x 0.15
 ```
 
 ---
@@ -392,20 +367,17 @@ composure    × 0.15
 A separate block of meta-game ratings that affect contracts and development.
 **These are not used by the play simulation engine.**
 
-**Work Ethic**
-Affects progression and training rolls. High work ethic → better development outcomes.
+**Work Ethic** — Affects progression and training rolls. High work ethic -> better development outcomes.
 
-**Loyalty**
-Affects contract demands. High loyalty → player accepts below-market deals.
+**Loyalty** — Affects contract demands. High loyalty -> player accepts below-market deals.
 
-**Greed**
-Affects contract demands. High greed → player pushes for maximum value.
+**Greed** — Affects contract demands. High greed -> player pushes for maximum value.
 
 > Discipline is NOT a personality rating. It is a position-specific simulation rating for OL, DL, LB, CB, and Safety — a direct driver of penalty frequency in the engine.
 
 ---
 
-## Hidden / Derived Ratings (Engine Only)
+## Hidden / Derived Ratings
 
 ### Range (Safeties Only)
 
@@ -413,7 +385,7 @@ Represents a defender's ability to cover large areas of the field in deep covera
 
 **Formula:**
 ```
-Range = (Speed × 0.6) + (Awareness × 0.4)
+Range = (Speed x 0.6) + (Awareness x 0.4)
 ```
 
 **Used for:**
@@ -427,11 +399,11 @@ Range = (Speed × 0.6) + (Awareness × 0.4)
 - Short zone reactions
 - Tackling or run defense
 
-Range is not stored as a field — it is calculated on demand by `calcRange()`. It should not be shown in the standard ratings UI. An advanced breakdown panel could expose it with its formula for curious players.
+Range is not stored as a field — it is calculated on demand by `calcRange()`. It should not be shown in the standard ratings UI.
 
 ---
 
-## Design Notes
+## Rating Design Principles
 
 - Ratings are intentionally limited to avoid stat bloat
 - Each stat maps cleanly to a phase in the engine
@@ -441,7 +413,7 @@ Range is not stored as a field — it is calculated on demand by `calcRange()`. 
 
 ---
 
-# Engine Details
+# Simulation Engine Pipeline
 
 ## Core Philosophy
 
@@ -450,6 +422,8 @@ The engine simulates football outcomes through layered, sequential interactions 
 Each phase feeds directly into the next — the output of phase 1 becomes an input to phase 2, and so on. This is a **sequential resolution pipeline**, not a parallel system.
 
 The engine has two separate pipelines: one for **pass plays** and one for **run plays**.
+
+All tuning constants live in `config.ts` (`TUNING` object) and are never hardcoded in engine functions. See [`LOCKED_VALUES.md`](LOCKED_VALUES.md) for the frozen values.
 
 ---
 
@@ -460,14 +434,12 @@ The engine has two separate pipelines: one for **pass plays** and one for **run 
 Sets the frame for everything that follows.
 
 - Offensive play concept (Short / Medium / Deep read)
-- Read progression (1–3 receivers)
+- Read progression (1-3 receivers)
 - Defensive call (Man, Zone, or Mixed)
 - Player assignments (routes, coverage responsibilities)
 - Leverage, help structure, and play-action flag
 
-**Output → Phase 2:** Play type, coverage structure, and whether play-action is active.
-
----
+**Output -> Phase 2:** Play type, coverage structure, and whether play-action is active.
 
 ### Phase 2: Protection vs. Pass Rush
 
@@ -481,42 +453,32 @@ Determines pocket conditions for the QB.
 - Pass Rush (DL / LB)
 - Discipline (DL)
 
-**Outcomes:**
-- Clean pocket
-- Gradual pressure
-- Immediate pressure / sack
+**Outcomes:** Clean pocket / Gradual pressure / Immediate pressure (sack)
 
-**Output → Phase 4:** Pressure level modifies QB throw timing and accuracy.
-
----
+**Output -> Phase 4:** Pressure level modifies QB throw timing and accuracy.
 
 ### Phase 3: Route Development & Coverage Interaction
 
 Determines how much separation the receiver creates. Runs concurrently with Phase 2 but its output feeds Phase 4.
 
 **Speed scaling applies at all depths:**
-- Short → minor impact
-- Medium → moderate impact
-- Deep → major impact
+- Short -> minor impact
+- Medium -> moderate impact
+- Deep -> major impact
 
 **Man Coverage:**
-Compare WR (Route Running + Speed) vs. DB (Man Coverage + Speed + Awareness)
-
-Outcomes: tight / slight separation / clear separation / defender in phase
+Compare WR (Route Running + Speed) vs. DB (Man Coverage + Speed + Awareness).
+Outcomes: tight / slight separation / clear separation / defender in phase.
 
 **Zone Coverage:**
-Uses Zone Coverage + Awareness (primary) + Speed + Safety Range
-
+Uses Zone Coverage + Awareness (primary) + Speed + Safety Range.
 Routes stress zones; defenders react, pass off, or get pulled out of position.
-
-Outcomes: window open / window closes / late reaction / blown zone
+Outcomes: window open / window closes / late reaction / blown zone.
 
 **Play-Action Bonus:**
 When play-action is active, separation scores receive a positive modifier — defenders are briefly held by the run fake.
 
-**Output → Phase 4:** Separation state (window open/tight/covered) and defender positioning.
-
----
+**Output -> Phase 4:** Separation state (window open/tight/covered) and defender positioning.
 
 ### Phase 4: QB Decision & Throw Execution
 
@@ -536,9 +498,7 @@ QB reads the separation states from Phase 3 and pressure from Phase 2, then sele
 - Window tightness tolerance
 - Defender recovery time before the ball arrives
 
-**Output → Phase 5:** Throw quality (on target / slightly off / contested / INT risk).
-
----
+**Output -> Phase 5:** Throw quality (on target / slightly off / contested / INT risk).
 
 ### Phase 5: Catch Resolution
 
@@ -552,20 +512,15 @@ QB reads the separation states from Phase 3 and pressure from Phase 2, then sele
 
 > Route Running does NOT significantly impact contested catches — separation creation is Phase 3's job; Phase 5 is about securing the ball once the throw is already in the air.
 
-**Output → Phase 6:** Catch made / incomplete / INT.
-
----
+**Output -> Phase 6:** Catch made / incomplete / INT.
 
 ### Phase 6: After Catch (YAC)
 
 Only reached if Phase 5 results in a catch.
 
-**Offensive:**
-- YAC rating (bundles elusiveness, vision, tackle-breaking)
+**Offensive:** YAC rating (bundles elusiveness, vision, tackle-breaking)
 
-**Defensive response:**
-- Pursuit (LB)
-- Tackling (CB / Safety)
+**Defensive response:** Pursuit (LB), Tackling (CB / Safety)
 
 ---
 
@@ -585,9 +540,7 @@ Determines the quality of the run lane.
 - Discipline (DL — gap control)
 - Run Defense (LB — second-level pursuit)
 
-**Output → Phase 2:** Blocking score (poor / average / good lane created).
-
----
+**Output -> Phase 2:** Blocking score (poor / average / good lane created).
 
 ### Phase 2: Vision / Hole Reading
 
@@ -598,9 +551,7 @@ RB evaluates the lane from Phase 1 and decides where to go.
 High Vision = identifies the correct hole, finds cutbacks when primary lanes close.
 Low Vision = hits wrong gap, loses yards even when blocking is adequate.
 
-**Output → Phase 3:** Adjusted lane quality after RB decision-making.
-
----
+**Output -> Phase 3:** Adjusted lane quality after RB decision-making.
 
 ### Phase 3: Initial Engagement
 
@@ -610,9 +561,7 @@ First contact with a defender.
 
 Determines whether the RB hits clean space or immediately engages a tackler.
 
-**Output → Phase 4:** Contact state (clean / engaged).
-
----
+**Output -> Phase 4:** Contact state (clean / engaged).
 
 ### Phase 4: Contact Resolution
 
@@ -624,9 +573,7 @@ If the RB engages a tackler, this phase resolves break-tackle attempts.
 - **Outside runs / space situations:** Elusiveness wins
 - **The better fit for the situation is used**, not an average of both
 
-**Output → Phase 5:** Yards gained up to this point, whether runner is in the open field.
-
----
+**Output -> Phase 5:** Yards gained up to this point, whether runner is in the open field.
 
 ### Phase 5: Breakaway
 
@@ -641,8 +588,6 @@ Inside vs. outside run differences:
 - Outside runs have higher breakaway potential
 - Inside runs cap at shorter breakaway distances
 
----
-
 ### Fumble Check
 
 Runs at the end of contact resolution (Phase 4) and after big hits.
@@ -653,27 +598,27 @@ Low ball security + heavy contact = elevated fumble probability.
 
 ---
 
-## Engine Flow Summary (Pass Play)
+## Pipeline Summaries
+
+### Pass Play Flow
 
 ```
 1. Pre-snap context set
-2. Protection resolves → pocket state determined
-3. Routes run vs. coverage → separation state determined
-4. QB reads progression → selects target → throw executed
+2. Protection resolves -> pocket state determined
+3. Routes run vs. coverage -> separation state determined
+4. QB reads progression -> selects target -> throw executed
 5. Catch resolved (open or contested)
 6. YAC determined
 ```
 
 Each step receives the output of the previous step. Step 2 and Step 3 run in parallel, but both feed into Step 4.
 
----
-
-## Engine Flow Summary (Run Play)
+### Run Play Flow
 
 ```
-1. Blocking evaluated → lane quality determined
-2. RB Vision applied → hole selected
-3. Initial engagement → contact state determined
+1. Blocking evaluated -> lane quality determined
+2. RB Vision applied -> hole selected
+3. Initial engagement -> contact state determined
 4. Break-tackle resolved (Power or Elusiveness, situation-dependent)
 5. Breakaway (Speed bonus, open field only)
 6. Fumble check (after contact)
@@ -681,162 +626,16 @@ Each step receives the output of the previous step. Step 2 and Step 3 run in par
 
 ---
 
-## Design Principles
+## Foundational Engine Principles
 
-- No redundant stats
-- Clear phase separation
-- Sequential resolution — each phase feeds the next
-- Tunable system (all constants in `config.ts`, never hardcoded in engine functions)
-- Realistic without unnecessary complexity
-- Run and pass are separate pipelines with their own phase logic
-
----
-
-# Future System: Playbooks and Play Calling
-
-## Design Goal
-
-The long-term playbook system should give users meaningful control over offensive identity without requiring manual play calling every snap. Users will build custom playbooks from a large shared database of available plays, and the simulation engine will call from those playbooks based on down and distance.
-
-This system is intentionally planned as a later feature. The current priority is building a strong, believable simulation engine first.
+1. **No redundant stats** — every rating has exactly one engine purpose.
+2. **Clear phase separation** — each phase has defined inputs and outputs.
+3. **Sequential resolution** — each phase feeds the next; no isolated dice rolls.
+4. **Tunable constants** — all numeric values live in `config.ts`, never hardcoded.
+5. **Realism first** — realistic outcomes over arcade behavior, always.
+6. **Separate pipelines** — run and pass have distinct phase logic.
+7. **Ratings drive outcomes** — no decorative stats; if it exists, it affects simulation.
 
 ---
 
-## Core Vision
-
-### 1. Plays are route-based, not globally tagged as Short / Medium / Deep
-
-A play should not be labeled as only "Short," "Medium," or "Deep."
-
-Instead, each eligible receiver route within the play has its own route type and depth classification.
-
-**Example: Singleback-Big: Quick Slants**
-- WR1: Slant — Short
-- TE: Flat — Short
-- WR2: Go — Deep
-
-This allows one play to contain a mix of short, medium, and deep concepts, which better matches real football and gives the engine more realistic read and coverage interactions.
-
----
-
-### 2. Users create playbooks from a large play database
-
-The game should eventually include a large library of available plays.
-
-Users will:
-- Browse the available play pool
-- Select plays they want in their team's playbook
-- Build a custom offensive identity from those plays
-
-The system should support broad variety so different teams can feel meaningfully different.
-
----
-
-### 3. Playbooks are organized by down and distance
-
-Users should assign plays into situational buckets rather than using one flat list.
-
-**Examples:**
-- 1st & 10
-- 2nd & Short
-- 2nd & Medium
-- 2nd & Long
-- 3rd & Short
-- 3rd & Medium
-- 3rd & Long
-- 4th & Short
-- Goal Line
-- Red Zone
-- 2-Minute Drill
-- Backed Up
-
-The CPU will call plays from the appropriate situational bucket during simulation.
-
----
-
-### 4. Plays have call weights
-
-Within each down-and-distance bucket, plays should have configurable weights.
-
-This allows users to influence call frequency without requiring exact percentages.
-
-**Example:**
-- Inside Zone — weight 10
-- Slant Flat — weight 8
-- Four Verticals — weight 2
-
-The CPU should randomly select from the bucket using these weights.
-
-This creates both identity and variation.
-
----
-
-### 5. Repetition should create a penalty
-
-Repeatedly calling the same play too often should create diminishing effectiveness.
-
-This prevents unrealistic abuse and encourages variety.
-
-Repetition penalties can affect:
-- Defensive anticipation
-- Reduced separation
-- Faster defensive reactions
-- Lower overall play success
-
-The goal is not to make a play unusable, but to reduce effectiveness if overused.
-
----
-
-## Relationship to the Engine
-
-This system should sit on top of the simulation engine, not replace it.
-
-The engine will still resolve:
-- Protection
-- Separation
-- Coverage interaction
-- QB decision making
-- Throw quality
-- Catch outcome
-- YAC
-- Run success
-
-The playbook system determines:
-- Which play is called
-- Which routes are run
-- Which players are involved in the concept
-- How often certain concepts appear in specific situations
-
----
-
-## Current Development Priority
-
-This system is important, but not the current priority.
-
-For now:
-- Focus remains on building a strong simulation engine
-- The existing Gameplan system should be removed from the long-term design
-- The current Playbook system should also be removed from the long-term design
-- Both will be reintroduced later in a redesigned form
-
-The goal is a polished simulation engine before adding user-driven playbook customization.
-
----
-
-## Future Implementation Notes
-
-When implemented, this system should support:
-
-- A large predefined database of offensive plays
-- Route-by-route tagging for each eligible receiver
-- Situational playbook buckets by down and distance
-- Weighted play selection
-- Repetition penalties
-- Easy user customization
-- CPU teams using the same system
-
----
-
-## Summary
-
-The future playbook system will be a customizable, situational, weighted play-calling framework built from a large play database. Plays are defined by the individual routes within them rather than a single depth label. This system will be implemented after the core simulation engine is fully stable and refined.
+*For playbook design and play selection systems, see [`PLAYBOOKS_AND_FORMATIONS.md`](../PLAYBOOKS_AND_FORMATIONS.md) and [`FRANCHISE_SOURCE_OF_TRUTH.md`](FRANCHISE_SOURCE_OF_TRUTH.md). For frozen engine metrics, see [`ENGINE_STATE.md`](ENGINE_STATE.md).*

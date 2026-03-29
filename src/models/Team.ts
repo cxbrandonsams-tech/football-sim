@@ -77,6 +77,22 @@ export interface PlayEffStats {
   turnovers:  number;
 }
 
+const EMPTY_STATS: PlayEffStats = { calls: 0, totalYards: 0, successes: 0, firstDowns: 0, touchdowns: 0, turnovers: 0 };
+
+/** Get aggregate stats for a play across all buckets. */
+export function getPlayStats(team: { playStats?: Record<string, PlayEffStats> }, playId: string): PlayEffStats {
+  return team.playStats?.[playId] ?? EMPTY_STATS;
+}
+
+/** Get stats for a play in a specific down/distance bucket. */
+export function getPlayStatsForBucket(
+  team: { bucketStats?: Record<string, Record<string, PlayEffStats>> },
+  playId: string,
+  bucket: string,
+): PlayEffStats {
+  return team.bucketStats?.[playId]?.[bucket] ?? EMPTY_STATS;
+}
+
 // ── Team tendencies (identity layer) ─────────────────────────────────────────
 
 /**
@@ -211,6 +227,8 @@ export interface Team {
   // ── Play effectiveness tracking ─────────────────────────────────────────────
   /** Per-play cumulative stats for the current season. Keyed by play ID. */
   playStats?: Record<string, PlayEffStats>;
+  /** Per-play, per-bucket stats for the current season. Keyed by playId → bucketId → stats. */
+  bucketStats?: Record<string, Record<string, PlayEffStats>>;
 
   // ── Custom plays & playbooks (GM-created) ───────────────────────────────────
   /** Custom offensive plays created by the team's GM. Available in custom playbooks. */

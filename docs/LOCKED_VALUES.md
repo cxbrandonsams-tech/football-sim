@@ -1,8 +1,14 @@
 # LOCKED VALUES — Frozen Config
 
 > These values are calibrated and must not be changed without explicit discussion.
-> Before touching any value here, read NEXT_STEPS.md and TUNING_LOG.md first.
 > Last audited: 2026-03-27 — ENGINE LOCKED
+
+**This document owns:** Every frozen numeric constant from `src/engine/config.ts` with its lock status and modification rules.
+
+**See also:**
+- [`ENGINE_STATE.md`](ENGINE_STATE.md) — validation baselines and accepted gaps
+- [`TUNING_LOG.md`](TUNING_LOG.md) — why each value was set to its current number
+- [`game-design.md`](game-design.md) — how ratings feed into the engine pipeline
 
 ---
 

@@ -2,6 +2,12 @@
 
 > Format: date · change · reason · observed effect
 
+**This document owns:** The chronological record of every calibration change, why it was made, and what effect it had.
+
+**See also:**
+- [`LOCKED_VALUES.md`](LOCKED_VALUES.md) — current frozen values
+- [`ENGINE_STATE.md`](ENGINE_STATE.md) — final validation snapshot
+
 ---
 
 ## Phase 1–5 (pre-2026-03 sessions)

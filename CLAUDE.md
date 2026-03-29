@@ -127,9 +127,12 @@ The top nav is `header.top-nav` (sticky, full-width). Each primary nav item maps
 Strong, realistic simulation engine and clean UI. Build vertical slices (complete working features) rather than partial systems. Keep logic simple and tunable. Prefer gameplay feel over perfect realism in early iterations.
 
 ### Shelved systems — do NOT reintroduce unless explicitly requested
-- **Gameplans** — removed
-- **Playbook system** — removed. A future route-based playbook system is planned (organized by down/distance, weight-based play-calling, built from a large play database) but has not been designed yet. Do not implement it.
+- **Legacy gameplans** (`GameplanSettings` / `PlaycallingWeights`) — deprecated, replaced by the tendencies/archetype system. Backend code exists for backward compat but is not the active design.
 - **Notification system** — removed
+
+### Active systems (previously shelved, now implemented)
+- **Playbook system** — fully implemented. Route-based plays, 13 down/distance buckets, weighted selection, custom play creator, formation depth charts. See `PLAYBOOKS_AND_FORMATIONS.md`.
+- **Tendencies / Gameplan** — 7-slider system with 8 coach archetype presets, recommendations, weekly prep. See `docs/FRANCHISE_SOURCE_OF_TRUTH.md` Section 7.
 
 ### Live game vision
 The in-game experience should feel like a broadcast:

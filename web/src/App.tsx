@@ -819,7 +819,48 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
 
       {error && <div className="app-content"><div className="error">{error}</div></div>}
 
-      <div className="app-content">
+      <div className="app-layout">
+
+      {/* ── Persistent League Feed (left sidebar) ─────────────── */}
+      <aside className="app-feed">
+        <div className="app-feed-header">
+          <span className="app-feed-title">League Feed</span>
+          <button className="app-feed-link" onClick={() => setTab('news')}>All →</button>
+        </div>
+        <div className="app-feed-scroll">
+          {(() => {
+            const allNews = (league.news ?? []).slice().sort((a, b) => b.createdAt - a.createdAt);
+            const feedNews = [
+              ...allNews.filter(n =>  n.teamIds.includes(myTeamId)).slice(0, 6),
+              ...allNews.filter(n => !n.teamIds.includes(myTeamId)).slice(0, 14),
+            ].slice(0, 18);
+            if (feedNews.length === 0) return <div className="app-feed-empty">League is live. Advance the week to simulate games and generate news.</div>;
+            return feedNews.map(n => {
+              const src = FEED_SOURCE[n.type] ?? { name: 'NFL', handle: 'nfl', avatar: '🏈' };
+              const isMine = n.teamIds.includes(myTeamId);
+              return (
+                <div key={n.id} className={`app-feed-item${isMine ? ' app-feed-mine' : ''}`}>
+                  <div className="app-feed-item-header">
+                    <span className="app-feed-avatar">{src.avatar}</span>
+                    <span className="app-feed-source">{src.name}</span>
+                    <span className="app-feed-time muted">{fmtNewsAge(n.createdAt)}</span>
+                  </div>
+                  <div className="app-feed-headline">{n.headline}</div>
+                  {n.body && <div className="app-feed-body muted">{n.body}</div>}
+                  <div className="app-feed-meta">
+                    <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>{NEWS_TYPE_LABEL[n.type] ?? n.type}</span>
+                    <span className="app-feed-week muted">Wk {n.week}</span>
+                    {isMine && <span className="app-feed-mine-tag">Your Team</span>}
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      </aside>
+
+      {/* ── Main content area ──────────────────────────────────── */}
+      <div className="app-main">
 
       {tab === 'dashboard' && (
         <DashboardView
@@ -831,6 +872,8 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           onNavTo={setTab as (t: string) => void}
           onWatchGame={handleWatchGame}
           onSimGame={handleSimGame}
+          onViewPlayer={handleViewPlayer}
+          onViewTeam={(teamId) => { setRosterTeamId(teamId); setTab('roster'); }}
         />
       )}
       {tab === 'standings' && (
@@ -890,6 +933,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           freeAgents={league.freeAgents}
           currentSeasonStats={league.currentSeasonStats}
           onViewPlayer={handleViewPlayer}
+          onViewTeam={(teamId) => { setRosterTeamId(teamId); setTab('roster'); }}
         />
       )}
       {tab === 'awards'  && (
@@ -947,6 +991,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           busy={busy}
           onExtend={handleExtendPlayer}
           onRelease={handleReleasePlayer}
+          onViewPlayer={handleViewPlayer}
         />
       )}
       {tab === 'draft' && (
@@ -1023,7 +1068,8 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           />
         );
       })()}
-      </div>
+      </div>{/* end app-main */}
+      </div>{/* end app-layout */}
     </div>
   );
 }
@@ -1070,7 +1116,7 @@ function personalityLabel(p: CoachPersonality | undefined): string {
 }
 
 function CoachCard({
-  coach, role, isOffseason, onFire, onHire, onPromote, unemployed,
+  coach, role, isOffseason, onFire, onHire, onPromote, unemployed, schemeMatch, busy: cardBusy,
 }: {
   coach: Coach | null;
   role: 'HC' | 'OC' | 'DC';
@@ -1079,39 +1125,44 @@ function CoachCard({
   onHire?: (coachId: string) => void;
   onPromote?: () => void;
   unemployed: Coach[];
+  schemeMatch?: boolean;
+  busy?: boolean;
 }) {
   const [showPool, setShowPool] = useState(false);
-  const roleLabel = role === 'HC' ? 'Head Coach' : role === 'OC' ? 'Offensive Coord.' : 'Defensive Coord.';
+  const [expanded, setExpanded] = useState(false);
+  const roleLabel = role === 'HC' ? 'Head Coach' : role === 'OC' ? 'Offensive Coordinator' : 'Defensive Coordinator';
 
   if (!coach) {
-    // Vacancy
     const candidates = unemployed.filter(c => c.role === role || role !== 'HC');
     return (
-      <div className="coach-card coach-card--vacant">
-        <div className="coach-card-header">
-          <span className="coach-role-label">{roleLabel}</span>
-          <span className="coach-vacant-badge">VACANT</span>
+      <div className="staff-card staff-card--vacant">
+        <div className="staff-card-role-tag">{role}</div>
+        <div className="staff-card-body">
+          <div className="staff-card-name-row">
+            <span className="staff-card-vacant-name">Vacant</span>
+            <span className="ui-badge ui-badge--danger">Open</span>
+          </div>
+          <div className="muted" style={{ fontSize: 'var(--text-xs)' }}>{roleLabel}</div>
         </div>
         {isOffseason && (
-          <div className="coach-card-actions">
-            {role !== 'HC' && (
-              <button className="btn-sm" onClick={onPromote}>Promote From Within</button>
-            )}
-            <button className="btn-sm btn-primary" onClick={() => setShowPool(v => !v)}>
-              {showPool ? 'Hide Pool' : 'Hire from Pool'}
+          <div className="staff-card-actions">
+            {role !== 'HC' && <button className="btn-sm" disabled={cardBusy} onClick={onPromote}>Promote</button>}
+            <button className="btn-sm btn-primary" disabled={cardBusy} onClick={() => setShowPool(v => !v)}>
+              {showPool ? 'Hide' : 'Hire'}
             </button>
           </div>
         )}
         {showPool && (
-          <div className="coach-pool-list">
+          <div className="staff-pool">
             {candidates.length === 0
-              ? <p className="muted">No candidates available.</p>
+              ? <div className="ui-empty ui-empty--compact">No candidates available.</div>
               : candidates.map(c => (
-                  <div key={c.id} className="coach-pool-row">
-                    <span>{c.name}</span>
+                  <div key={c.id} className="staff-pool-row">
+                    <span className="staff-pool-name">{c.name}</span>
                     <span className="ovr-cell">{c.overall}</span>
+                    <span className="muted">{(c.offensiveScheme ?? c.defensiveScheme ?? '').replace(/_/g, ' ')}</span>
                     {c.trait && <span className="coach-trait-badge">{traitLabel(c.trait)}</span>}
-                    <button className="btn-sm btn-primary" onClick={() => onHire?.(c.id)}>Hire</button>
+                    <button className="btn-sm btn-primary" disabled={cardBusy} onClick={() => onHire?.(c.id)}>Hire</button>
                   </div>
                 ))
             }
@@ -1121,44 +1172,61 @@ function CoachCard({
     );
   }
 
-  const [expanded, setExpanded] = useState(false);
   const scheme = role === 'OC' ? coach.offensiveScheme : role === 'DC' ? coach.defensiveScheme : undefined;
   const offScheme = role === 'HC' ? coach.offensiveScheme : undefined;
   const defScheme = role === 'HC' ? coach.defensiveScheme : undefined;
+
   return (
-    <div className="coach-card">
-      <div className="coach-card-header">
-        <span className="coach-role-label">{roleLabel}</span>
-        <button className="link-btn coach-name" onClick={() => setExpanded(v => !v)} title="View coach profile">{coach.name}</button>
-        <span className="ovr-cell">{coach.overall}</span>
+    <div className={`staff-card${role === 'HC' ? ' staff-card--hc' : ''}`}>
+      <div className="staff-card-role-tag">{role}</div>
+      <div className="staff-card-body">
+        <div className="staff-card-name-row">
+          <button className="entity-link staff-card-coach-name" onClick={() => setExpanded(v => !v)}>{coach.name}</button>
+          <span className={`staff-card-ovr${coach.overall >= 80 ? ' ovr-elite' : coach.overall < 60 ? ' ovr-low' : ''}`}>{coach.overall}</span>
+        </div>
+        <div className="staff-card-meta">
+          {scheme && <span className="staff-card-scheme">{scheme.replace(/_/g, ' ')}</span>}
+          {offScheme && <span className="staff-card-scheme">Off: {offScheme.replace(/_/g, ' ')}</span>}
+          {defScheme && <span className="staff-card-scheme">Def: {defScheme.replace(/_/g, ' ')}</span>}
+          {schemeMatch !== undefined && (
+            <span className={`align-badge${schemeMatch ? ' align-yes' : ' align-no'}`}>
+              {schemeMatch ? '✓ Aligned' : '✗ Mismatch'}
+            </span>
+          )}
+        </div>
+        <div className="staff-card-badges">
+          {coach.personality && coach.personality !== 'balanced' && (
+            <span className={`coach-personality coach-personality--${coach.personality}`}>
+              {personalityLabel(coach.personality)}
+            </span>
+          )}
+          {coach.trait && (
+            <span className="coach-trait-badge" title={traitDesc(coach.trait)}>
+              {traitLabel(coach.trait)}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="coach-card-details">
-        {scheme && <span className="coach-scheme">{scheme.replace(/_/g, ' ')}</span>}
-        {coach.personality && coach.personality !== 'balanced' && (
-          <span className={`coach-personality coach-personality--${coach.personality}`}>
-            {personalityLabel(coach.personality)}
-          </span>
-        )}
-        {coach.trait && (
-          <span className="coach-trait-badge" title={traitDesc(coach.trait)}>
-            {traitLabel(coach.trait)}
-          </span>
-        )}
-      </div>
+
       {expanded && (
-        <div className="coach-profile-panel">
-          <div className="coach-profile-row"><span className="muted">Role:</span> {roleLabel}</div>
-          <div className="coach-profile-row"><span className="muted">Overall:</span> {coach.overall}</div>
-          {offScheme && <div className="coach-profile-row"><span className="muted">Off. Scheme:</span> {offScheme.replace(/_/g, ' ')}</div>}
-          {defScheme && <div className="coach-profile-row"><span className="muted">Def. Scheme:</span> {defScheme.replace(/_/g, ' ')}</div>}
-          {scheme && <div className="coach-profile-row"><span className="muted">Scheme:</span> {scheme.replace(/_/g, ' ')}</div>}
-          {coach.personality && <div className="coach-profile-row"><span className="muted">Style:</span> {personalityLabel(coach.personality)}</div>}
-          {coach.trait && <div className="coach-profile-row"><span className="muted">Trait:</span> {traitLabel(coach.trait)} — {traitDesc(coach.trait)}</div>}
+        <div className="staff-profile">
+          {coach.trait && (
+            <div className="staff-profile-trait">
+              <span className="staff-profile-trait-name">{traitLabel(coach.trait)}</span>
+              <span className="staff-profile-trait-desc">{traitDesc(coach.trait)}</span>
+            </div>
+          )}
+          <div className="staff-profile-grid">
+            <div className="staff-profile-item"><span className="muted">Role</span> {roleLabel}</div>
+            <div className="staff-profile-item"><span className="muted">Overall</span> {coach.overall}</div>
+            {coach.personality && <div className="staff-profile-item"><span className="muted">Style</span> {personalityLabel(coach.personality)}</div>}
+          </div>
         </div>
       )}
+
       {isOffseason && role !== 'HC' && (
-        <div className="coach-card-actions">
-          <button className="btn-sm btn-danger" onClick={onFire}>Fire</button>
+        <div className="staff-card-actions">
+          <button className="btn-sm btn-danger" disabled={cardBusy} onClick={onFire}>Fire</button>
         </div>
       )}
     </div>
@@ -1416,6 +1484,13 @@ function PlaybooksView({
 
   const cpIsRun = cpEngine === 'inside_run' || cpEngine === 'outside_run';
   const cpFormationObj = formations.find(f => f.id === cpFormation) ?? null;
+
+  // ── Play Analytics state ────────────────────────────────────────────────────
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analyticSort, setAnalyticSort] = useState<'calls' | 'avg' | 'success' | 'td' | 'to'>('calls');
+  const [analyticFilter, setAnalyticFilter] = useState<'all' | 'run' | 'pass'>('all');
+  const [analyticView, setAnalyticView] = useState<'overall' | 'situational'>('overall');
+  const [analyticBucket, setAnalyticBucket] = useState<DownDistanceBucket>('FIRST_10');
 
   function resetPlayCreator() {
     setCpName(''); setCpEngine('short_pass'); setCpRoutes({});
@@ -2621,7 +2696,233 @@ function PlaybooksView({
         )}
       </section>
 
-      {/* ── Playbook Library ──────────────────────────────────────────── */}
+      {/* ── Play Analytics ─────────────────────────────────────────── */}
+      <section className="pb-section">
+        <div className="pb-section-header">
+          <div>
+            <h2 className="pb-section-title">Play Analytics</h2>
+            <p className="pb-section-desc">Season performance data for all plays in your playbooks.</p>
+          </div>
+          <div className="pb-section-actions">
+            <button className={`btn-sm${showAnalytics ? ' active' : ''}`} onClick={() => setShowAnalytics(v => !v)}>
+              {showAnalytics ? 'Hide' : 'Show'}
+            </button>
+          </div>
+        </div>
+
+        {showAnalytics && (() => {
+          const ps = team.playStats ?? {};
+          const bs = team.bucketStats ?? {};
+          const allPlaysWithCustom = [...allPlays, ...(team.customOffensivePlays ?? [])];
+          const playMap = new Map(allPlaysWithCustom.map(p => [p.id, p]));
+
+          // Choose data source based on view mode
+          const isSituational = analyticView === 'situational';
+          const statsSource: Record<string, PlayEffStats> = {};
+          if (isSituational) {
+            for (const [playId, buckets] of Object.entries(bs)) {
+              const s = buckets[analyticBucket];
+              if (s) statsSource[playId] = s;
+            }
+          } else {
+            Object.assign(statsSource, ps);
+          }
+
+          // Build analytics rows
+          type AnalyticsRow = { id: string; name: string; formation: string; engineType: string; isRun: boolean; calls: number; avg: number; successPct: number; tdPct: number; toPct: number; insight: string | null; overallAvg: number | null; overallSuccessPct: number | null };
+          const rows: AnalyticsRow[] = [];
+          for (const [id, stats] of Object.entries(statsSource)) {
+            if (stats.calls < 1) continue;
+            const play = playMap.get(id);
+            if (!play) continue;
+            const isRun = play.engineType === 'inside_run' || play.engineType === 'outside_run';
+            if (analyticFilter === 'run' && !isRun) continue;
+            if (analyticFilter === 'pass' && isRun) continue;
+            const avg = stats.totalYards / stats.calls;
+            const successPct = stats.successes / stats.calls;
+            const tdPct = stats.touchdowns / stats.calls;
+            const toPct = stats.turnovers / stats.calls;
+            const fm = formations.find(f => f.id === play.formationId);
+
+            // Overall stats for comparison (only in situational view)
+            const overall = isSituational ? ps[id] : null;
+            const overallAvg = overall && overall.calls >= 3 ? overall.totalYards / overall.calls : null;
+            const overallSuccessPct = overall && overall.calls >= 3 ? overall.successes / overall.calls : null;
+
+            // Insight generation
+            let insight: string | null = null;
+            if (isSituational && stats.calls >= 3) {
+              // Situational insights — compare to overall
+              if (overallAvg !== null && avg >= overallAvg + 2.0 && stats.calls >= 3) insight = 'Situational strength';
+              else if (overallAvg !== null && avg <= overallAvg - 2.0 && stats.calls >= 3) insight = 'Situational weakness';
+              else if (toPct >= 0.2 && stats.calls >= 3) insight = 'High TO risk here';
+              else if (tdPct >= 0.2 && stats.calls >= 3) insight = 'Scores here';
+              else if (successPct >= 0.75 && stats.calls >= 3) insight = 'Very reliable here';
+            } else if (stats.calls >= 5) {
+              if (avg >= 7.0 && successPct >= 0.6) insight = 'Top performer';
+              else if (avg < 2.5 && stats.calls >= 8) insight = 'Underperforming';
+              else if (toPct >= 0.15 && stats.calls >= 5) insight = 'Turnover risk';
+              else if (tdPct >= 0.15 && stats.calls >= 5) insight = 'Red zone weapon';
+              else if (successPct >= 0.7 && stats.calls >= 5) insight = 'Reliable';
+            }
+
+            rows.push({
+              id, name: play.name, formation: fm?.name ?? play.formationId,
+              engineType: play.engineType, isRun, calls: stats.calls,
+              avg, successPct, tdPct, toPct, insight,
+              overallAvg, overallSuccessPct,
+            });
+          }
+
+          // Sort
+          rows.sort((a, b) => {
+            switch (analyticSort) {
+              case 'avg': return b.avg - a.avg;
+              case 'success': return b.successPct - a.successPct;
+              case 'td': return b.tdPct - a.tdPct;
+              case 'to': return a.toPct - b.toPct; // lower is better
+              default: return b.calls - a.calls;
+            }
+          });
+
+          // Situational summary bar
+          const sitSummary = isSituational && rows.length > 0 ? (() => {
+            const totalCalls = rows.reduce((s, r) => s + r.calls, 0);
+            const totalYards = rows.reduce((s, r) => s + r.avg * r.calls, 0);
+            const totalSucc  = rows.reduce((s, r) => s + r.successPct * r.calls, 0);
+            return { calls: totalCalls, avg: totalCalls > 0 ? totalYards / totalCalls : 0, successPct: totalCalls > 0 ? totalSucc / totalCalls : 0 };
+          })() : null;
+
+          // Bucket groups for selector
+          const bucketGroups: { label: string; buckets: DownDistanceBucket[] }[] = [
+            { label: '1st Down', buckets: ['FIRST_10', 'FIRST_LONG', 'FIRST_MEDIUM', 'FIRST_SHORT'] },
+            { label: '2nd Down', buckets: ['SECOND_LONG', 'SECOND_MEDIUM', 'SECOND_SHORT'] },
+            { label: '3rd Down', buckets: ['THIRD_LONG', 'THIRD_MEDIUM', 'THIRD_SHORT'] },
+            { label: '4th Down', buckets: ['FOURTH_LONG', 'FOURTH_MEDIUM', 'FOURTH_SHORT'] },
+          ];
+
+          if (rows.length === 0 && !isSituational) return <p className="muted" style={{ padding: '0.5rem 0' }}>No play data yet. Play some games to see analytics.</p>;
+
+          return (
+            <div className="pa-container">
+              {/* View mode toggle + filters */}
+              <div className="pa-controls">
+                <div className="pa-filters">
+                  <div className="pa-view-toggle">
+                    <button className={`btn-sm${analyticView === 'overall' ? ' active' : ''}`} onClick={() => setAnalyticView('overall')}>Overall</button>
+                    <button className={`btn-sm${analyticView === 'situational' ? ' active' : ''}`} onClick={() => setAnalyticView('situational')}>Situational</button>
+                  </div>
+                  <span className="pa-divider" />
+                  {(['all', 'run', 'pass'] as const).map(f => (
+                    <button key={f} className={`btn-sm${analyticFilter === f ? ' active' : ''}`} onClick={() => setAnalyticFilter(f)}>
+                      {f === 'all' ? 'All' : f === 'run' ? 'Run' : 'Pass'}
+                    </button>
+                  ))}
+                </div>
+                <span className="pa-count">{rows.length} plays tracked</span>
+              </div>
+
+              {/* Bucket selector (situational mode only) */}
+              {isSituational && (
+                <div className="pa-bucket-selector">
+                  {bucketGroups.map(g => (
+                    <div key={g.label} className="pa-bucket-group">
+                      <span className="pa-bucket-group-label">{g.label}</span>
+                      <div className="pa-bucket-pills">
+                        {g.buckets.map(b => {
+                          // Show call count badge from bucket data
+                          let bucketCalls = 0;
+                          for (const playBuckets of Object.values(bs)) {
+                            bucketCalls += playBuckets[b]?.calls ?? 0;
+                          }
+                          return (
+                            <button
+                              key={b}
+                              className={`pa-bucket-pill${analyticBucket === b ? ' active' : ''}${bucketCalls === 0 ? ' empty' : ''}`}
+                              onClick={() => setAnalyticBucket(b)}
+                            >
+                              {BUCKET_LABELS[b].replace(/\s*\(.*\)/, '')}
+                              {bucketCalls > 0 && <span className="pa-bucket-count">{bucketCalls}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Situational summary */}
+              {sitSummary && sitSummary.calls > 0 && (
+                <div className="pa-sit-summary">
+                  <span className="pa-sit-summary-label">{BUCKET_LABELS[analyticBucket]}</span>
+                  <span className="pa-sit-summary-stat">{sitSummary.calls} calls</span>
+                  <span className="pa-sit-summary-stat">{sitSummary.avg.toFixed(1)} avg yds</span>
+                  <span className="pa-sit-summary-stat">{(sitSummary.successPct * 100).toFixed(0)}% success</span>
+                </div>
+              )}
+
+              {rows.length === 0 ? (
+                <p className="muted" style={{ padding: '0.5rem 0' }}>No data for {BUCKET_LABELS[analyticBucket]}. This situation hasn't occurred enough yet.</p>
+              ) : (
+                <table className="pa-table">
+                  <thead>
+                    <tr>
+                      <th>Play</th>
+                      <th>Formation</th>
+                      <th>Type</th>
+                      <th className="pa-sortable" onClick={() => setAnalyticSort('calls')}>Calls{analyticSort === 'calls' ? ' ▼' : ''}</th>
+                      <th className="pa-sortable" onClick={() => setAnalyticSort('avg')}>Avg Yds{analyticSort === 'avg' ? ' ▼' : ''}</th>
+                      <th className="pa-sortable" onClick={() => setAnalyticSort('success')}>Success%{analyticSort === 'success' ? ' ▼' : ''}</th>
+                      <th className="pa-sortable" onClick={() => setAnalyticSort('td')}>TD%{analyticSort === 'td' ? ' ▼' : ''}</th>
+                      <th className="pa-sortable" onClick={() => setAnalyticSort('to')}>TO%{analyticSort === 'to' ? ' ▲' : ''}</th>
+                      <th>Insight</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(r => {
+                      const avgCls = r.calls >= 3 ? (r.avg >= 6.0 ? 'pa-good' : r.avg < 3.0 ? 'pa-bad' : '') : '';
+                      const sucCls = r.calls >= 3 ? (r.successPct >= 0.6 ? 'pa-good' : r.successPct < 0.35 ? 'pa-bad' : '') : '';
+                      // Delta indicators for situational view
+                      const avgDelta = isSituational && r.overallAvg !== null ? r.avg - r.overallAvg : null;
+                      const sucDelta = isSituational && r.overallSuccessPct !== null ? r.successPct - r.overallSuccessPct : null;
+                      return (
+                        <tr key={r.id} className={r.isRun ? 'pb-row-run' : 'pb-row-pass'}>
+                          <td><span className="pb-play-name">{r.name}</span></td>
+                          <td className="pb-play-formation">{r.formation}</td>
+                          <td><span className={`pb-type-chip pb-type-chip--${r.isRun ? 'run' : 'pass'}`}>{ENGINE_TYPE_LABELS[r.engineType] ?? r.engineType}</span></td>
+                          <td className="pa-num">{r.calls}</td>
+                          <td className={`pa-num ${avgCls}`}>
+                            {r.avg.toFixed(1)}
+                            {avgDelta !== null && Math.abs(avgDelta) >= 0.5 && (
+                              <span className={`pa-delta ${avgDelta > 0 ? 'pa-delta--up' : 'pa-delta--down'}`}>
+                                {avgDelta > 0 ? '+' : ''}{avgDelta.toFixed(1)}
+                              </span>
+                            )}
+                          </td>
+                          <td className={`pa-num ${sucCls}`}>
+                            {(r.successPct * 100).toFixed(0)}%
+                            {sucDelta !== null && Math.abs(sucDelta) >= 0.05 && (
+                              <span className={`pa-delta ${sucDelta > 0 ? 'pa-delta--up' : 'pa-delta--down'}`}>
+                                {sucDelta > 0 ? '+' : ''}{(sucDelta * 100).toFixed(0)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="pa-num">{r.calls >= 3 ? `${(r.tdPct * 100).toFixed(0)}%` : '—'}</td>
+                          <td className="pa-num">{r.calls >= 3 ? `${(r.toPct * 100).toFixed(0)}%` : '—'}</td>
+                          <td>{r.insight ? <span className={`pa-insight pa-insight--${r.insight === 'Top performer' || r.insight === 'Red zone weapon' || r.insight === 'Reliable' || r.insight === 'Situational strength' || r.insight === 'Very reliable here' || r.insight === 'Scores here' ? 'good' : 'bad'}`}>{r.insight}</span> : ''}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          );
+        })()}
+      </section>
+
+      {/* ── Playbook Library ────────��─────────────────────────────────── */}
       <section className="pb-section">
         <div className="pb-section-header">
           <div>
@@ -3470,18 +3771,40 @@ function CoachingView({ team, league, leagueId, onLeagueUpdated }: {
 
   const unemployed = league.unemployedCoaches ?? [];
 
-  return (
-    <section className="gp-view">
-      <h2>Coaching Staff — {team.name}</h2>
-      {error && <p className="error-msg">{error}</p>}
-      {busy && <p className="muted">Working…</p>}
+  const staffAvg = Math.round(([hc.overall, oc?.overall, dc?.overall].filter((v): v is number => v != null).reduce((s, v) => s + v, 0)) / [hc, oc, dc].filter(Boolean).length);
+  const vacancies = [!oc && 'OC', !dc && 'DC'].filter(Boolean);
 
-      <div className="coaching-cards">
+  return (
+    <section className="roster-page">
+
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="roster-header">
+        <div className="roster-header-left">
+          <h2 className="roster-title">Coaching Staff</h2>
+        </div>
+        <div className="roster-header-stats">
+          <div className="roster-header-stat"><span className="roster-header-val">{staffAvg}</span><span className="roster-header-lbl">Staff Avg</span></div>
+          <div className="roster-header-stat">
+            <span className={`roster-header-val${hcOffMatch && hcDefMatch ? ' pos' : !hcOffMatch && !hcDefMatch ? ' neg' : ''}`}>
+              {hcOffMatch && hcDefMatch ? '2/2' : hcOffMatch || hcDefMatch ? '1/2' : '0/2'}
+            </span>
+            <span className="roster-header-lbl">Aligned</span>
+          </div>
+          {vacancies.length > 0 && <div className="roster-header-stat"><span className="roster-header-val neg">{vacancies.length}</span><span className="roster-header-lbl">Vacant</span></div>}
+          {isOffseason && <div className="roster-header-stat"><span className="roster-header-val">{unemployed.length}</span><span className="roster-header-lbl">Available</span></div>}
+        </div>
+      </div>
+
+      {error && <div className="form-error">{error}</div>}
+
+      {/* ── Staff cards ────────────────────────────────────────── */}
+      <div className="staff-grid">
         <CoachCard
           coach={hc} role="HC" isOffseason={isOffseason}
           onHire={id => handleHire(id, 'HC')}
           onPromote={undefined}
           unemployed={unemployed}
+          busy={busy}
         />
         <CoachCard
           coach={oc} role="OC" isOffseason={isOffseason}
@@ -3489,6 +3812,8 @@ function CoachingView({ team, league, leagueId, onLeagueUpdated }: {
           onHire={id => handleHire(id, 'OC')}
           onPromote={() => handlePromote('OC')}
           unemployed={unemployed}
+          schemeMatch={oc ? hcOffMatch : undefined}
+          busy={busy}
         />
         <CoachCard
           coach={dc} role="DC" isOffseason={isOffseason}
@@ -3496,39 +3821,34 @@ function CoachingView({ team, league, leagueId, onLeagueUpdated }: {
           onHire={id => handleHire(id, 'DC')}
           onPromote={() => handlePromote('DC')}
           unemployed={unemployed}
+          schemeMatch={dc ? hcDefMatch : undefined}
+          busy={busy}
         />
       </div>
 
-      <div className="coaching-alignment-summary">
-        <h3>Scheme Alignment</h3>
-        <p>
-          <span className={`align-badge${hcOffMatch ? ' align-yes' : ' align-no'}`}>
-            OFF {hcOffMatch ? '✓' : '✗'}
-          </span>
-          {' '}
-          <span className={`align-badge${hcDefMatch ? ' align-yes' : ' align-no'}`}>
-            DEF {hcDefMatch ? '✓' : '✗'}
-          </span>
-          <span className="muted"> — HC pref: {hc.offensiveScheme?.replace(/_/g, ' ') ?? '—'} / {hc.defensiveScheme?.replace(/_/g, ' ') ?? '—'}</span>
-        </p>
-        <p className="muted coaching-note">
-          When the HC's scheme preferences match the OC or DC, your team earns a small bonus to success probability each play.
-        </p>
+      {/* ── Scheme alignment note ──────────────────────────────── */}
+      <div className="staff-alignment-note">
+        <span className="muted">Scheme alignment between HC and coordinators grants a small play success bonus.</span>
       </div>
 
+      {/* ── Coaching pool ──────────────────────────────────────── */}
       {isOffseason && unemployed.length > 0 && (
-        <div className="coaching-pool-section">
-          <h3>Available Coaches ({unemployed.length})</h3>
-          <table className="coaching-pool-table">
+        <div className="roster-group">
+          <div className="roster-group-header">
+            <span className="roster-group-toggle">▾</span>
+            <span className="roster-group-name">Available Coaches</span>
+            <span className="roster-group-count">{unemployed.length}</span>
+          </div>
+          <table className="ui-table roster-table">
             <thead>
-              <tr><th>Name</th><th>Role</th><th>OVR</th><th>Scheme</th><th>Trait</th><th>Personality</th></tr>
+              <tr><th>Name</th><th>Role</th><th className="num">OVR</th><th>Scheme</th><th>Trait</th><th>Style</th></tr>
             </thead>
             <tbody>
-              {unemployed.map(c => (
+              {unemployed.sort((a, b) => b.overall - a.overall).map(c => (
                 <tr key={c.id}>
                   <td>{c.name}</td>
-                  <td className="muted">{c.role}</td>
-                  <td className="ovr-cell">{c.overall}</td>
+                  <td className="roster-pos-cell">{c.role}</td>
+                  <td className={`num ovr-cell${c.overall >= 80 ? ' ovr-elite' : c.overall < 60 ? ' ovr-low' : ''}`}>{c.overall}</td>
                   <td className="muted">{(c.offensiveScheme ?? c.defensiveScheme ?? '—').replace(/_/g, ' ')}</td>
                   <td>{c.trait ? <span className="coach-trait-badge">{traitLabel(c.trait)}</span> : <span className="muted">—</span>}</td>
                   <td className="muted">{personalityLabel(c.personality)}</td>
@@ -3807,13 +4127,14 @@ function buildSeasonRecords(
 
 // ── Leaders ────────────────────────────────────────────────────────────────────
 
-function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, onViewPlayer }: {
+function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, onViewPlayer, onViewTeam }: {
   games: League['currentSeason']['games'];
   teams: League['teams'];
   history: LeagueHistory;
   freeAgents: Player[];
   currentSeasonStats: Record<string, PlayerSeasonStats>;
   onViewPlayer?: (id: string) => void;
+  onViewTeam?: (teamId: string) => void;
 }) {
   const [mode, setMode] = useState<'season' | 'career' | 'records'>('season');
   const stats        = aggregateSeasonStats(games);
@@ -3821,6 +4142,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
   const gamesPlayed  = games.filter(g => g.status === 'final').length;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedPlayer = selectedId !== null ? (stats[selectedId] ?? null) : null;
+  const abbrToId = useMemo(() => new Map(teams.map(t => [t.abbreviation, t.id])), [teams]);
 
   const nameMap = useMemo(
     () => buildPlayerNameMap(teams, freeAgents, history.retiredPlayers),
@@ -3867,6 +4189,11 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
   function pBtn(id: string, name: string) {
     return <button className="pd-trigger" onClick={() => handleClick(id)}>{name}</button>;
   }
+  function tBtn(abbr: string) {
+    const tid = abbrToId.get(abbr);
+    if (!tid || !onViewTeam) return <>{abbr}</>;
+    return <button className="entity-link entity-link--team" onClick={() => onViewTeam(tid)}>{abbr}</button>;
+  }
 
   return (
     <section className="leaders-section">
@@ -3904,7 +4231,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                       <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
                         <td className="col-player">{pBtn(p.playerId, p.name)}</td>
-                        <td className="col-team">{p.teamAbbreviation}</td>
+                        <td className="col-team">{tBtn(p.teamAbbreviation)}</td>
                         <td className="col-num">{p.completions}/{p.attempts}</td>
                         <td className="col-num col-primary">{p.passingYards}</td>
                         <td className="col-num">{p.passingTDs}</td>
@@ -3930,7 +4257,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                       <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
                         <td className="col-player">{pBtn(p.playerId, p.name)}</td>
-                        <td className="col-team">{p.teamAbbreviation}</td>
+                        <td className="col-team">{tBtn(p.teamAbbreviation)}</td>
                         <td className="col-num">{p.carries}</td>
                         <td className="col-num col-primary">{p.rushingYards}</td>
                         <td className="col-num">{p.carries > 0 ? (p.rushingYards / p.carries).toFixed(1) : '—'}</td>
@@ -3956,7 +4283,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                       <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
                         <td className="col-player">{pBtn(p.playerId, p.name)}</td>
-                        <td className="col-team">{p.teamAbbreviation}</td>
+                        <td className="col-team">{tBtn(p.teamAbbreviation)}</td>
                         <td className="col-num">{p.receptions}</td>
                         <td className="col-num col-primary">{p.receivingYards}</td>
                         <td className="col-num">{p.receptions > 0 ? (p.receivingYards / p.receptions).toFixed(1) : '—'}</td>
@@ -3982,7 +4309,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                       <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
                         <td className="col-player">{pBtn(p.playerId, p.name)}</td>
-                        <td className="col-team">{p.teamAbbreviation}</td>
+                        <td className="col-team">{tBtn(p.teamAbbreviation)}</td>
                         <td className="col-num">{p.passingTDs   || '—'}</td>
                         <td className="col-num">{p.rushingTDs   || '—'}</td>
                         <td className="col-num">{p.receivingTDs || '—'}</td>
@@ -4007,7 +4334,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                       <tr key={p.id} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
                         <td className="col-player">{pBtn(p.id, p.name)}</td>
-                        <td className="col-team">{p.abbr}</td>
+                        <td className="col-team">{tBtn(p.abbr)}</td>
                         <td className="col-num col-primary">{p.val.toFixed(1)}</td>
                       </tr>
                     ))}
@@ -4030,7 +4357,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                       <tr key={p.id} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
                         <td className="col-player">{pBtn(p.id, p.name)}</td>
-                        <td className="col-team">{p.abbr}</td>
+                        <td className="col-team">{tBtn(p.abbr)}</td>
                         <td className="col-num col-primary">{p.val}</td>
                       </tr>
                     ))}
@@ -4053,7 +4380,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                       <tr key={p.id} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
                         <td className="col-player">{pBtn(p.id, p.name)}</td>
-                        <td className="col-team">{p.abbr}</td>
+                        <td className="col-team">{tBtn(p.abbr)}</td>
                         <td className="col-num col-primary">{p.val}</td>
                       </tr>
                     ))}
@@ -4083,7 +4410,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
 
 function CareerLeadersGrid({ leaders, onViewPlayer }: {
   leaders: CareerLeaderEntry[];
-  onViewPlayer: (id: string) => void;
+  onViewPlayer?: (id: string) => void;
 }) {
   const passers   = [...leaders].filter(l => l.passingYards > 0).sort((a, b) => b.passingYards - a.passingYards).slice(0, 10);
   const rushers   = [...leaders].filter(l => l.rushingYards > 0).sort((a, b) => b.rushingYards - a.rushingYards).slice(0, 10);
@@ -4092,7 +4419,9 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
   const inters    = [...leaders].filter(l => l.interceptionsCaught > 0).sort((a, b) => b.interceptionsCaught - a.interceptionsCaught).slice(0, 10);
 
   function pBtn(l: CareerLeaderEntry) {
-    return <button className="pd-trigger" onClick={() => onViewPlayer(l.playerId)}>{l.name}</button>;
+    return onViewPlayer
+      ? <button className="pd-trigger" onClick={() => onViewPlayer(l.playerId)}>{l.name}</button>
+      : <span>{l.name}</span>;
   }
 
   if (leaders.length === 0) return <p className="muted" style={{ padding: '1rem 0' }}>No career data yet.</p>;
@@ -4111,7 +4440,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {passers.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num col-primary">{l.passingYards}</td><td className="col-num">{l.passingTDs}</td>
                 </tr>
               ))}
@@ -4131,7 +4460,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {rushers.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num col-primary">{l.rushingYards}</td><td className="col-num">{l.rushingTDs}</td>
                 </tr>
               ))}
@@ -4151,7 +4480,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {receivers.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num">{l.receptions}</td>
                   <td className="col-num col-primary">{l.receivingYards}</td><td className="col-num">{l.receivingTDs}</td>
                 </tr>
@@ -4172,7 +4501,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {sackers.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num col-primary">{l.sacks.toFixed(1)}</td>
                 </tr>
               ))}
@@ -4192,7 +4521,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {inters.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num col-primary">{l.interceptionsCaught}</td>
                 </tr>
               ))}
@@ -4206,7 +4535,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
 
 function SingleSeasonRecordsView({ records, onViewPlayer }: {
   records: Record<RecordCatKey, SeasonRecordEntry[]>;
-  onViewPlayer: (id: string) => void;
+  onViewPlayer?: (id: string) => void;
 }) {
   const fmtVal = (key: RecordCatKey, v: number) => key === 'sacks' ? v.toFixed(1) : String(v);
   return (
@@ -4229,9 +4558,11 @@ function SingleSeasonRecordsView({ records, onViewPlayer }: {
                   <tr key={i} className={i === 0 ? 'lc-top' : ''}>
                     <td className="col-rank">{i + 1}</td>
                     <td className="col-player">
-                      <button className="pd-trigger" onClick={() => onViewPlayer(e.playerId)}>{e.name}</button>
+                      {onViewPlayer
+                        ? <button className="pd-trigger" onClick={() => onViewPlayer(e.playerId)}>{e.name}</button>
+                        : e.name}
                     </td>
-                    <td className="col-team">{e.teamAbbr}</td>
+                    <td className="col-team">{tBtn(e.teamAbbr)}</td>
                     <td className="col-num">{e.year}</td>
                     <td className="col-num col-primary">{fmtVal(cat.key, e.value)}</td>
                   </tr>
@@ -4328,6 +4659,11 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
   onClose: () => void;
 }) {
   const [pdTab, setPdTab] = useState<'season' | 'career'>('season');
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
   const rosterPlayer  = allTeams.flatMap(t => t.roster).find(p => p.id === player.playerId);
   const gameLog       = buildGameLog(player, games);
   const seasonHistory = history?.playerHistory[player.playerId] ?? [];
@@ -4433,12 +4769,23 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
           </div>
         )}
 
+        {/* Contract info */}
+        {rosterPlayer && (
+          <div className="pd-contract-row">
+            <span className="pd-contract-item"><span className="pd-contract-label">Salary</span> ${rosterPlayer.salary.toFixed(1)}M</span>
+            <span className="pd-contract-item"><span className="pd-contract-label">Years</span> {rosterPlayer.contractYears ?? '—'}</span>
+            {rosterPlayer.contractDemand && (
+              <span className="pd-contract-item pd-contract-demand"><span className="pd-contract-label">Wants</span> ${rosterPlayer.contractDemand.salary}M/{rosterPlayer.contractDemand.years}yr</span>
+            )}
+          </div>
+        )}
+
         {/* Ratings breakdown */}
         {visibleRatings && (
           <div className="pd-ratings-row">
             {Object.entries(visibleRatings).map(([label, val]) => (
               <div key={label} className="pd-rating-item">
-                <span className="pd-rating-val" style={{ color: val >= 80 ? '#4ade80' : val >= 65 ? '#fbbf24' : '#f87171' }}>{val}</span>
+                <span className={`pd-rating-val ${val >= 80 ? 'pd-rating-elite' : val >= 65 ? 'pd-rating-avg' : 'pd-rating-low'}`}>{val}</span>
                 <span className="pd-rating-lbl">{label}</span>
               </div>
             ))}
@@ -4670,9 +5017,9 @@ function AwardsView({ history, myTeamId, onViewPlayer }: {
 
   if (pastSeasons.length === 0) {
     return (
-      <section>
-        <h2>Awards</h2>
-        <p className="muted" style={{ padding: '1rem 0' }}>No awards yet — complete a season to see awards here.</p>
+      <section className="roster-page">
+        <div className="roster-header"><div className="roster-header-left"><h2 className="roster-title">Awards</h2></div></div>
+        <div className="ui-empty">No awards yet — complete a season to see awards here.</div>
       </section>
     );
   }
@@ -4685,14 +5032,21 @@ function AwardsView({ history, myTeamId, onViewPlayer }: {
   const allPro2 = seasonAwards?.awards.filter(a => a.type === 'AllPro2')           ?? [];
 
   return (
-    <section>
-      <div className="awards-header">
-        <h2>Season Awards</h2>
-        <select className="awards-year-select" value={selectedYear ?? ''} onChange={e => setSelectedYear(Number(e.target.value))}>
-          {pastSeasons.map(sa => (
-            <option key={sa.year} value={sa.year}>{sa.year} Season</option>
-          ))}
-        </select>
+    <section className="roster-page">
+      <div className="roster-header">
+        <div className="roster-header-left">
+          <h2 className="roster-title">Awards</h2>
+          <select className="roster-team-select" value={selectedYear ?? ''} onChange={e => setSelectedYear(Number(e.target.value))}>
+            {pastSeasons.map(sa => (
+              <option key={sa.year} value={sa.year}>{sa.year} Season</option>
+            ))}
+          </select>
+        </div>
+        <div className="roster-header-stats">
+          <div className="roster-header-stat"><span className="roster-header-val">{pastSeasons.length}</span><span className="roster-header-lbl">Seasons</span></div>
+          {major.length > 0 && <div className="roster-header-stat"><span className="roster-header-val">{major.length}</span><span className="roster-header-lbl">Major</span></div>}
+          {allPro1.length > 0 && <div className="roster-header-stat"><span className="roster-header-val">{allPro1.length + allPro2.length}</span><span className="roster-header-lbl">All-Pro</span></div>}
+        </div>
       </div>
 
       {seasonAwards && (
@@ -4720,16 +5074,19 @@ function AwardsView({ history, myTeamId, onViewPlayer }: {
               <div className="awards-section-title">All-Pro Teams</div>
               <div className="allpro-grid">
                 {allPro1.length > 0 && (
-                  <div className="allpro-team">
-                    <div className="allpro-team-label">1st Team All-Pro</div>
-                    <table className="allpro-table">
+                  <div className="roster-group">
+                    <div className="roster-group-header" style={{ cursor: 'default' }}>
+                      <span className="roster-group-name">1st Team All-Pro</span>
+                      <span className="roster-group-count">{allPro1.length}</span>
+                    </div>
+                    <table className="ui-table roster-table">
                       <thead><tr><th>Pos</th><th>Player</th><th>Team</th></tr></thead>
                       <tbody>
                         {allPro1.map((a, i) => (
-                          <tr key={i} className={a.teamId === myTeamId ? 'user-row' : ''}>
-                            <td className="allpro-pos">{a.position ?? '—'}</td>
+                          <tr key={i} className={a.teamId === myTeamId ? 'roster-row-starter' : ''}>
+                            <td className="roster-pos-cell">{a.position ?? '—'}</td>
                             <td>{a.playerId && onViewPlayer
-                              ? <button className="pd-trigger" onClick={() => onViewPlayer(a.playerId!)}>{a.playerName ?? '—'}</button>
+                              ? <button className="entity-link" onClick={() => onViewPlayer(a.playerId!)}>{a.playerName ?? '—'}</button>
                               : (a.playerName ?? '—')}</td>
                             <td className="muted">{a.teamName ?? '—'}</td>
                           </tr>
@@ -4739,16 +5096,19 @@ function AwardsView({ history, myTeamId, onViewPlayer }: {
                   </div>
                 )}
                 {allPro2.length > 0 && (
-                  <div className="allpro-team">
-                    <div className="allpro-team-label">2nd Team All-Pro</div>
-                    <table className="allpro-table">
+                  <div className="roster-group">
+                    <div className="roster-group-header" style={{ cursor: 'default' }}>
+                      <span className="roster-group-name">2nd Team All-Pro</span>
+                      <span className="roster-group-count">{allPro2.length}</span>
+                    </div>
+                    <table className="ui-table roster-table">
                       <thead><tr><th>Pos</th><th>Player</th><th>Team</th></tr></thead>
                       <tbody>
                         {allPro2.map((a, i) => (
-                          <tr key={i} className={a.teamId === myTeamId ? 'user-row' : ''}>
-                            <td className="allpro-pos">{a.position ?? '—'}</td>
+                          <tr key={i} className={a.teamId === myTeamId ? 'roster-row-starter' : ''}>
+                            <td className="roster-pos-cell">{a.position ?? '—'}</td>
                             <td>{a.playerId && onViewPlayer
-                              ? <button className="pd-trigger" onClick={() => onViewPlayer(a.playerId!)}>{a.playerName ?? '—'}</button>
+                              ? <button className="entity-link" onClick={() => onViewPlayer(a.playerId!)}>{a.playerName ?? '—'}</button>
                               : (a.playerName ?? '—')}</td>
                             <td className="muted">{a.teamName ?? '—'}</td>
                           </tr>
@@ -4794,21 +5154,38 @@ function HistoryView({ history, teams, myTeamId }: {
   const teamHistory    = history.teamHistory[selectedTeamId] ?? [];
   const championsList  = Object.entries(history.championsByYear)
     .sort(([a], [b]) => Number(b) - Number(a));
+  const myChamps = championsList.filter(([, c]) => c.teamId === myTeamId).length;
 
   return (
-    <section>
-      <h2>League History</h2>
+    <section className="roster-page">
+      <div className="roster-header">
+        <div className="roster-header-left">
+          <h2 className="roster-title">League History</h2>
+        </div>
+        <div className="roster-header-stats">
+          {championsList.length > 0 && <div className="roster-header-stat"><span className="roster-header-val">{championsList.length}</span><span className="roster-header-lbl">Seasons</span></div>}
+          {myChamps > 0 && <div className="roster-header-stat"><span className="roster-header-val" style={{ color: 'var(--warning)' }}>{myChamps}</span><span className="roster-header-lbl">Your Titles</span></div>}
+          <div className="roster-header-stat"><span className="roster-header-val">{history.retiredPlayers.length}</span><span className="roster-header-lbl">Retired</span></div>
+        </div>
+      </div>
 
+      {/* Champions */}
       {championsList.length > 0 && (
-        <div className="history-section">
-          <div className="history-section-title">League Champions</div>
-          <table className="history-table">
-            <thead><tr><th>Year</th><th>Champion</th></tr></thead>
+        <div className="roster-group">
+          <div className="roster-group-header" style={{ cursor: 'default' }}>
+            <span className="roster-group-name">League Champions</span>
+            <span className="roster-group-count">{championsList.length}</span>
+          </div>
+          <table className="ui-table roster-table">
+            <thead><tr><th className="num">Year</th><th>Champion</th></tr></thead>
             <tbody>
               {championsList.map(([year, champ]) => (
-                <tr key={year} className={champ.teamId === myTeamId ? 'user-row' : ''}>
-                  <td>{year}</td>
-                  <td>{champ.teamName}{champ.teamId === myTeamId && <span className="you"> YOU</span>}</td>
+                <tr key={year} className={champ.teamId === myTeamId ? 'roster-row-starter' : ''}>
+                  <td className="num text-mono">{year}</td>
+                  <td>
+                    {champ.teamName}
+                    {champ.teamId === myTeamId && <span className="ui-badge ui-badge--primary" style={{ marginLeft: 'var(--sp-2)' }}>You</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -4816,32 +5193,33 @@ function HistoryView({ history, teams, myTeamId }: {
         </div>
       )}
 
-      <div className="history-section">
-        <div className="history-section-header">
-          <div className="history-section-title">Team Season History</div>
-          <select value={selectedTeamId} onChange={e => setSelectedTeamId(e.target.value)}>
+      {/* Team season history */}
+      <div className="roster-group">
+        <div className="roster-group-header" style={{ cursor: 'default' }}>
+          <span className="roster-group-name">Team Seasons</span>
+          <select className="roster-team-select" value={selectedTeamId} onChange={e => setSelectedTeamId(e.target.value)} onClick={e => e.stopPropagation()}>
             {teams.map(t => (
               <option key={t.id} value={t.id}>{t.name}{t.id === myTeamId ? ' (You)' : ''}</option>
             ))}
           </select>
         </div>
         {teamHistory.length === 0 ? (
-          <p className="muted" style={{ padding: '0.5rem 0' }}>No season history yet for this team.</p>
+          <div className="ui-empty ui-empty--compact">No season history yet for this team.</div>
         ) : (
-          <table className="history-table">
+          <table className="ui-table roster-table">
             <thead>
-              <tr><th>Year</th><th>W</th><th>L</th><th>PF</th><th>PA</th><th>Diff</th><th>Playoffs</th></tr>
+              <tr><th className="num">Year</th><th className="num">W</th><th className="num">L</th><th className="num">PF</th><th className="num">PA</th><th className="num">Diff</th><th>Playoffs</th></tr>
             </thead>
             <tbody>
               {[...teamHistory].reverse().map((s, i) => (
-                <tr key={i}>
-                  <td>{s.year}</td>
-                  <td>{s.wins}</td><td>{s.losses}</td>
-                  <td>{s.pointsFor}</td><td>{s.pointsAgainst}</td>
-                  <td className={s.pointsFor - s.pointsAgainst >= 0 ? 'pos' : 'neg'}>
+                <tr key={i} className={s.championshipRound === 'champion' ? 'roster-row-starter' : ''}>
+                  <td className="num text-mono">{s.year}</td>
+                  <td className="num">{s.wins}</td><td className="num">{s.losses}</td>
+                  <td className="num">{s.pointsFor}</td><td className="num">{s.pointsAgainst}</td>
+                  <td className={`num ${s.pointsFor - s.pointsAgainst >= 0 ? 'val-pos' : 'val-neg'}`}>
                     {s.pointsFor - s.pointsAgainst > 0 ? '+' : ''}{s.pointsFor - s.pointsAgainst}
                   </td>
-                  <td className={s.championshipRound === 'champion' ? 'pos' : ''}>
+                  <td className={s.championshipRound === 'champion' ? 'val-pos' : ''}>
                     {formatPlayoffRound(s.madePlayoffs, s.championshipRound)}
                   </td>
                 </tr>
@@ -4851,19 +5229,23 @@ function HistoryView({ history, teams, myTeamId }: {
         )}
       </div>
 
+      {/* Retired players */}
       {history.retiredPlayers.length > 0 && (
-        <div className="history-section">
-          <div className="history-section-title">Retired Players</div>
-          <table className="history-table">
-            <thead><tr><th>Name</th><th>Pos</th><th>Year</th><th>Age</th><th>Final OVR</th></tr></thead>
+        <div className="roster-group">
+          <div className="roster-group-header" style={{ cursor: 'default' }}>
+            <span className="roster-group-name">Retired Players</span>
+            <span className="roster-group-count">{history.retiredPlayers.length}</span>
+          </div>
+          <table className="ui-table roster-table">
+            <thead><tr><th>Name</th><th>Pos</th><th className="num">Year</th><th className="num">Age</th><th className="num">OVR</th></tr></thead>
             <tbody>
               {[...history.retiredPlayers].reverse().slice(0, 25).map(p => (
                 <tr key={p.playerId}>
                   <td>{p.name}</td>
-                  <td className="muted">{p.position}</td>
-                  <td>{p.retirementYear}</td>
-                  <td>{p.finalAge}</td>
-                  <td>{p.finalOverall}</td>
+                  <td className="roster-pos-cell">{p.position}</td>
+                  <td className="num text-mono">{p.retirementYear}</td>
+                  <td className="num">{p.finalAge}</td>
+                  <td className={`num ovr-cell${p.finalOverall >= 80 ? ' ovr-elite' : p.finalOverall < 60 ? ' ovr-low' : ''}`}>{p.finalOverall}</td>
                 </tr>
               ))}
             </tbody>
@@ -4908,7 +5290,7 @@ function fmtNewsAge(createdAt: number): string {
   return `${diffD}d`;
 }
 
-function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNavTo, onWatchGame, onSimGame }: {
+function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNavTo, onWatchGame, onSimGame, onViewPlayer, onViewTeam }: {
   league: League;
   myTeamId: string;
   standings: Standing[];
@@ -4917,6 +5299,8 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
   onNavTo: (t: string) => void;
   onWatchGame: (gameId: string) => void;
   onSimGame: () => void;
+  onViewPlayer?: (id: string) => void;
+  onViewTeam?: (teamId: string) => void;
 }) {
   const team    = league.teams.find(t => t.id === myTeamId)!;
   const games   = league.currentSeason.games;
@@ -4978,13 +5362,6 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
     .filter(g => g.status === 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId))
     .slice(-5).reverse();
 
-  // News feed — my team first, then others, up to 20 items
-  const allNews  = (league.news ?? []).slice().sort((a, b) => b.createdAt - a.createdAt);
-  const feedNews = [
-    ...allNews.filter(n =>  n.teamIds.includes(myTeamId)).slice(0, 4),
-    ...allNews.filter(n => !n.teamIds.includes(myTeamId)).slice(0, 8),
-  ].slice(0, 12);
-
   const weeklyReport = useMemo(() => generateWeeklyReport(league, standings), [league, standings]);
 
   return (
@@ -5019,8 +5396,8 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
               <div className="dash-next-matchup">
                 <span className="muted">Week {nextGame.week} · </span>
                 {nextGame.homeTeam.id === myTeamId
-                  ? <>vs <strong>{nextGame.awayTeam.name}</strong></>
-                  : <>@ <strong>{nextGame.homeTeam.name}</strong></>}
+                  ? <>vs <button className="link-btn" onClick={() => onViewTeam?.(nextGame.awayTeam.id)}><strong>{nextGame.awayTeam.name}</strong></button></>
+                  : <>@ <button className="link-btn" onClick={() => onViewTeam?.(nextGame.homeTeam.id)}><strong>{nextGame.homeTeam.name}</strong></button></>}
               </div>
               <div className="dash-next-actions">
                 <button className="btn-watch" onClick={() => onWatchGame(nextGame.id)}>
@@ -5096,109 +5473,67 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
       {/* ── Schedule strip ──────────────────────────────────────── */}
       <DashboardSchedule games={games} myTeamId={myTeamId} currentWeek={league.currentWeek} onViewGame={onWatchGame} />
 
-      {/* ── Body: news feed (left) + sidebar (right) ────────────── */}
+      {/* ── Dashboard body panels ──────────────────────────────── */}
       <div className="dash-body">
 
-        {/* Weekly Report + News feed */}
-        <div className="dash-feed">
-          {weeklyReport && (
-            <div className="wr-panel">
-              <div className="wr-header">
-                <span className="wr-title">Week {weeklyReport.week} Report</span>
-                <span className="wr-year">{weeklyReport.year} Season</span>
-              </div>
-
-              {/* Headlines */}
-              <div className="wr-headlines">
-                {weeklyReport.headlines.map((h, i) => (
-                  <div key={i} className="wr-headline">{h}</div>
-                ))}
-              </div>
-
-              {/* Notable games */}
-              {weeklyReport.notableGames.length > 0 && (
-                <div className="wr-section">
-                  <div className="wr-section-title">Notable Games</div>
-                  <div className="wr-games">
-                    {weeklyReport.notableGames.map((g, i) => (
-                      <div key={i} className="wr-game">
-                        <span className="wr-game-score">{g.away} {g.awayScore} – {g.homeScore} {g.home}</span>
-                        <span className="wr-game-tag">{g.tag}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Standout players */}
-              {weeklyReport.standoutPlayers.length > 0 && (
-                <div className="wr-section">
-                  <div className="wr-section-title">Top Performers</div>
-                  <div className="wr-performers">
-                    {weeklyReport.standoutPlayers.map((p, i) => (
-                      <div key={i} className="wr-performer">
-                        <span className="wr-performer-name">{p.name}</span>
-                        <span className="wr-performer-team">{p.teamAbbr}</span>
-                        <span className="wr-performer-line">{p.line}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Standout teams */}
-              {weeklyReport.standoutTeams.length > 0 && (
-                <div className="wr-section">
-                  <div className="wr-section-title">Teams to Watch</div>
-                  {weeklyReport.standoutTeams.map((t, i) => (
-                    <div key={i} className="wr-team-line">
-                      <span className="wr-team-abbr">{t.abbr}</span>
-                      <span className="wr-team-detail">{t.detail}</span>
+        {/* Weekly Report (top of dashboard) */}
+        {weeklyReport && (
+          <div className="wr-panel">
+            <div className="wr-header">
+              <span className="wr-title">Week {weeklyReport.week} Report</span>
+              <span className="wr-year">{weeklyReport.year} Season</span>
+            </div>
+            <div className="wr-headlines">
+              {weeklyReport.headlines.map((h, i) => (
+                <div key={i} className="wr-headline">{h}</div>
+              ))}
+            </div>
+            {weeklyReport.notableGames.length > 0 && (
+              <div className="wr-section">
+                <div className="wr-section-title">Notable Games</div>
+                <div className="wr-games">
+                  {weeklyReport.notableGames.map((g, i) => (
+                    <div key={i} className="wr-game">
+                      <span className="wr-game-score">{g.away} {g.awayScore} – {g.homeScore} {g.home}</span>
+                      <span className="wr-game-tag">{g.tag}</span>
                     </div>
                   ))}
                 </div>
-              )}
-
-              {/* Meta summary */}
-              {weeklyReport.metaSummary && (
-                <div className="wr-meta">{weeklyReport.metaSummary}</div>
-              )}
-            </div>
-          )}
-
-          <div className="dash-feed-header">
-            <span className="dash-panel-title">League Feed</span>
-            <button className="dash-panel-link" onClick={() => onNavTo('news')}>All news →</button>
-          </div>
-          {feedNews.length === 0 && (
-            <div className="dash-feed-empty muted">No news yet this season. Advance a week to generate stories.</div>
-          )}
-          {feedNews.map(n => {
-            const src = FEED_SOURCE[n.type] ?? { name: 'NFL', handle: 'nfl', avatar: '🏈' };
-            const isMine = n.teamIds.includes(myTeamId);
-            return (
-              <div key={n.id} className={`feed-item${isMine ? ' feed-mine' : ''}`}>
-                <div className="feed-header">
-                  <span className="feed-avatar">{src.avatar}</span>
-                  <span className="feed-name">{src.name}</span>
-                  <span className="feed-handle muted">@{src.handle}</span>
-                  <span className="feed-dot muted">·</span>
-                  <span className="feed-time muted">{fmtNewsAge(n.createdAt)}</span>
-                  {isMine && <span className="feed-mine-tag">Your Team</span>}
-                </div>
-                <div className="feed-headline">{n.headline}</div>
-                {n.body && <div className="feed-body muted">{n.body}</div>}
-                <div className="feed-footer">
-                  <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>{NEWS_TYPE_LABEL[n.type] ?? n.type}</span>
-                  <span className="feed-week-tag muted">Wk {n.week}</span>
+              </div>
+            )}
+            {weeklyReport.standoutPlayers.length > 0 && (
+              <div className="wr-section">
+                <div className="wr-section-title">Top Performers</div>
+                <div className="wr-performers">
+                  {weeklyReport.standoutPlayers.map((p, i) => (
+                    <div key={i} className="wr-performer">
+                      <span className="wr-performer-name">{p.name}</span>
+                      <span className="wr-performer-team">{p.teamAbbr}</span>
+                      <span className="wr-performer-line">{p.line}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            );
-          })}
-        </div>
+            )}
+            {weeklyReport.standoutTeams.length > 0 && (
+              <div className="wr-section">
+                <div className="wr-section-title">Teams to Watch</div>
+                {weeklyReport.standoutTeams.map((t, i) => (
+                  <div key={i} className="wr-team-line">
+                    <span className="wr-team-abbr">{t.abbr}</span>
+                    <span className="wr-team-detail">{t.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {weeklyReport.metaSummary && (
+              <div className="wr-meta">{weeklyReport.metaSummary}</div>
+            )}
+          </div>
+        )}
 
-        {/* Sidebar */}
-        <div className="dash-sidebar">
+        {/* Panels grid */}
+        <div className="dash-panels">
 
           {/* Division standings */}
           <div className="dash-panel">
@@ -5209,7 +5544,7 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
             {divStandings.slice(0, 4).map((s, i) => (
               <div key={s.team.id} className={`dash-stand-row${s.team.id === myTeamId ? ' dash-my-team' : ''}`}>
                 <span className="dash-stand-rank">{i + 1}</span>
-                <span className="dash-stand-abbr">{s.team.abbreviation}</span>
+                <button className="link-btn dash-stand-abbr" onClick={() => onViewTeam?.(s.team.id)}>{s.team.abbreviation}</button>
                 <span className="dash-stand-rec">{s.w}–{s.l}</span>
                 <span className={`dash-stand-diff ${s.pf - s.pa >= 0 ? 'pos' : 'neg'}`}>
                   {s.pf - s.pa >= 0 ? '+' : ''}{s.pf - s.pa}
@@ -5235,7 +5570,9 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
                 {majorAwards.map(a => (
                   <div key={a.type} className="dash-award-row">
                     <span className="dash-award-label">{AWARD_LABELS[a.type] ?? a.type}</span>
-                    <span className="dash-award-winner">{a.playerName ?? a.coachName ?? '—'}</span>
+                    {a.playerId
+                      ? <button className="link-btn dash-award-winner" onClick={() => onViewPlayer?.(a.playerId!)}>{a.playerName ?? '—'}</button>
+                      : <span className="dash-award-winner">{a.playerName ?? a.coachName ?? '—'}</span>}
                     {a.teamName && <span className="dash-award-team muted">{a.teamName}</span>}
                   </div>
                 ))}
@@ -5256,7 +5593,7 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
                 </div>
                 {recent.map(e => (
                   <div key={e.playerId} className="dash-hof-row">
-                    <span className="dash-hof-name">★ {e.name}</span>
+                    <button className="link-btn dash-hof-name" onClick={() => onViewPlayer?.(e.playerId)}>★ {e.name}</button>
                     <span className="dash-hof-pos muted">{e.position}</span>
                     <span className="dash-hof-year muted">{e.inductionYear}</span>
                   </div>
@@ -5552,8 +5889,8 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
                 : ''}
             </button>
           </div>
-        </div>
-      </div>
+        </div>{/* end dash-panels */}
+      </div>{/* end dash-body */}
     </div>
   );
 }
@@ -6395,36 +6732,80 @@ function PlayoffView({ playoff, teams, seasonHistory, history, league: leagueObj
 
       {mode === 'bracket' && (
         <>
-          {playoff?.championId && (
-            <div className={`champion-banner${isMyTeam(playoff.championId) ? ' champion-banner-mine' : ''}`}>
-              🏆 {playoff.year} Champions: <strong>{playoff.championName}</strong>
-            </div>
-          )}
+          {!playoff && <div className="ui-empty">Playoffs have not started yet.</div>}
 
-          {!playoff && <p className="muted">Playoffs have not started yet.</p>}
+          {playoff && (() => {
+            const icRounds = ROUND_ORDER.slice(0, 3).map(r => ({
+              round: r, label: ROUND_LABELS[r]!,
+              matchups: playoff.matchups.filter(m => m.round === r && m.conference === 'IC'),
+            }));
+            const scRounds = ROUND_ORDER.slice(0, 3).map(r => ({
+              round: r, label: ROUND_LABELS[r]!,
+              matchups: playoff.matchups.filter(m => m.round === r && m.conference === 'SC'),
+            }));
+            const champMatchup = playoff.matchups.find(m => m.round === 'championship');
 
-          {roundGroups.map(g => (
-            <div key={g.round} className="po-round-section">
-              <h3 className={`po-round-title${g.round === 'championship' ? ' championship' : ''}`}>
-                {g.label}
-              </h3>
-              <div className={`po-matchups${g.round === 'championship' ? ' po-matchups-championship' : ''}`}>
-                {g.matchups.map(m => (
-                  <MatchupCard key={m.id} m={m} isChampionship={g.round === 'championship'} />
-                ))}
+            return (
+              <div className="bracket-wrap">
+                {playoff.championId && (
+                  <div className={`bracket-champion${isMyTeam(playoff.championId) ? ' bracket-champion-mine' : ''}`}>
+                    <div className="bracket-champion-trophy">🏆</div>
+                    <div className="bracket-champion-year">{playoff.year} Champions</div>
+                    <div className="bracket-champion-name">{playoff.championName}</div>
+                  </div>
+                )}
+
+                <div className="bracket-flow">
+                  <div className="bracket-wing">
+                    <div className="bracket-wing-label">Iron Conference</div>
+                    <div className="bracket-wing-rounds">
+                      {icRounds.filter(r => r.matchups.length > 0).map(g => (
+                        <div key={g.round} className="bracket-round">
+                          <div className="bracket-round-label">{g.label}</div>
+                          <div className="bracket-round-matchups">
+                            {g.matchups.map(m => <MatchupCard key={m.id} m={m} />)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bracket-center">
+                    <div className="bracket-round">
+                      <div className="bracket-round-label bracket-round-label-champ">Championship</div>
+                      {champMatchup
+                        ? <MatchupCard m={champMatchup} isChampionship />
+                        : <div className="bracket-tbd">TBD</div>}
+                    </div>
+                  </div>
+
+                  <div className="bracket-wing">
+                    <div className="bracket-wing-label">Shield Conference</div>
+                    <div className="bracket-wing-rounds">
+                      {scRounds.filter(r => r.matchups.length > 0).map(g => (
+                        <div key={g.round} className="bracket-round">
+                          <div className="bracket-round-label">{g.label}</div>
+                          <div className="bracket-round-matchups">
+                            {g.matchups.map(m => <MatchupCard key={m.id} m={m} />)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })()}
 
           {seasonHistory.length > 0 && (
-            <div className="po-round-section">
-              <h3 className="po-round-title">Past Champions</h3>
-              <div className="po-past-champions">
+            <div className="bracket-history">
+              <div className="bracket-history-title">Past Champions</div>
+              <div className="bracket-history-list">
                 {[...seasonHistory].reverse().map(r => (
-                  <div key={r.year} className={`po-past-champion-row${r.championId === myTeamId ? ' my-team' : ''}`}>
-                    <span className="po-past-year">{r.year}</span>
-                    <span className="po-past-name">{r.championName}</span>
-                    {r.championId === myTeamId && <span className="po-past-mine">★</span>}
+                  <div key={r.year} className={`bracket-history-row${r.championId === myTeamId ? ' bracket-history-mine' : ''}`}>
+                    <span className="bracket-history-year">{r.year}</span>
+                    <span className="bracket-history-name">{r.championName}</span>
+                    {r.championId === myTeamId && <span className="ui-badge ui-badge--primary">You</span>}
                   </div>
                 ))}
               </div>
@@ -7929,7 +8310,13 @@ const NEWS_FILTER_CATEGORY: Record<string, string> = {
   gm_milestone:    'awards',
 };
 
-type NewsFilter = 'all' | 'games' | 'transactions' | 'awards' | 'milestones';
+type NewsFilter = 'all' | 'my-team' | 'games' | 'transactions' | 'awards' | 'milestones';
+
+const NEWS_IMPORTANCE: Record<string, number> = {
+  championship: 3, hall_of_fame: 3, ring_of_honor: 2, retired_jersey: 2,
+  playoff_result: 2, award: 2, trade: 2, upset: 2, gm_milestone: 2,
+  milestone: 1, big_performance: 1, stat_race: 1, streak: 1,
+};
 
 function NewsView({ news, myTeamId, onViewPlayer }: {
   news: NewsItem[];
@@ -7938,73 +8325,99 @@ function NewsView({ news, myTeamId, onViewPlayer }: {
 }) {
   const [filter, setFilter] = useState<NewsFilter>('all');
 
-  const filtered = filter === 'all'
-    ? news
-    : news.filter(n => (NEWS_FILTER_CATEGORY[n.type] ?? 'other') === filter);
+  const sorted = [...news].sort((a, b) => b.createdAt - a.createdAt);
+  const myTeamCount = sorted.filter(n => n.teamIds.includes(myTeamId)).length;
 
-  const filters: { id: NewsFilter; label: string }[] = [
+  let filtered: NewsItem[];
+  if (filter === 'my-team') {
+    filtered = sorted.filter(n => n.teamIds.includes(myTeamId));
+  } else if (filter === 'all') {
+    filtered = sorted;
+  } else {
+    filtered = sorted.filter(n => (NEWS_FILTER_CATEGORY[n.type] ?? 'other') === filter);
+  }
+
+  const filters: { id: NewsFilter; label: string; count?: number }[] = [
     { id: 'all',          label: 'All' },
+    { id: 'my-team',      label: 'My Team', count: myTeamCount },
     { id: 'games',        label: 'Games' },
     { id: 'transactions', label: 'Transactions' },
     { id: 'awards',       label: 'Awards' },
+    { id: 'milestones',   label: 'Milestones' },
   ];
 
   return (
-    <section className="news-section">
-      <div className="news-page-header">
-        <h2>League News</h2>
+    <section className="roster-page">
+
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="roster-header">
+        <div className="roster-header-left">
+          <h2 className="roster-title">League News</h2>
+        </div>
+        <div className="roster-header-stats">
+          <div className="roster-header-stat"><span className="roster-header-val">{news.length}</span><span className="roster-header-lbl">Stories</span></div>
+          {myTeamCount > 0 && <div className="roster-header-stat"><span className="roster-header-val" style={{ color: 'var(--primary)' }}>{myTeamCount}</span><span className="roster-header-lbl">Your Team</span></div>}
+        </div>
       </div>
-      <div className="news-filter-bar">
+
+      {/* ── Filters ────────────────────────────────────────────── */}
+      <div className="contracts-tabs">
         {filters.map(f => (
           <button
             key={f.id}
-            className={`news-filter-btn${filter === f.id ? ' active' : ''}`}
+            className={filter === f.id ? 'active' : ''}
             onClick={() => setFilter(f.id)}
           >
             {f.label}
+            {f.count != null && f.count > 0 && <span className="ui-count">{f.count}</span>}
           </button>
         ))}
       </div>
+
+      {/* ── Feed ───────────────────────────────────────────────── */}
       {filtered.length === 0
-        ? <p className="muted" style={{ padding: '1rem 0' }}>
-            {news.length === 0 ? 'No news yet — play some games!' : 'No news in this category.'}
-          </p>
-        : filtered.map(n => (
-          <NewsCard
-            key={n.id}
-            item={n}
-            isMyTeam={n.teamIds.includes(myTeamId)}
-            onViewPlayer={onViewPlayer}
-          />
-        ))
+        ? <div className="ui-empty">{news.length === 0 ? 'No news yet — advance the week to generate stories.' : 'No news in this category.'}</div>
+        : <div className="news-feed">
+            {filtered.map(n => (
+              <NewsCard
+                key={n.id}
+                item={n}
+                isMyTeam={n.teamIds.includes(myTeamId)}
+                importance={NEWS_IMPORTANCE[n.type] ?? 0}
+                onViewPlayer={onViewPlayer}
+              />
+            ))}
+          </div>
       }
     </section>
   );
 }
 
-function NewsCard({ item: n, isMyTeam, onViewPlayer }: {
+function NewsCard({ item: n, isMyTeam, importance, onViewPlayer }: {
   item: NewsItem;
   isMyTeam: boolean;
+  importance?: number;
   onViewPlayer?: (id: string) => void;
 }) {
   const playerMentions = n.mentions?.filter(m => m.entityType === 'player') ?? [];
+  const imp = importance ?? 0;
   return (
-    <div className={`news-item ${NEWS_TYPE_CLASS[n.type] ?? ''}${isMyTeam ? ' news-item-mine' : ''}`}>
+    <div className={`news-item ${NEWS_TYPE_CLASS[n.type] ?? ''}${isMyTeam ? ' news-item-mine' : ''}${imp >= 3 ? ' news-item-major' : imp >= 2 ? ' news-item-notable' : ''}`}>
       <div className="news-header">
         <span className={`news-badge ${NEWS_TYPE_CLASS[n.type] ?? ''}`}>
           {NEWS_TYPE_LABEL[n.type] ?? n.type}
         </span>
+        {isMyTeam && <span className="news-mine-tag">Your Team</span>}
         <span className="news-meta">
-          {n.week > 0 ? `Wk ${n.week} · ` : ''}{n.year}
+          {n.week > 0 ? `Wk ${n.week}` : ''}{n.week > 0 && n.year ? ' · ' : ''}{n.year}
         </span>
-        {isMyTeam && <span className="news-mine-dot" title="Involves your team" />}
       </div>
       <div className="news-headline">{n.headline}</div>
-      <div className="news-body">{n.body}</div>
+      {n.body && <div className="news-body">{n.body}</div>}
       {playerMentions.length > 0 && onViewPlayer && (
         <div className="news-mentions">
           {playerMentions.map(m => (
-            <button key={m.id} className="news-mention-btn" onClick={() => onViewPlayer(m.id)}>
+            <button key={m.id} className="entity-link news-mention-btn" onClick={() => onViewPlayer(m.id)}>
               {m.name}
             </button>
           ))}
@@ -8069,6 +8482,7 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
   const [receiveSet,    setReceiveSet]     = useState<Set<string>>(new Set());
   const [proposeBusy,   setProposeBusy]   = useState(false);
   const [proposeError,  setProposeError]  = useState<string | null>(null);
+  const [proposeSuccess, setProposeSuccess] = useState<string | null>(null);
 
   // Shop player state
   const [shopPlayerId,  setShopPlayerId]  = useState('');
@@ -8130,10 +8544,12 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
 
   async function submitProposal() {
     if (!targetTeamId || (fromAssets.length === 0 && toAssets.length === 0)) return;
-    setProposeBusy(true); setProposeError(null);
+    setProposeBusy(true); setProposeError(null); setProposeSuccess(null);
     try {
+      const partnerName = teamName(targetTeamId);
       await onPropose(targetTeamId, fromAssets, toAssets);
       setGiveSet(new Set()); setReceiveSet(new Set()); setTargetTeamId('');
+      setProposeSuccess(`Trade proposal sent to ${partnerName}. Check incoming proposals for their response.`);
     } catch (e) {
       setProposeError(friendlyError(e));
     } finally {
@@ -8169,13 +8585,81 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
     return '';
   }
 
-  return (
-    <section>
-      <h2>Trades</h2>
+  // Grouped player rendering helper
+  function renderGroupedChecklist(roster: Player[], selectedSet: Set<string>, onToggle: (key: string) => void, picks: PickAsset[]) {
+    return (
+      <div className="trade-asset-browser">
+        {/* Draft picks section */}
+        {picks.length > 0 && (
+          <div className="trade-picks-section">
+            <div className="trade-picks-header">Draft Picks</div>
+            <div className="trade-picks-list">
+              {picks.map(pk => {
+                const k = pickKey(pk); const checked = selectedSet.has(k);
+                return (
+                  <label key={k} className={`trade-check pick${checked ? ' selected' : ''}`}>
+                    <input type="checkbox" checked={checked} onChange={() => onToggle(k)} />
+                    <span className="trade-pick-label">{pk.year} R{pk.round}</span>
+                    <span className="muted">{pk.originalTeamName}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {/* Position groups */}
+        {ROSTER_POS_GROUPS.map(group => {
+          const players = roster
+            .filter(p => group.positions.includes(p.position))
+            .sort((a, b) => b.scoutedOverall - a.scoutedOverall);
+          if (players.length === 0) return null;
+          return (
+            <div key={group.label} className="trade-pos-group">
+              <div className="trade-pos-header">
+                <span className="trade-pos-name">{group.label}</span>
+                <span className="trade-pos-count">{players.length}</span>
+              </div>
+              <div className="trade-pos-list">
+                {players.map(p => {
+                  const k = `p:${p.id}`; const checked = selectedSet.has(k);
+                  return (
+                    <label key={k} className={`trade-check${checked ? ' selected' : ''}`}>
+                      <input type="checkbox" checked={checked} onChange={() => onToggle(k)} />
+                      <span className="trade-check-name">{p.name}</span>
+                      <span className="trade-check-pos">{p.position}</span>
+                      <span className={`trade-check-ovr${p.scoutedOverall >= 80 ? ' ovr-elite' : p.scoutedOverall < 60 ? ' ovr-low' : ''}`}>{p.scoutedOverall}</span>
+                      <span className="trade-check-sal">${p.salary}M</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        {roster.length === 0 && picks.length === 0 && <div className="ui-empty ui-empty--compact">No assets available.</div>}
+      </div>
+    );
+  }
 
+  return (
+    <section className="roster-page">
+
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="roster-header">
+        <div className="roster-header-left">
+          <h2 className="roster-title">Trades</h2>
+        </div>
+        <div className="roster-header-stats">
+          {incoming.length > 0 && <div className="roster-header-stat"><span className="roster-header-val neg">{incoming.length}</span><span className="roster-header-lbl">Incoming</span></div>}
+          <div className="roster-header-stat"><span className="roster-header-val">{history.filter(p => p.status === 'accepted').length}</span><span className="roster-header-lbl">Completed</span></div>
+          <div className="roster-header-stat"><span className="roster-header-val">${(CAP_LIMIT - myPayroll).toFixed(1)}M</span><span className="roster-header-lbl">Cap Space</span></div>
+        </div>
+      </div>
+
+      {/* ── Incoming Proposals ──────────────────────────────────── */}
       {incoming.length > 0 && (
-        <>
-          <h3>Incoming Proposals</h3>
+        <div className="trade-section">
+          <div className="trade-section-title">Incoming Proposals <span className="ui-count">{incoming.length}</span></div>
           {respondError && <div className="form-error">{respondError}</div>}
           {incoming.map((p: TradeProposal) => {
             const gv = p.fromAssets.reduce((s, a) => s + assetDisplayValue(a), 0);
@@ -8185,16 +8669,17 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
                 <div className="trade-teams">
                   <strong>{teamName(p.fromTeamId)}</strong>
                   <FoPersonalityBadge personality={league.teams.find(t => t.id === p.fromTeamId)?.frontOffice} size="sm" />
-                  {' → '}<strong>You</strong>
+                  <span className="muted">→</span>
+                  <strong>You</strong>
                 </div>
                 <div className="trade-sides">
                   <div className="trade-side">
-                    <span className="trade-side-label">They give ({gv})</span>
+                    <span className="trade-side-label">They give <span className="muted">({gv})</span></span>
                     {p.fromAssets.map((a, i) => <div key={i} className="trade-asset">{assetLabel(a)}</div>)}
                     {p.fromAssets.length === 0 && <div className="muted">nothing</div>}
                   </div>
                   <div className="trade-side">
-                    <span className="trade-side-label">You give ({rv})</span>
+                    <span className="trade-side-label">You give <span className="muted">({rv})</span></span>
                     {p.toAssets.map((a, i) => <div key={i} className="trade-asset">{assetLabel(a)}</div>)}
                     {p.toAssets.length === 0 && <div className="muted">nothing</div>}
                   </div>
@@ -8206,141 +8691,138 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
               </div>
             );
           })}
-        </>
+        </div>
       )}
 
-      <h3>Propose Trade</h3>
-      {proposeError && <div className="form-error">{proposeError}</div>}
-      <div className="trade-builder">
-        <div className="trade-builder-row">
-          <label>Target team:</label>
-          <select value={targetTeamId} onChange={e => { setTargetTeamId(e.target.value); setGiveSet(new Set()); setReceiveSet(new Set()); }}>
-            <option value="">— select team —</option>
-            {aiTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </div>
+      {/* ── Trade Builder ──────────────────────────────────────── */}
+      <div className="trade-section">
+        <div className="trade-section-title">Propose Trade</div>
+        {proposeError && <div className="form-error">{proposeError}</div>}
+        {proposeSuccess && <div className="trade-success">{proposeSuccess}</div>}
 
-        {targetTeam && (
-          <>
-            {targetTeam.frontOffice && (
-              <div className="trade-partner-identity">
-                <FoPersonalityBadge personality={targetTeam.frontOffice} size="md" />
-                <span className="muted">{FO_DESC[targetTeam.frontOffice]}</span>
-              </div>
-            )}
-            <div className="trade-sides">
-              <div className="trade-side">
-                <strong>You give</strong>
-                <div className="trade-checklist">
-                  {myTeam.roster.map(p => {
-                    const k = `p:${p.id}`; const checked = giveSet.has(k);
-                    return (
-                      <label key={k} className={`trade-check ${checked ? 'selected' : ''}`}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleGive(k)} />
-                        {p.name} ({p.position}, {p.scoutedOverall} OVR, ${p.salary}M)
-                      </label>
-                    );
-                  })}
-                  {myPicks.map(pk => {
-                    const k = pickKey(pk); const checked = giveSet.has(k);
-                    return (
-                      <label key={k} className={`trade-check pick ${checked ? 'selected' : ''}`}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleGive(k)} />
-                        {pk.year} R{pk.round} pick ({pk.originalTeamName})
-                      </label>
-                    );
-                  })}
-                </div>
-                {giveVal > 0 && <div className="trade-value-badge">Value: {giveVal}</div>}
-              </div>
-              <div className="trade-side">
-                <strong>You receive</strong>
-                <div className="trade-checklist">
-                  {targetTeam.roster.map(p => {
-                    const k = `p:${p.id}`; const checked = receiveSet.has(k);
-                    return (
-                      <label key={k} className={`trade-check ${checked ? 'selected' : ''}`}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleReceive(k)} />
-                        {p.name} ({p.position}, {p.scoutedOverall} OVR, ${p.salary}M)
-                      </label>
-                    );
-                  })}
-                  {targetPicks.map(pk => {
-                    const k = pickKey(pk); const checked = receiveSet.has(k);
-                    return (
-                      <label key={k} className={`trade-check pick ${checked ? 'selected' : ''}`}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleReceive(k)} />
-                        {pk.year} R{pk.round} pick ({pk.originalTeamName})
-                      </label>
-                    );
-                  })}
-                </div>
-                {recvVal > 0 && <div className="trade-value-badge">Value: {recvVal}</div>}
-              </div>
-            </div>
-            {(fromAssets.length > 0 || toAssets.length > 0) && (
-              <div className={`trade-cap-impact ${postTradePayroll > CAP_LIMIT ? 'cap-over' : postTradePayroll > CAP_LIMIT * 0.92 ? 'cap-warn' : ''}`}>
-                Post-trade cap: ${postTradePayroll}M / ${CAP_LIMIT}M
-                {postTradePayroll > CAP_LIMIT && ' — exceeds cap!'}
-              </div>
-            )}
-            <div className="trade-submit-row">
-              <button
-                className="btn-primary"
-                disabled={proposeBusy || (fromAssets.length === 0 && toAssets.length === 0)}
-                onClick={submitProposal}
-              >
-                {proposeBusy ? 'Submitting…' : 'Submit Proposal'}
-              </button>
-              {giveVal > 0 && recvVal > 0 && (
-                <span className={`trade-fairness ${recvVal >= giveVal * 0.85 ? 'fair' : recvVal >= giveVal * 0.70 ? 'borderline' : 'unfair'}`}>
-                  {recvVal >= giveVal * 0.85 ? 'Fair trade' : recvVal >= giveVal * 0.70 ? 'Borderline' : 'Lopsided'}
-                </span>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      <h3 style={{ marginTop: '1.5rem' }}>Shop a Player</h3>
-      <div className="shop-player-panel">
-        <p className="muted" style={{ marginBottom: '0.6rem' }}>
-          Select one of your players to find CPU teams willing to make an offer.
-          Any generated offers will appear in Incoming Proposals above.
-        </p>
-        <div className="shop-player-row">
-          <select
-            value={shopPlayerId}
-            onChange={e => { setShopPlayerId(e.target.value); setShopStatus(null); }}
-            className="shop-player-select"
-          >
-            <option value="">— select player —</option>
-            {[...myTeam.roster]
-              .sort((a, b) => b.scoutedOverall - a.scoutedOverall)
-              .map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.position}, OVR {p.scoutedOverall}, ${p.salary}M)
-                </option>
-              ))}
-          </select>
-          <button
-            className="btn-primary"
-            disabled={!shopPlayerId || globalBusy}
-            onClick={handleShop}
-          >
-            Find Offers
-          </button>
-        </div>
-        {shopStatus && (
-          <div className={`shop-status ${shopStatus.startsWith('No offers') ? 'muted' : 'shop-status-ok'}`}>
-            {shopStatus}
+        <div className="trade-builder">
+          <div className="trade-builder-row">
+            <label>Trade partner:</label>
+            <select value={targetTeamId} onChange={e => { setTargetTeamId(e.target.value); setGiveSet(new Set()); setReceiveSet(new Set()); }}>
+              <option value="">— select team —</option>
+              {aiTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            {targetTeam?.frontOffice && <FoPersonalityBadge personality={targetTeam.frontOffice} size="sm" />}
           </div>
-        )}
+
+          {targetTeam && (
+            <>
+              {/* Proposal summary strip */}
+              <div className="trade-summary">
+                <div className="trade-summary-side">
+                  <div className="trade-summary-label">You send ({fromAssets.length})</div>
+                  {fromAssets.length > 0
+                    ? <div className="trade-summary-assets">{fromAssets.map((a, i) => <span key={i} className="trade-summary-chip">{a.type === 'player' ? `${a.playerName} (${a.playerPos})` : `${a.year} R${a.round}`}</span>)}</div>
+                    : <div className="muted trade-summary-empty">Select players or picks below</div>}
+                  {giveVal > 0 && <div className="trade-summary-val">Value: {giveVal}</div>}
+                </div>
+                <div className="trade-summary-arrow">⇄</div>
+                <div className="trade-summary-side">
+                  <div className="trade-summary-label">You receive ({toAssets.length})</div>
+                  {toAssets.length > 0
+                    ? <div className="trade-summary-assets">{toAssets.map((a, i) => <span key={i} className="trade-summary-chip">{a.type === 'player' ? `${a.playerName} (${a.playerPos})` : `${a.year} R${a.round}`}</span>)}</div>
+                    : <div className="muted trade-summary-empty">Select players or picks below</div>}
+                  {recvVal > 0 && <div className="trade-summary-val">Value: {recvVal}</div>}
+                </div>
+              </div>
+
+              {/* Cap impact + fairness */}
+              {(fromAssets.length > 0 || toAssets.length > 0) && (
+                <div className="trade-impact-row">
+                  <div className={`trade-cap-impact${postTradePayroll > CAP_LIMIT ? ' cap-over' : postTradePayroll > CAP_LIMIT * 0.92 ? ' cap-warn' : ''}`}>
+                    Post-trade cap: ${postTradePayroll.toFixed(1)}M / ${CAP_LIMIT}M
+                    {postTradePayroll > CAP_LIMIT && ' — exceeds cap!'}
+                  </div>
+                  {giveVal > 0 && recvVal > 0 && (
+                    <span className={`trade-fairness ${recvVal >= giveVal * 0.85 ? 'fair' : recvVal >= giveVal * 0.70 ? 'borderline' : 'unfair'}`}>
+                      {recvVal >= giveVal * 0.85 ? 'Fair trade' : recvVal >= giveVal * 0.70 ? 'Borderline' : 'Lopsided'}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Submit */}
+              <div className="trade-submit-row">
+                <button
+                  className="btn-primary"
+                  disabled={proposeBusy || (fromAssets.length === 0 && toAssets.length === 0)}
+                  onClick={submitProposal}
+                >
+                  {proposeBusy ? 'Submitting…' : 'Submit Proposal'}
+                </button>
+                {(fromAssets.length > 0 || toAssets.length > 0) && (
+                  <button className="btn-sm" onClick={() => { setGiveSet(new Set()); setReceiveSet(new Set()); }}>Clear</button>
+                )}
+              </div>
+
+              {/* Two-sided asset browsers */}
+              <div className="trade-sides">
+                <div className="trade-side">
+                  <div className="trade-side-header">
+                    <strong>{myTeam.name}</strong>
+                    <span className="muted">{myTeam.roster.length} players · {myPicks.length} picks</span>
+                  </div>
+                  {renderGroupedChecklist(myTeam.roster, giveSet, toggleGive, myPicks)}
+                </div>
+                <div className="trade-side">
+                  <div className="trade-side-header">
+                    <strong>{targetTeam.name}</strong>
+                    <span className="muted">{targetTeam.roster.length} players · {targetPicks.length} picks</span>
+                  </div>
+                  {renderGroupedChecklist(targetTeam.roster, receiveSet, toggleReceive, targetPicks)}
+                </div>
+              </div>
+            </>
+          )}
+          {!targetTeam && <div className="ui-empty ui-empty--compact">Select a trade partner above to begin building a proposal.</div>}
+        </div>
       </div>
 
+      {/* ── Shop a Player ──────────────────────────────────────── */}
+      <div className="trade-section">
+        <div className="trade-section-title">Shop a Player</div>
+        <div className="shop-player-panel">
+          <div className="contracts-section-intro">Select one of your players to find CPU teams willing to make an offer.</div>
+          <div className="shop-player-row">
+            <select
+              value={shopPlayerId}
+              onChange={e => { setShopPlayerId(e.target.value); setShopStatus(null); }}
+              className="shop-player-select"
+            >
+              <option value="">— select player —</option>
+              {[...myTeam.roster]
+                .sort((a, b) => b.scoutedOverall - a.scoutedOverall)
+                .map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.position}, OVR {p.scoutedOverall}, ${p.salary}M)
+                  </option>
+                ))}
+            </select>
+            <button
+              className="btn-primary"
+              disabled={!shopPlayerId || globalBusy}
+              onClick={handleShop}
+            >
+              Find Offers
+            </button>
+          </div>
+          {shopStatus && (
+            <div className={`shop-status${shopStatus.startsWith('No offers') ? ' muted' : ' shop-status-ok'}`}>
+              {shopStatus}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── History ────────────────────────────────────────────── */}
       {history.length > 0 && (
-        <>
-          <h3 style={{ marginTop: '1.5rem' }}>Recent History</h3>
+        <div className="trade-section">
+          <div className="trade-section-title">Recent History</div>
           {history.map((p: TradeProposal) => {
             const isMine = p.fromTeamId === myTeamId;
             return (
@@ -8355,7 +8837,7 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
               </div>
             );
           })}
-        </>
+        </div>
       )}
     </section>
   );
@@ -8399,64 +8881,95 @@ function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason
 }) {
   const isMyTeam = selectedId === userTeamId;
   const payroll  = team.roster.reduce((s, p) => s + p.salary, 0);
+  const capSpace = CAP_LIMIT - payroll;
   const injured  = team.roster.filter(p => p.injuryWeeksRemaining > 0).length;
   const demands  = team.roster.filter(p => p.contractDemand).length;
+  const avgOvr   = team.roster.length > 0 ? Math.round(team.roster.reduce((s, p) => s + p.scoutedOverall, 0) / team.roster.length) : 0;
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  function toggleGroup(label: string) {
+    setCollapsed(prev => ({ ...prev, [label]: !prev[label] }));
+  }
 
   return (
-    <section>
+    <section className="roster-page">
+      {/* Header */}
       <div className="roster-header">
-        <h2>
-          Roster — {team.name}
-          {!isMyTeam && team.frontOffice && (
-            <FoPersonalityBadge personality={team.frontOffice} size="sm" />
-          )}
-        </h2>
-        <select value={selectedId} onChange={e => onSelect(e.target.value)}>
-          {teams.map(t => (
-            <option key={t.id} value={t.id}>{t.name}{t.id === userTeamId ? ' (You)' : ''}</option>
-          ))}
-        </select>
-        <span className="budgets">
-          {team.roster.length} players · Cap ${payroll}M
-          {injured > 0 && <span className="neg"> · {injured} IR</span>}
-          {isMyTeam && demands > 0 && <span className="expiring"> · {demands} demand{demands !== 1 ? 's' : ''}</span>}
-        </span>
+        <div className="roster-header-left">
+          <h2 className="roster-title">
+            Roster
+            {!isMyTeam && team.frontOffice && (
+              <FoPersonalityBadge personality={team.frontOffice} size="sm" />
+            )}
+          </h2>
+          <select className="roster-team-select" value={selectedId} onChange={e => onSelect(e.target.value)}>
+            {teams.map(t => (
+              <option key={t.id} value={t.id}>{t.name}{t.id === userTeamId ? ' (You)' : ''}</option>
+            ))}
+          </select>
+        </div>
+        <div className="roster-header-stats">
+          <div className="roster-header-stat"><span className="roster-header-val">{team.roster.length}</span><span className="roster-header-lbl">Players</span></div>
+          <div className="roster-header-stat"><span className="roster-header-val">{avgOvr}</span><span className="roster-header-lbl">Avg OVR</span></div>
+          <div className="roster-header-stat"><span className={`roster-header-val${capSpace < 5 ? ' neg' : ''}`}>${capSpace.toFixed(1)}M</span><span className="roster-header-lbl">Cap Space</span></div>
+          {injured > 0 && <div className="roster-header-stat"><span className="roster-header-val neg">{injured}</span><span className="roster-header-lbl">Injured</span></div>}
+          {isMyTeam && demands > 0 && <div className="roster-header-stat"><span className="roster-header-val" style={{ color: 'var(--warning)' }}>{demands}</span><span className="roster-header-lbl">Demands</span></div>}
+        </div>
       </div>
 
-      {ROSTER_POS_GROUPS.map(group => {
-        const players = team.roster
-          .filter(p => group.positions.includes(p.position))
-          .sort((a, b) => b.scoutedOverall - a.scoutedOverall);
-        if (players.length === 0) return null;
-        return (
-          <div key={group.label} className="roster-pos-group">
-            <div className="roster-pos-header">{group.label} <span className="roster-pos-count">{players.length}</span></div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs</th><th>Pro</th><th>Inj</th>
-                  {isMyTeam && <th></th>}
-                </tr>
-              </thead>
-              <tbody>
-                {players.map((p, i) => (
-                  <PlayerRow
-                    key={p.id}
-                    player={p}
-                    isStarter={i === 0}
-                    isMyTeam={isMyTeam}
-                    isOffseason={isOffseason}
-                    busy={busy}
-                    onRelease={() => onRelease(p.id)}
-                    onExtend={() => onExtend(p.id)}
-                    onViewPlayer={onViewPlayer}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
-      })}
+      {isMyTeam && !isOffseason && (demands > 0 || injured > 0) && (
+        <div className="ui-empty ui-empty--compact">Roster moves (cut, extend) available during the offseason.</div>
+      )}
+
+      {/* Position groups */}
+      <div className="roster-groups">
+        {ROSTER_POS_GROUPS.map(group => {
+          const players = team.roster
+            .filter(p => group.positions.includes(p.position))
+            .sort((a, b) => b.scoutedOverall - a.scoutedOverall);
+          if (players.length === 0) return null;
+          const groupAvg = Math.round(players.reduce((s, p) => s + p.scoutedOverall, 0) / players.length);
+          const groupInjured = players.filter(p => p.injuryWeeksRemaining > 0).length;
+          const isCollapsed = !!collapsed[group.label];
+
+          return (
+            <div key={group.label} className="roster-group">
+              <button className={`roster-group-header${isCollapsed ? ' roster-group-collapsed' : ''}`} onClick={() => toggleGroup(group.label)}>
+                <span className="roster-group-toggle">{isCollapsed ? '▸' : '▾'}</span>
+                <span className="roster-group-name">{group.label}</span>
+                <span className="roster-group-count">{players.length}</span>
+                <span className={`roster-group-ovr${groupAvg >= 75 ? ' pos' : groupAvg < 60 ? ' neg' : ''}`}>{groupAvg} OVR</span>
+                {groupInjured > 0 && <span className="roster-group-inj">{groupInjured} IR</span>}
+              </button>
+              {!isCollapsed && (
+                <table className="ui-table roster-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>Pos</th><th className="num">Age</th><th className="num">OVR</th><th className="num">Salary</th><th className="num">Yrs</th><th className="num">Pro</th><th>Status</th>
+                      {isMyTeam && <th></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {players.map((p, i) => (
+                      <PlayerRow
+                        key={p.id}
+                        player={p}
+                        isStarter={i === 0}
+                        isMyTeam={isMyTeam}
+                        isOffseason={isOffseason}
+                        busy={busy}
+                        onRelease={() => onRelease(p.id)}
+                        onExtend={() => onExtend(p.id)}
+                        onViewPlayer={onViewPlayer}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -8476,26 +8989,29 @@ function PlayerRow({ player: p, isStarter, isMyTeam, isOffseason, busy, onReleas
     ? DEV_TRAIT_BADGE[p.devTrait]
     : null;
   return (
-    <tr className={injured ? 'injured' : ''}>
-      <td>
+    <tr className={`roster-row${injured ? ' roster-row-injured' : ''}${isStarter ? ' roster-row-starter' : ''}`}>
+      <td className="roster-name-cell">
         {isStarter && <span className="starter-badge">S</span>}
         {onViewPlayer
-          ? <button className="player-name-link" onClick={() => onViewPlayer(p.id)}>{p.name}</button>
+          ? <button className="entity-link" onClick={() => onViewPlayer(p.id)}>{p.name}</button>
           : p.name}
-        {p.contractDemand && <span className="contract-demand-badge" title={`Wants $${p.contractDemand.salary}M/${p.contractDemand.years}yr`}> !</span>}
         {p.isRookie && <span className="rookie-badge">R</span>}
         {devBadge && <span className={`dev-trait-badge dev-trait-${p.devTrait}`} title={devBadge.label}>{devBadge.short}</span>}
       </td>
-      <td>{p.position}</td>
-      <td>{p.age}</td>
-      <td className="ovr-cell">{p.scoutedOverall}</td>
-      <td>${p.salary}M</td>
-      <td className={p.yearsRemaining === 1 ? 'expiring' : ''}>{p.yearsRemaining}yr</td>
-      <td className="muted">{p.yearsPro ?? 0}yr</td>
-      <td>{injured ? <span className="neg">IR:{p.injuryWeeksRemaining}wk</span> : <span className="muted">—</span>}</td>
+      <td className="roster-pos-cell">{p.position}</td>
+      <td className="num">{p.age}</td>
+      <td className={`num ovr-cell${p.scoutedOverall >= 80 ? ' ovr-elite' : p.scoutedOverall < 60 ? ' ovr-low' : ''}`}>{p.scoutedOverall}</td>
+      <td className="num">${p.salary}M</td>
+      <td className={`num${p.yearsRemaining === 1 ? ' expiring' : ''}`}>{p.yearsRemaining}yr</td>
+      <td className="num muted">{p.yearsPro ?? 0}</td>
+      <td className="roster-status-cell">
+        {injured && <span className="ui-badge ui-badge--danger">IR {p.injuryWeeksRemaining}wk</span>}
+        {p.contractDemand && <span className="ui-badge ui-badge--warning" title={`Wants $${p.contractDemand.salary}M/${p.contractDemand.years}yr`}>!</span>}
+        {!injured && !p.contractDemand && <span className="muted">—</span>}
+      </td>
       {isMyTeam && (
         <td className="action-cell">
-          {isOffseason && <button className="btn-sm btn-danger" disabled={busy} onClick={onRelease}>Release</button>}
+          {isOffseason && <button className="btn-sm btn-danger" disabled={busy} onClick={onRelease}>Cut</button>}
           {isOffseason && p.contractDemand && <button className="btn-sm btn-positive" disabled={busy} onClick={onExtend}>Extend</button>}
         </td>
       )}
@@ -8689,26 +9205,22 @@ function FreeAgentsView({ league, myTeamId, busy, onOffer }: {
   busy:      boolean;
   onOffer:   (playerId: string, salary: number, years: number) => void;
 }) {
-  const isOffseason = league.phase === 'offseason';
-  const myTeam      = league.teams.find(t => t.id === myTeamId)!;
-  const payroll     = myTeam.roster.reduce((s, p) => s + p.salary, 0);
+  const isOffseason  = league.phase === 'offseason';
+  const myTeam       = league.teams.find(t => t.id === myTeamId)!;
+  const payroll      = myTeam.roster.reduce((s, p) => s + p.salary, 0);
   const capRemaining = CAP_LIMIT - payroll;
   const freeAgents   = league.freeAgents;
+  const faAvgOvr     = freeAgents.length > 0 ? Math.round(freeAgents.reduce((s, p) => s + p.scoutedOverall, 0) / freeAgents.length) : 0;
+  const faInjured    = freeAgents.filter(p => p.injuryWeeksRemaining > 0).length;
 
-  const [posFilter, setPosFilter]               = useState('ALL');
-  const [offers, setOffers]                     = useState<Record<string, { salary: string; years: string }>>({});
+  const [offers, setOffers]       = useState<Record<string, { salary: string; years: string }>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  const positions = ['ALL', ...Array.from(new Set(freeAgents.map(p => p.position))).sort()];
-  let sorted = [...freeAgents].sort((a, b) => b.scoutedOverall - a.scoutedOverall);
-  if (posFilter !== 'ALL') sorted = sorted.filter(p => p.position === posFilter);
-
-  function getOffer(id: string) {
-    return offers[id] ?? { salary: '', years: '' };
-  }
+  function toggleGroup(label: string) { setCollapsed(prev => ({ ...prev, [label]: !prev[label] })); }
+  function getOffer(id: string) { return offers[id] ?? { salary: '', years: '' }; }
   function setOffer(id: string, field: 'salary' | 'years', val: string) {
     setOffers(prev => ({ ...prev, [id]: { ...getOffer(id), [field]: val } }));
   }
-
   function handleSubmitOffer(player: Player) {
     const o = getOffer(player.id);
     const salary = parseInt(o.salary, 10);
@@ -8721,85 +9233,118 @@ function FreeAgentsView({ league, myTeamId, busy, onOffer }: {
   const capPct = Math.min(100, (payroll / CAP_LIMIT) * 100);
 
   return (
-    <section>
-      <div className="fa-header">
-        <h2>Free Agents</h2>
-        <select value={posFilter} onChange={e => setPosFilter(e.target.value)} className="fa-pos-filter">
-          {positions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
-        </select>
-        <span className="muted">{sorted.length} player{sorted.length !== 1 ? 's' : ''}</span>
-      </div>
+    <section className="roster-page">
 
-      <div className="cap-bar-wrap">
-        <div className="cap-bar-label">
-          <span>Cap: ${payroll}M / ${CAP_LIMIT}M used</span>
-          <span className={capRemaining < 10 ? 'cap-bar-tight' : 'muted'}>${capRemaining}M remaining</span>
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="roster-header">
+        <div className="roster-header-left">
+          <h2 className="roster-title">Free Agents</h2>
         </div>
-        <div className="cap-bar-track">
-          <div className="cap-bar-fill" style={{ width: `${capPct}%`, background: capPct > 90 ? '#e55' : capPct > 75 ? '#e90' : '#4caf' }} />
+        <div className="roster-header-stats">
+          <div className="roster-header-stat"><span className="roster-header-val">{freeAgents.length}</span><span className="roster-header-lbl">Available</span></div>
+          <div className="roster-header-stat"><span className="roster-header-val">{faAvgOvr}</span><span className="roster-header-lbl">Avg OVR</span></div>
+          <div className="roster-header-stat"><span className={`roster-header-val${capRemaining < 10 ? ' neg' : ''}`}>${capRemaining.toFixed(1)}M</span><span className="roster-header-lbl">Cap Space</span></div>
+          {faInjured > 0 && <div className="roster-header-stat"><span className="roster-header-val neg">{faInjured}</span><span className="roster-header-lbl">Injured</span></div>}
         </div>
       </div>
 
-      {!isOffseason && <p className="muted" style={{ marginBottom: '0.75rem' }}>Signing available during offseason only.</p>}
+      {/* Cap bar */}
+      <div className="fa-cap-bar">
+        <div className="fa-cap-label">
+          <span>Cap: ${payroll.toFixed(1)}M / ${CAP_LIMIT}M</span>
+          <span className={capRemaining < 10 ? 'neg' : 'muted'}>${capRemaining.toFixed(1)}M remaining</span>
+        </div>
+        <div className="fa-cap-track">
+          <div className="fa-cap-fill" style={{ width: `${capPct}%`, background: capPct > 90 ? 'var(--danger)' : capPct > 75 ? 'var(--warning)' : 'var(--info)' }} />
+        </div>
+      </div>
 
-      {sorted.length === 0
-        ? <p className="muted">No free agents{posFilter !== 'ALL' ? ` at ${posFilter}` : ''}.</p>
-        : (
-          <table className="fa-table">
-            <thead>
-              <tr>
-                <th>Name</th><th>Pos</th><th>Age</th><th>OVR</th>
-                <th>Cur $</th><th>Asking</th>
-                {isOffseason && <><th>Offer $</th><th>Yrs</th><th></th></>}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map(p => {
-                const asking = calcFAAskingPrice(p);
-                const o      = getOffer(p.id);
-                return (
-                  <tr key={p.id}>
-                    <td>{p.name}{p.isRookie && <span className="rookie-badge">R</span>}</td>
-                    <td>{p.position}</td>
-                    <td>{p.age}</td>
-                    <td className="ovr-cell">{p.scoutedOverall}</td>
-                    <td>${p.salary}M</td>
-                    <td className="fa-asking">${asking.salary}M / {asking.years}yr</td>
-                    {isOffseason && (
-                      <>
-                        <td>
-                          <input
-                            type="number" min={1} className="fa-offer-input"
-                            placeholder={String(asking.salary)}
-                            value={o.salary}
-                            onChange={e => setOffer(p.id, 'salary', e.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="number" min={1} max={10} className="fa-offer-input fa-offer-years"
-                            placeholder={String(asking.years)}
-                            value={o.years}
-                            onChange={e => setOffer(p.id, 'years', e.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <button
-                            className="btn-sm btn-positive"
-                            disabled={busy || !o.salary || !o.years}
-                            onClick={() => handleSubmitOffer(p)}
-                          >
-                            Offer
-                          </button>
-                        </td>
-                      </>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+      {!isOffseason && <div className="ui-empty ui-empty--compact">Signing available during offseason only. Browse the market to plan ahead.</div>}
+
+      {/* ── Position groups ────────────────────────────────────── */}
+      <div className="roster-groups">
+        {ROSTER_POS_GROUPS.map(group => {
+          const players = freeAgents
+            .filter(p => group.positions.includes(p.position))
+            .sort((a, b) => b.scoutedOverall - a.scoutedOverall);
+          if (players.length === 0) return null;
+          const groupAvg = Math.round(players.reduce((s, p) => s + p.scoutedOverall, 0) / players.length);
+          const groupInj = players.filter(p => p.injuryWeeksRemaining > 0).length;
+          const isCollapsed = !!collapsed[group.label];
+
+          return (
+            <div key={group.label} className="roster-group">
+              <button className={`roster-group-header${isCollapsed ? ' roster-group-collapsed' : ''}`} onClick={() => toggleGroup(group.label)}>
+                <span className="roster-group-toggle">{isCollapsed ? '▸' : '▾'}</span>
+                <span className="roster-group-name">{group.label}</span>
+                <span className="roster-group-count">{players.length}</span>
+                <span className={`roster-group-ovr${groupAvg >= 70 ? ' pos' : groupAvg < 55 ? ' neg' : ''}`}>{groupAvg} OVR</span>
+                {groupInj > 0 && <span className="roster-group-inj">{groupInj} IR</span>}
+              </button>
+              {!isCollapsed && (
+                <table className="ui-table roster-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th><th>Pos</th><th className="num">Age</th><th className="num">OVR</th>
+                      <th className="num">Asking</th>
+                      {isOffseason && <><th>Offer $</th><th>Yrs</th><th></th></>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {players.map(p => {
+                      const asking = calcFAAskingPrice(p);
+                      const o      = getOffer(p.id);
+                      const injured = p.injuryWeeksRemaining > 0;
+                      return (
+                        <tr key={p.id} className={injured ? 'roster-row-injured' : ''}>
+                          <td className="roster-name-cell">
+                            <span>{p.name}</span>
+                            {p.isRookie && <span className="rookie-badge">R</span>}
+                            {injured && <span className="ui-badge ui-badge--danger">IR</span>}
+                          </td>
+                          <td className="roster-pos-cell">{p.position}</td>
+                          <td className="num">{p.age}</td>
+                          <td className={`num ovr-cell${p.scoutedOverall >= 80 ? ' ovr-elite' : p.scoutedOverall < 60 ? ' ovr-low' : ''}`}>{p.scoutedOverall}</td>
+                          <td className="num fa-asking">${asking.salary}M / {asking.years}yr</td>
+                          {isOffseason && (
+                            <>
+                              <td>
+                                <input
+                                  type="number" min={1} className="fa-offer-input"
+                                  placeholder={String(asking.salary)}
+                                  value={o.salary}
+                                  onChange={e => setOffer(p.id, 'salary', e.target.value)}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="number" min={1} max={10} className="fa-offer-input fa-offer-years"
+                                  placeholder={String(asking.years)}
+                                  value={o.years}
+                                  onChange={e => setOffer(p.id, 'years', e.target.value)}
+                                />
+                              </td>
+                              <td>
+                                <button
+                                  className="btn-sm btn-positive"
+                                  disabled={busy || !o.salary || !o.years}
+                                  onClick={() => handleSubmitOffer(p)}
+                                >
+                                  Offer
+                                </button>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -8810,9 +9355,11 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
   const team    = league.teams.find(t => t.id === myTeamId)!;
   const games   = league.currentSeason.games;
   const payroll = team.roster.reduce((s, p) => s + p.salary, 0);
+  const capSpace = CAP_LIMIT - payroll;
+  const injured  = team.roster.filter(p => p.injuryWeeksRemaining > 0).length;
 
   // Record
-  let w = 0, l = 0, t = 0, pf = 0, pa = 0;
+  let w = 0, l = 0, ties = 0, pf = 0, pa = 0;
   for (const g of games) {
     if (g.status !== 'final') continue;
     const isHome = g.homeTeam.id === myTeamId;
@@ -8823,8 +9370,12 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
     pf += myScore; pa += oppScore;
     if (myScore > oppScore) w++;
     else if (myScore < oppScore) l++;
-    else t++;
+    else ties++;
   }
+
+  const gamesPlayed = w + l + ties;
+  const ppg = gamesPlayed > 0 ? (pf / gamesPlayed).toFixed(1) : '—';
+  const oppPpg = gamesPlayed > 0 ? (pa / gamesPlayed).toFixed(1) : '—';
 
   // Next game
   const nextGame = games.find(g => g.status !== 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId));
@@ -8832,42 +9383,76 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
     .filter(g => g.status === 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId))
     .slice(-5).reverse();
 
+  // Roster breakdown by position group (matches actual player position values)
+  const posGroups = [
+    { label: 'QB', positions: ['QB'] },
+    { label: 'RB', positions: ['RB'] },
+    { label: 'WR', positions: ['WR'] },
+    { label: 'TE', positions: ['TE'] },
+    { label: 'OL', positions: ['OT', 'OG', 'C'] },
+    { label: 'DL', positions: ['DE', 'DT'] },
+    { label: 'LB', positions: ['OLB', 'MLB', 'LB'] },
+    { label: 'DB', positions: ['CB', 'FS', 'SS', 'S'] },
+    { label: 'K/P', positions: ['K', 'P'] },
+  ];
+  const rosterByGroup = posGroups.map(g => ({
+    ...g,
+    count: team.roster.filter(p => g.positions.includes(p.position)).length,
+    avgOvr: (() => {
+      const players = team.roster.filter(p => g.positions.includes(p.position));
+      return players.length > 0 ? Math.round(players.reduce((s, p) => s + p.scoutedOverall, 0) / players.length) : 0;
+    })(),
+  }));
+
+  // Team-wide average OVR
+  const avgOvr = team.roster.length > 0 ? Math.round(team.roster.reduce((s, p) => s + p.scoutedOverall, 0) / team.roster.length) : 0;
+
   return (
-    <section>
-      <div className="team-overview-header">
-        <h2 style={{ margin: 0 }}>{team.name}</h2>
-        {team.frontOffice && (
-          <div className="team-fo-identity">
-            <FoPersonalityBadge personality={team.frontOffice} size="md" />
-            <span className="team-fo-desc muted">{FO_DESC[team.frontOffice]}</span>
+    <section className="ov-page">
+
+      {/* ── Team header ────────────────────────────────────────── */}
+      <div className="ov-header">
+        <div className="ov-header-identity">
+          <div className="ov-header-logo">{team.abbreviation}</div>
+          <div>
+            <h2 className="ov-header-name">{team.name}</h2>
+            <div className="ov-header-meta">
+              <span className="ov-header-record">{w}–{l}{ties > 0 ? `–${ties}` : ''}</span>
+              {team.frontOffice && <FoPersonalityBadge personality={team.frontOffice} size="sm" />}
+            </div>
           </div>
-        )}
+        </div>
+        <div className="ov-header-stats">
+          <div className="ov-header-stat"><span className="ov-header-stat-val">{ppg}</span><span className="ov-header-stat-lbl">PPG</span></div>
+          <div className="ov-header-stat"><span className="ov-header-stat-val">{oppPpg}</span><span className="ov-header-stat-lbl">OPP PPG</span></div>
+          <div className="ov-header-stat">
+            <span className={`ov-header-stat-val ${pf - pa >= 0 ? 'pos' : 'neg'}`}>{pf - pa >= 0 ? '+' : ''}{pf - pa}</span>
+            <span className="ov-header-stat-lbl">DIFF</span>
+          </div>
+          <div className="ov-header-stat"><span className="ov-header-stat-val">{avgOvr}</span><span className="ov-header-stat-lbl">AVG OVR</span></div>
+        </div>
       </div>
 
-      <div className="team-overview-grid">
-        {/* Record */}
+      {/* ── Top cards ──────────────────────────────────────────── */}
+      <div className="ov-top-cards">
         <div className="ov-card">
-          <div className="ov-card-title">Season Record</div>
-          <div className="ov-record">{w}–{l}{t > 0 ? `–${t}` : ''}</div>
-          <div className="muted">PF: {pf} · PA: {pa} · Diff: {pf - pa >= 0 ? '+' : ''}{pf - pa}</div>
+          <div className="ov-card-title">Cap Space</div>
+          <div className={`ov-stat ${capSpace < 5 ? 'neg' : ''}`}>${capSpace.toFixed(1)}M</div>
+          <div className="muted">${payroll.toFixed(1)}M / ${CAP_LIMIT}M used</div>
         </div>
-
-        {/* Roster */}
         <div className="ov-card">
           <div className="ov-card-title">Roster</div>
-          <div className="ov-stat">{team.roster.length} players</div>
-          <div className="muted">Cap: ${payroll}M used</div>
+          <div className="ov-stat">{team.roster.length}</div>
+          {injured > 0
+            ? <div className="neg">{injured} injured</div>
+            : <div className="muted">All healthy</div>}
         </div>
-
-        {/* Coaches */}
         <div className="ov-card">
           <div className="ov-card-title">Coaching Staff</div>
-          <div className="ov-coach"><span className="muted">HC</span> {team.coaches.hc.name} ({team.coaches.hc.overall})</div>
-          <div className="ov-coach"><span className="muted">OC</span> {team.coaches.oc ? `${team.coaches.oc.name} (${team.coaches.oc.overall})` : <span className="neg">Vacant</span>}</div>
-          <div className="ov-coach"><span className="muted">DC</span> {team.coaches.dc ? `${team.coaches.dc.name} (${team.coaches.dc.overall})` : <span className="neg">Vacant</span>}</div>
+          <div className="ov-coach"><span className="muted">HC</span> {team.coaches.hc.name} <span className="muted">({team.coaches.hc.overall})</span></div>
+          <div className="ov-coach"><span className="muted">OC</span> {team.coaches.oc ? <>{team.coaches.oc.name} <span className="muted">({team.coaches.oc.overall})</span></> : <span className="neg">Vacant</span>}</div>
+          <div className="ov-coach"><span className="muted">DC</span> {team.coaches.dc ? <>{team.coaches.dc.name} <span className="muted">({team.coaches.dc.overall})</span></> : <span className="neg">Vacant</span>}</div>
         </div>
-
-        {/* Next game */}
         <div className="ov-card">
           <div className="ov-card-title">Next Game</div>
           {nextGame
@@ -8885,25 +9470,39 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
         </div>
       </div>
 
-      {/* Recent results */}
+      {/* ── Roster breakdown ───────────────────────────────────── */}
+      <div className="ov-section">
+        <div className="ov-section-title">Roster Breakdown</div>
+        <div className="ov-roster-grid">
+          {rosterByGroup.filter(g => g.count > 0).map(g => (
+            <div key={g.label} className="ov-roster-cell">
+              <span className="ov-roster-pos">{g.label}</span>
+              <span className="ov-roster-count">{g.count}</span>
+              <span className={`ov-roster-ovr ${g.avgOvr >= 75 ? 'pos' : g.avgOvr < 60 ? 'neg' : ''}`}>{g.avgOvr}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Recent results ─────────────────────────────────────── */}
       {recentGames.length > 0 && (
-        <>
-          <h3 style={{ marginTop: '1.5rem' }}>Recent Results</h3>
-          <table>
-            <thead><tr><th>Wk</th><th>Opponent</th><th>H/A</th><th>Result</th></tr></thead>
+        <div className="ov-section">
+          <div className="ov-section-title">Recent Results</div>
+          <table className="ui-table">
+            <thead><tr><th>Wk</th><th>Opponent</th><th>H/A</th><th className="num">Result</th></tr></thead>
             <tbody>
               {recentGames.map(g => {
                 const isHome = g.homeTeam.id === myTeamId;
                 const myScore  = isHome ? g.homeScore : g.awayScore;
                 const oppScore = isHome ? g.awayScore : g.homeScore;
-                const opp = isHome ? g.awayTeam.name : g.homeTeam.name;
+                const opp = isHome ? g.awayTeam : g.homeTeam;
                 const result = myScore > oppScore ? 'W' : myScore < oppScore ? 'L' : 'T';
                 return (
                   <tr key={g.id}>
                     <td>{g.week}</td>
-                    <td>{opp}</td>
+                    <td>{opp.name}</td>
                     <td>{isHome ? 'H' : 'A'}</td>
-                    <td className={result === 'W' ? 'pos' : result === 'L' ? 'neg' : ''}>
+                    <td className={`num ${result === 'W' ? 'val-pos' : result === 'L' ? 'val-neg' : ''}`}>
                       {result} {myScore}–{oppScore}
                     </td>
                   </tr>
@@ -8911,7 +9510,7 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
               })}
             </tbody>
           </table>
-        </>
+        </div>
       )}
     </section>
   );
@@ -8919,85 +9518,159 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
 
 // ── Contracts ──────────────────────────────────────────────────────────────────
 
-function ContractsView({ team, isOffseason, busy, onExtend, onRelease }: {
+function ContractsView({ team, isOffseason, busy, onExtend, onRelease, onViewPlayer }: {
   team: League['teams'][0];
   isOffseason: boolean;
   busy: boolean;
   onExtend: (playerId: string) => void;
   onRelease: (playerId: string) => void;
+  onViewPlayer?: (playerId: string) => void;
 }) {
-  const withDemands = team.roster.filter(p => p.contractDemand);
-  const expiring    = team.roster.filter(p => !p.contractDemand && p.yearsRemaining === 1);
-  const all = [...team.roster].sort((a, b) => a.yearsRemaining - b.yearsRemaining);
+  const payroll      = team.roster.reduce((s, p) => s + p.salary, 0);
+  const capRemaining = CAP_LIMIT - payroll;
+  const capPct       = Math.min(100, (payroll / CAP_LIMIT) * 100);
+  const withDemands  = team.roster.filter(p => p.contractDemand);
+  const expiring     = team.roster.filter(p => p.yearsRemaining === 1);
+  const avgSalary    = team.roster.length > 0 ? (payroll / team.roster.length).toFixed(1) : '0';
+  const topContract  = team.roster.length > 0 ? [...team.roster].sort((a, b) => b.salary - a.salary)[0] : null;
 
-  function ContractRow({ p }: { p: Player }) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [view, setView]           = useState<'groups' | 'demands' | 'expiring'>('groups');
+
+  function toggleGroup(label: string) { setCollapsed(prev => ({ ...prev, [label]: !prev[label] })); }
+
+  function CRow({ p }: { p: Player }) {
+    const isExp = p.yearsRemaining === 1;
+    const isExpensive = p.salary >= 15;
     return (
-      <tr>
-        <td>{p.name}</td>
-        <td>{p.position}</td>
-        <td>{p.age}</td>
-        <td>{p.scoutedOverall}</td>
-        <td>${p.salary}M</td>
-        <td className={p.yearsRemaining === 1 ? 'expiring' : ''}>{p.yearsRemaining}yr</td>
-        <td>
+      <tr className={`${isExp ? 'roster-row-expiring' : ''}${p.contractDemand ? ' roster-row-demand' : ''}`}>
+        <td className="roster-name-cell">
+          {onViewPlayer
+            ? <button className="entity-link" onClick={() => onViewPlayer(p.id)}>{p.name}</button>
+            : p.name}
+        </td>
+        <td className="roster-pos-cell">{p.position}</td>
+        <td className="num">{p.age}</td>
+        <td className={`num ovr-cell${p.scoutedOverall >= 80 ? ' ovr-elite' : p.scoutedOverall < 60 ? ' ovr-low' : ''}`}>{p.scoutedOverall}</td>
+        <td className="num text-mono">${p.salary}M{isExpensive && <span className="ui-badge ui-badge--warning" style={{ marginLeft: '0.3rem', fontSize: '0.55rem' }}>$$</span>}</td>
+        <td className={`num${isExp ? ' expiring' : ''}`}>{p.yearsRemaining}yr</td>
+        <td className="roster-status-cell">
           {p.contractDemand
-            ? <span className="demand-tag">${p.contractDemand.salary}M / {p.contractDemand.years}yr</span>
-            : <span className="muted">—</span>}
+            ? <span className="demand-tag">${p.contractDemand.salary}M/{p.contractDemand.years}yr</span>
+            : isExp
+              ? <span className="ui-badge ui-badge--warning">Expiring</span>
+              : <span className="muted">—</span>}
         </td>
         {isOffseason && (
           <td className="action-cell">
             {p.contractDemand && <button className="btn-sm btn-positive" disabled={busy} onClick={() => onExtend(p.id)}>Extend</button>}
-            <button className="btn-sm btn-danger" disabled={busy} onClick={() => onRelease(p.id)}>Release</button>
+            <button className="btn-sm btn-danger" disabled={busy} onClick={() => onRelease(p.id)}>Cut</button>
           </td>
         )}
       </tr>
     );
   }
 
-  const payroll      = team.roster.reduce((s, p) => s + p.salary, 0);
-  const capRemaining = CAP_LIMIT - payroll;
-  const capPct       = Math.min(100, (payroll / CAP_LIMIT) * 100);
-
   return (
-    <section>
-      <h2>Contracts — {team.name}</h2>
+    <section className="roster-page">
 
-      <div className="cap-bar-wrap">
-        <div className="cap-bar-label">
-          <span>Cap: ${payroll}M / ${CAP_LIMIT}M used</span>
-          <span className={capRemaining < 10 ? 'cap-bar-tight' : 'muted'}>${capRemaining}M remaining</span>
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="roster-header">
+        <div className="roster-header-left">
+          <h2 className="roster-title">Contracts</h2>
         </div>
-        <div className="cap-bar-track">
-          <div className="cap-bar-fill" style={{ width: `${capPct}%`, background: capPct > 90 ? '#e55' : capPct > 75 ? '#e90' : '#4caf' }} />
+        <div className="roster-header-stats">
+          <div className="roster-header-stat"><span className="roster-header-val">{team.roster.length}</span><span className="roster-header-lbl">Contracts</span></div>
+          <div className="roster-header-stat"><span className={`roster-header-val${capRemaining < 10 ? ' neg' : ''}`}>${capRemaining.toFixed(1)}M</span><span className="roster-header-lbl">Cap Space</span></div>
+          <div className="roster-header-stat"><span className="roster-header-val">${avgSalary}M</span><span className="roster-header-lbl">Avg Salary</span></div>
+          {expiring.length > 0 && <div className="roster-header-stat"><span className="roster-header-val" style={{ color: 'var(--warning)' }}>{expiring.length}</span><span className="roster-header-lbl">Expiring</span></div>}
+          {withDemands.length > 0 && <div className="roster-header-stat"><span className="roster-header-val neg">{withDemands.length}</span><span className="roster-header-lbl">Demands</span></div>}
         </div>
       </div>
 
-      {withDemands.length > 0 && (
-        <>
-          <h3>Contract Demands ({withDemands.length})</h3>
-          <p className="muted" style={{ marginBottom: '0.5rem' }}>Players requesting new contracts. Extend or let them walk to free agency.</p>
-          <table>
-            <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Current</th><th>Yrs</th><th>Demand</th>{isOffseason && <th></th>}</tr></thead>
-            <tbody>{withDemands.map(p => <ContractRow key={p.id} p={p} />)}</tbody>
-          </table>
-        </>
+      {/* Cap bar */}
+      <div className="fa-cap-bar">
+        <div className="fa-cap-label">
+          <span>Cap: ${payroll.toFixed(1)}M / ${CAP_LIMIT}M</span>
+          {topContract && <span className="muted">Top: {topContract.name} ${topContract.salary}M</span>}
+          <span className={capRemaining < 10 ? 'neg' : 'muted'}>${capRemaining.toFixed(1)}M remaining</span>
+        </div>
+        <div className="fa-cap-track">
+          <div className="fa-cap-fill" style={{ width: `${capPct}%`, background: capPct > 90 ? 'var(--danger)' : capPct > 75 ? 'var(--warning)' : 'var(--info)' }} />
+        </div>
+      </div>
+
+      {/* View tabs */}
+      <div className="contracts-tabs">
+        <button className={view === 'groups' ? 'active' : ''} onClick={() => setView('groups')}>By Position</button>
+        <button className={view === 'demands' ? 'active' : ''} onClick={() => setView('demands')} disabled={withDemands.length === 0}>
+          Demands{withDemands.length > 0 && <span className="ui-count">{withDemands.length}</span>}
+        </button>
+        <button className={view === 'expiring' ? 'active' : ''} onClick={() => setView('expiring')} disabled={expiring.length === 0}>
+          Expiring{expiring.length > 0 && <span className="ui-count">{expiring.length}</span>}
+        </button>
+      </div>
+
+      {/* ── Demands view ───────────────────────────────────────── */}
+      {view === 'demands' && (
+        withDemands.length > 0 ? (
+          <div className="roster-group">
+            <div className="contracts-section-intro">Players requesting new contracts. Extend or let them walk to free agency.</div>
+            <table className="ui-table roster-table">
+              <thead><tr><th>Player</th><th>Pos</th><th className="num">Age</th><th className="num">OVR</th><th className="num">Salary</th><th className="num">Yrs</th><th>Demand</th>{isOffseason && <th></th>}</tr></thead>
+              <tbody>{withDemands.sort((a, b) => b.salary - a.salary).map(p => <CRow key={p.id} p={p} />)}</tbody>
+            </table>
+          </div>
+        ) : <div className="ui-empty">No contract demands at this time.</div>
       )}
 
-      {expiring.length > 0 && (
-        <>
-          <h3 style={{ marginTop: '1.5rem' }}>Expiring After Season ({expiring.length})</h3>
-          <table>
-            <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs</th><th>Demand</th>{isOffseason && <th></th>}</tr></thead>
-            <tbody>{expiring.map(p => <ContractRow key={p.id} p={p} />)}</tbody>
-          </table>
-        </>
+      {/* ── Expiring view ──────────────────────────────────────── */}
+      {view === 'expiring' && (
+        expiring.length > 0 ? (
+          <div className="roster-group">
+            <div className="contracts-section-intro">Contracts expiring after this season. These players become free agents unless extended.</div>
+            <table className="ui-table roster-table">
+              <thead><tr><th>Player</th><th>Pos</th><th className="num">Age</th><th className="num">OVR</th><th className="num">Salary</th><th className="num">Yrs</th><th>Status</th>{isOffseason && <th></th>}</tr></thead>
+              <tbody>{expiring.sort((a, b) => b.scoutedOverall - a.scoutedOverall).map(p => <CRow key={p.id} p={p} />)}</tbody>
+            </table>
+          </div>
+        ) : <div className="ui-empty">No expiring contracts.</div>
       )}
 
-      <h3 style={{ marginTop: '1.5rem' }}>All Contracts ({all.length})</h3>
-      <table>
-        <thead><tr><th>Player</th><th>Pos</th><th>Age</th><th>OVR</th><th>Salary</th><th>Yrs</th><th>Demand</th>{isOffseason && <th></th>}</tr></thead>
-        <tbody>{all.map(p => <ContractRow key={p.id} p={p} />)}</tbody>
-      </table>
+      {/* ── Position groups view ───────────────────────────────── */}
+      {view === 'groups' && (
+        <div className="roster-groups">
+          {ROSTER_POS_GROUPS.map(group => {
+            const players = team.roster
+              .filter(p => group.positions.includes(p.position))
+              .sort((a, b) => b.salary - a.salary);
+            if (players.length === 0) return null;
+            const groupCap = players.reduce((s, p) => s + p.salary, 0);
+            const groupExp = players.filter(p => p.yearsRemaining === 1).length;
+            const groupDem = players.filter(p => p.contractDemand).length;
+            const isCollapsed = !!collapsed[group.label];
+
+            return (
+              <div key={group.label} className="roster-group">
+                <button className={`roster-group-header${isCollapsed ? ' roster-group-collapsed' : ''}`} onClick={() => toggleGroup(group.label)}>
+                  <span className="roster-group-toggle">{isCollapsed ? '▸' : '▾'}</span>
+                  <span className="roster-group-name">{group.label}</span>
+                  <span className="roster-group-count">{players.length}</span>
+                  <span className="roster-group-ovr">${groupCap.toFixed(1)}M</span>
+                  {groupExp > 0 && <span className="roster-group-inj" style={{ color: 'var(--warning)' }}>{groupExp} exp</span>}
+                  {groupDem > 0 && <span className="roster-group-inj">{groupDem} demand</span>}
+                </button>
+                {!isCollapsed && (
+                  <table className="ui-table roster-table">
+                    <thead><tr><th>Player</th><th>Pos</th><th className="num">Age</th><th className="num">OVR</th><th className="num">Salary</th><th className="num">Yrs</th><th>Status</th>{isOffseason && <th></th>}</tr></thead>
+                    <tbody>{players.map(p => <CRow key={p.id} p={p} />)}</tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
@@ -9625,121 +10298,168 @@ function ScoutingView({ draftClass, myTeam, busy, onScout, focusProspectId, onFo
   focusProspectId?: string | null;
   onFocusConsumed?: () => void;
 }) {
-  const [posFilter, setPosFilter] = useState<string>('ALL');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const scoutingData = myTeam.scoutingData ?? {};
+  const scoutingPoints = myTeam.scoutingPoints ?? 0;
+  const scout = myTeam.scout;
+  const draftBoard = myTeam.draftBoard ?? [];
+  const scoutedCount = Object.values(scoutingData).filter(s => s.scoutLevel > 0).length;
+  const fullyScoutedCount = Object.values(scoutingData).filter(s => s.scoutLevel === 3).length;
 
   // Auto-focus a prospect when navigated from College tab
   useEffect(() => {
     if (focusProspectId) {
+      setExpanded(focusProspectId);
+      // Ensure the position group containing this prospect is not collapsed
       const prospect = draftClass.prospects.find(p => p.id === focusProspectId);
       if (prospect) {
-        // Clear position filter so the prospect is visible
-        setPosFilter('ALL');
-        setExpanded(focusProspectId);
+        const group = ROSTER_POS_GROUPS.find(g => g.positions.includes(prospect.position));
+        if (group) setCollapsed(prev => ({ ...prev, [group.label]: false }));
       }
       onFocusConsumed?.();
     }
   }, [focusProspectId]);
 
-  const scoutingData = myTeam.scoutingData ?? {};
-  const scoutingPoints = myTeam.scoutingPoints ?? 0;
-  const scout = myTeam.scout;
-
-  const positions = ['ALL', ...Array.from(new Set(draftClass.prospects.map(p => p.position))).sort()];
-  const filtered = draftClass.prospects.filter(p => posFilter === 'ALL' || p.position === posFilter);
+  function toggleGroup(label: string) { setCollapsed(prev => ({ ...prev, [label]: !prev[label] })); }
 
   const COSTS = [10, 20, 35];
-  const LEVEL_LABELS = ['Unscouted', 'Level 1', 'Level 2', 'Level 3 (Full)'];
+  const LEVEL_SHORT = ['—', 'L1', 'L2', 'Full'];
+
+  function scoutLevel(p: ClientProspect): number { return scoutingData[p.id]?.scoutLevel ?? 0; }
+  function report(p: ClientProspect) { return scoutingData[p.id]?.report ?? null; }
+
+  function projRange(p: ClientProspect): string {
+    const r = report(p);
+    if (!r) return '—';
+    const { min, max } = r.projectedRound;
+    return min === max ? `Rd ${min}` : `Rd ${min}–${max}`;
+  }
 
   function confidenceLabel(c: ScoutingReport['confidence']): string {
-    return c === 'low' ? 'Low Conf.' : c === 'medium' ? 'Med Conf.' : 'High Conf.';
+    return c === 'low' ? 'Low' : c === 'medium' ? 'Med' : 'High';
   }
 
   return (
-    <section className="panel scouting-panel">
-      <div className="scouting-header">
-        <div>
-          <h2>Scouting</h2>
-          {scout && <p className="muted">Scout: {scout.name} (OVR {scout.overall})</p>}
+    <section className="roster-page">
+
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="roster-header">
+        <div className="roster-header-left">
+          <h2 className="roster-title">Scouting</h2>
+          {scout && <span className="muted" style={{ fontSize: 'var(--text-sm)' }}>Scout: {scout.name} ({scout.overall} OVR)</span>}
         </div>
-        <div className="scouting-points">
-          <span className="points-val">{scoutingPoints}</span>
-          <span className="points-lbl"> pts remaining</span>
+        <div className="roster-header-stats">
+          <div className="roster-header-stat"><span className="roster-header-val">{draftClass.prospects.length}</span><span className="roster-header-lbl">Prospects</span></div>
+          <div className="roster-header-stat"><span className="roster-header-val">{scoutedCount}</span><span className="roster-header-lbl">Scouted</span></div>
+          <div className="roster-header-stat"><span className="roster-header-val">{fullyScoutedCount}</span><span className="roster-header-lbl">Full Intel</span></div>
+          <div className="roster-header-stat"><span className={`roster-header-val${scoutingPoints < 10 ? ' neg' : ''}`}>{scoutingPoints}</span><span className="roster-header-lbl">Scout Pts</span></div>
         </div>
       </div>
 
-      <div className="scouting-filters">
-        {positions.map(pos => (
-          <button
-            key={pos}
-            className={posFilter === pos ? 'active' : ''}
-            onClick={() => setPosFilter(pos)}
-          >{pos}</button>
-        ))}
-      </div>
+      {scoutingPoints === 0 && <div className="ui-empty ui-empty--compact">No scouting points remaining. Wait for next season allocation.</div>}
 
-      <div className="prospect-list">
-        {filtered.map(p => {
-          const state: ProspectScoutingState | undefined = scoutingData[p.id];
-          const level = state?.scoutLevel ?? 0;
-          const report = state?.report ?? null;
-          const nextCost = level < 3 ? COSTS[level] : null;
-          const isOpen = expanded === p.id;
+      {/* ── Position groups ────────────────────────────────────── */}
+      <div className="roster-groups">
+        {ROSTER_POS_GROUPS.map(group => {
+          const prospects = draftClass.prospects
+            .filter(p => group.positions.includes(p.position))
+            .sort((a, b) => {
+              const aLvl = scoutLevel(a), bLvl = scoutLevel(b);
+              if (aLvl !== bLvl) return bLvl - aLvl;
+              return 0;
+            });
+          if (prospects.length === 0) return null;
+          const scoutedInGroup = prospects.filter(p => scoutLevel(p) > 0).length;
+          const isCollapsed = !!collapsed[group.label];
 
           return (
-            <div key={p.id} className={`prospect-row${isOpen ? ' open' : ''}`}>
-              <div className="prospect-summary" onClick={() => setExpanded(isOpen ? null : p.id)}>
-                <span className="prospect-pos">{p.position}</span>
-                <span className="prospect-name">{p.name}</span>
-                <span className="prospect-meta">{p.college} · Age {p.age}</span>
-                <span className={`scout-level-badge level-${level}`}>{LEVEL_LABELS[level]}</span>
-                {report && (
-                  <span className="proj-round">
-                    Rd {report.projectedRound.min}–{report.projectedRound.max}
-                  </span>
-                )}
-                <span className="expand-arrow">{isOpen ? '▲' : '▼'}</span>
-              </div>
+            <div key={group.label} className="roster-group">
+              <button className={`roster-group-header${isCollapsed ? ' roster-group-collapsed' : ''}`} onClick={() => toggleGroup(group.label)}>
+                <span className="roster-group-toggle">{isCollapsed ? '▸' : '▾'}</span>
+                <span className="roster-group-name">{group.label}</span>
+                <span className="roster-group-count">{prospects.length}</span>
+                {scoutedInGroup > 0 && <span className="roster-group-ovr">{scoutedInGroup}/{prospects.length} scouted</span>}
+              </button>
+              {!isCollapsed && (
+                <div className="scouting-group-body">
+                  {prospects.map(p => {
+                    const lvl = scoutLevel(p);
+                    const rpt = report(p);
+                    const nextCost = lvl < 3 ? COSTS[lvl] : null;
+                    const isOpen = expanded === p.id;
+                    const isOnBoard = draftBoard.includes(p.id);
 
-              {isOpen && (
-                <div className="prospect-detail">
-                  <div className="prospect-detail-top">
-                    <span className="muted">{p.height} · {p.weight} lbs</span>
-                    {nextCost !== null && (
-                      <button
-                        className="btn-scout"
-                        disabled={busy || scoutingPoints < nextCost}
-                        onClick={() => onScout(p.id)}
-                      >
-                        Scout ({nextCost} pts)
-                      </button>
-                    )}
-                    {nextCost === null && <span className="muted">Fully scouted</span>}
-                  </div>
-                  {report ? (
-                    <div className="scout-report">
-                      <div className="report-row">
-                        <span className="report-grade">{report.grade}</span>
-                        <span className={`report-conf ${report.confidence}`}>{confidenceLabel(report.confidence)}</span>
-                        <span className="muted">Proj Rd {report.projectedRound.min}–{report.projectedRound.max}</span>
+                    return (
+                      <div key={p.id} className={`scouting-prospect${isOpen ? ' scouting-prospect-open' : ''}${lvl === 0 ? ' scouting-prospect-unscouted' : ''}`}>
+                        {/* Summary row */}
+                        <div className="scouting-row" onClick={() => setExpanded(isOpen ? null : p.id)}>
+                          <span className="scouting-row-name">
+                            {p.name}
+                            {isOnBoard && <span className="ui-badge ui-badge--primary">#{draftBoard.indexOf(p.id) + 1}</span>}
+                          </span>
+                          <span className="roster-pos-cell">{p.position}</span>
+                          <span className="scouting-row-college muted">{p.college}</span>
+                          <span className="scouting-row-grade num text-mono">{rpt?.grade ?? '—'}</span>
+                          <span className="scouting-row-proj num">{projRange(p)}</span>
+                          <span>{lvl > 0 ? <span className={`scout-level-badge level-${lvl}`}>{LEVEL_SHORT[lvl]}</span> : <span className="muted">—</span>}</span>
+                          {nextCost !== null ? (
+                            <button
+                              className="btn-sm btn-scout-inline"
+                              disabled={busy || scoutingPoints < nextCost}
+                              onClick={e => { e.stopPropagation(); onScout(p.id); }}
+                            >
+                              Scout ({nextCost})
+                            </button>
+                          ) : (
+                            <span className="scouting-row-full muted">Full</span>
+                          )}
+                          <span className="scouting-row-arrow">{isOpen ? '▾' : '▸'}</span>
+                        </div>
+
+                        {/* Expanded detail */}
+                        {isOpen && (
+                          <div className="scouting-detail">
+                            <div className="scouting-detail-meta">
+                              <span>{p.height} · {p.weight} lbs · Age {p.age}</span>
+                              {rpt && <span className={`report-conf ${rpt.confidence}`}>{confidenceLabel(rpt.confidence)} confidence</span>}
+                            </div>
+                            {p.combine && (
+                              <div className="scouting-combine">
+                                <span className="scouting-combine-label">Combine:</span>
+                                <span className="scouting-combine-stat">40: {p.combine.fortyYard.toFixed(2)}s</span>
+                                <span className="scouting-combine-stat">Bench: {p.combine.benchPress}</span>
+                                <span className="scouting-combine-stat">Vert: {p.combine.vertJump}"</span>
+                                <span className={`combine-stock combine-stock--${p.combine.stockMove}`}>
+                                  {p.combine.stockMove === 'rising' ? '↑' : p.combine.stockMove === 'falling' ? '↓' : '→'}
+                                </span>
+                              </div>
+                            )}
+                            {rpt ? (
+                              <div className="scout-report">
+                                {rpt.strengths.length > 0 && (
+                                  <div className="report-section">
+                                    <span className="report-label strength-lbl">Strengths</span>
+                                    {rpt.strengths.map((s, i) => <span key={i} className="report-tag strength">{s}</span>)}
+                                  </div>
+                                )}
+                                {rpt.weaknesses.length > 0 && (
+                                  <div className="report-section">
+                                    <span className="report-label weakness-lbl">Concerns</span>
+                                    {rpt.weaknesses.map((w, i) => <span key={i} className="report-tag weakness">{w}</span>)}
+                                  </div>
+                                )}
+                                {rpt.notes && <p className="report-notes">{rpt.notes}</p>}
+                              </div>
+                            ) : (
+                              <p className="muted" style={{ padding: 'var(--sp-2) 0' }}>No scouting report yet. Scout this prospect to reveal strengths, weaknesses, and projected draft position.</p>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      {report.strengths.length > 0 && (
-                        <div className="report-section">
-                          <span className="report-label strength-lbl">Strengths:</span>
-                          {report.strengths.map((s, i) => <span key={i} className="report-tag strength">{s}</span>)}
-                        </div>
-                      )}
-                      {report.weaknesses.length > 0 && (
-                        <div className="report-section">
-                          <span className="report-label weakness-lbl">Concerns:</span>
-                          {report.weaknesses.map((w, i) => <span key={i} className="report-tag weakness">{w}</span>)}
-                        </div>
-                      )}
-                      {report.notes && <p className="report-notes">{report.notes}</p>}
-                    </div>
-                  ) : (
-                    <p className="muted">No scouting report yet. Scout this prospect to reveal information.</p>
-                  )}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -9759,27 +10479,31 @@ function DraftBoardView({ draftClass, myTeam, onUpdateBoard }: {
 }) {
   const draftBoard = myTeam.draftBoard ?? [];
   const scoutingData = myTeam.scoutingData ?? {};
+  const scoutingPoints = myTeam.scoutingPoints ?? 0;
+  const scoutedCount = Object.values(scoutingData).filter(s => s.scoutLevel > 0).length;
 
   const onBoard = draftBoard
     .map(id => draftClass.prospects.find(p => p.id === id))
     .filter((p): p is ClientProspect => !!p);
   const unranked = draftClass.prospects.filter(p => !draftBoard.includes(p.id));
 
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [boardView, setBoardView] = useState<'ranked' | 'browse'>('ranked');
+
+  function toggleGroup(label: string) { setCollapsed(prev => ({ ...prev, [label]: !prev[label] })); }
+
   function addToBoard(prospectId: string) {
     onUpdateBoard([...draftBoard, prospectId]);
   }
-
   function removeFromBoard(prospectId: string) {
     onUpdateBoard(draftBoard.filter(id => id !== prospectId));
   }
-
   function moveUp(idx: number) {
     if (idx === 0) return;
     const next = [...draftBoard];
     [next[idx - 1], next[idx]] = [next[idx]!, next[idx - 1]!];
     onUpdateBoard(next);
   }
-
   function moveDown(idx: number) {
     if (idx >= draftBoard.length - 1) return;
     const next = [...draftBoard];
@@ -9787,58 +10511,147 @@ function DraftBoardView({ draftClass, myTeam, onUpdateBoard }: {
     onUpdateBoard(next);
   }
 
+  function scoutLevel(p: ClientProspect): number { return scoutingData[p.id]?.scoutLevel ?? 0; }
   function projRange(p: ClientProspect): string {
     const state = scoutingData[p.id];
     if (!state?.report) return '—';
     const { min, max } = state.report.projectedRound;
     return min === max ? `Rd ${min}` : `Rd ${min}–${max}`;
   }
+  function gradeStr(p: ClientProspect): string {
+    return scoutingData[p.id]?.report?.grade ?? '—';
+  }
+
+  const LEVEL_LABELS = ['', 'L1', 'L2', 'Full'];
 
   return (
-    <section className="panel draft-board-panel">
-      <h2>Draft Board</h2>
-      <p className="muted">{onBoard.length} ranked · {unranked.length} unranked</p>
+    <section className="roster-page">
 
-      {onBoard.length > 0 && (
-        <div className="draft-board-list">
-          <div className="draft-board-header-row">
-            <span>#</span><span>Pos</span><span>Name</span><span>College</span><span>Proj</span><span></span>
-          </div>
-          {onBoard.map((p, idx) => (
-            <div key={p.id} className="draft-board-row ranked">
-              <span className="board-rank">{idx + 1}</span>
-              <span className="prospect-pos">{p.position}</span>
-              <span className="prospect-name">{p.name}</span>
-              <span className="muted">{p.college}</span>
-              <span className="proj-round">{projRange(p)}</span>
-              <span className="board-actions">
-                <button onClick={() => moveUp(idx)} disabled={idx === 0}>↑</button>
-                <button onClick={() => moveDown(idx)} disabled={idx === onBoard.length - 1}>↓</button>
-                <button className="btn-remove" onClick={() => removeFromBoard(p.id)}>✕</button>
-              </span>
-            </div>
-          ))}
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div className="roster-header">
+        <div className="roster-header-left">
+          <h2 className="roster-title">Draft Board</h2>
+        </div>
+        <div className="roster-header-stats">
+          <div className="roster-header-stat"><span className="roster-header-val">{draftClass.prospects.length}</span><span className="roster-header-lbl">Prospects</span></div>
+          <div className="roster-header-stat"><span className="roster-header-val">{onBoard.length}</span><span className="roster-header-lbl">Ranked</span></div>
+          <div className="roster-header-stat"><span className="roster-header-val">{scoutedCount}</span><span className="roster-header-lbl">Scouted</span></div>
+          <div className="roster-header-stat"><span className="roster-header-val">{scoutingPoints}</span><span className="roster-header-lbl">Scout Pts</span></div>
+        </div>
+      </div>
+
+      {/* View tabs */}
+      <div className="contracts-tabs">
+        <button className={boardView === 'ranked' ? 'active' : ''} onClick={() => setBoardView('ranked')}>
+          My Board{onBoard.length > 0 && <span className="ui-count">{onBoard.length}</span>}
+        </button>
+        <button className={boardView === 'browse' ? 'active' : ''} onClick={() => setBoardView('browse')}>
+          Browse by Position
+        </button>
+      </div>
+
+      {/* ── Ranked Board ───────────────────────────────────────── */}
+      {boardView === 'ranked' && (
+        <div className="roster-group">
+          {onBoard.length > 0 ? (
+            <table className="ui-table roster-table">
+              <thead>
+                <tr>
+                  <th className="num">#</th><th>Name</th><th>Pos</th><th>College</th>
+                  <th className="num">Grade</th><th className="num">Proj</th><th>Scout</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {onBoard.map((p, idx) => {
+                  const lvl = scoutLevel(p);
+                  return (
+                    <tr key={p.id}>
+                      <td className="num text-mono">{idx + 1}</td>
+                      <td>{p.name}</td>
+                      <td className="roster-pos-cell">{p.position}</td>
+                      <td className="muted">{p.college}</td>
+                      <td className="num text-mono">{gradeStr(p)}</td>
+                      <td className="num">{projRange(p)}</td>
+                      <td>{lvl > 0 ? <span className={`scout-level-badge level-${lvl}`}>{LEVEL_LABELS[lvl]}</span> : <span className="muted">—</span>}</td>
+                      <td className="board-actions">
+                        <button className="btn-sm" onClick={() => moveUp(idx)} disabled={idx === 0} title="Move up">↑</button>
+                        <button className="btn-sm" onClick={() => moveDown(idx)} disabled={idx === onBoard.length - 1} title="Move down">↓</button>
+                        <button className="btn-sm btn-danger" onClick={() => removeFromBoard(p.id)} title="Remove">✕</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div className="ui-empty">No prospects ranked yet. Browse by position to add players to your board.</div>
+          )}
         </div>
       )}
 
-      {unranked.length > 0 && (
-        <>
-          <h3 className="board-section-title">Unranked Prospects</h3>
-          <div className="draft-board-list unranked">
-            {unranked.map(p => (
-              <div key={p.id} className="draft-board-row">
-                <span></span>
-                <span className="prospect-pos">{p.position}</span>
-                <span className="prospect-name">{p.name}</span>
-                <span className="muted">{p.college}</span>
-                <span className="proj-round">{projRange(p)}</span>
-                <span className="board-actions">
-                  <button onClick={() => addToBoard(p.id)}>+ Add</button>
-                </span>
+      {/* ── Browse by Position ─────────────────────────────────── */}
+      {boardView === 'browse' && (
+        <div className="roster-groups">
+          {ROSTER_POS_GROUPS.map(group => {
+            const prospects = draftClass.prospects
+              .filter(p => group.positions.includes(p.position))
+              .sort((a, b) => {
+                // Scouted prospects first, then by grade/projection
+                const aLvl = scoutLevel(a), bLvl = scoutLevel(b);
+                if (aLvl !== bLvl) return bLvl - aLvl;
+                return 0; // preserve server order within same scout level
+              });
+            if (prospects.length === 0) return null;
+            const scoutedInGroup = prospects.filter(p => scoutLevel(p) > 0).length;
+            const isCollapsed = !!collapsed[group.label];
+
+            return (
+              <div key={group.label} className="roster-group">
+                <button className={`roster-group-header${isCollapsed ? ' roster-group-collapsed' : ''}`} onClick={() => toggleGroup(group.label)}>
+                  <span className="roster-group-toggle">{isCollapsed ? '▸' : '▾'}</span>
+                  <span className="roster-group-name">{group.label}</span>
+                  <span className="roster-group-count">{prospects.length}</span>
+                  {scoutedInGroup > 0 && <span className="roster-group-ovr">{scoutedInGroup} scouted</span>}
+                </button>
+                {!isCollapsed && (
+                  <table className="ui-table roster-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th><th>Pos</th><th>College</th><th>Size</th>
+                        <th className="num">Grade</th><th className="num">Proj</th><th>Scout</th><th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {prospects.map(p => {
+                        const lvl = scoutLevel(p);
+                        const isRanked = draftBoard.includes(p.id);
+                        return (
+                          <tr key={p.id} className={isRanked ? 'roster-row-starter' : ''}>
+                            <td className="roster-name-cell">
+                              <span>{p.name}</span>
+                              {isRanked && <span className="ui-badge ui-badge--primary">#{draftBoard.indexOf(p.id) + 1}</span>}
+                            </td>
+                            <td className="roster-pos-cell">{p.position}</td>
+                            <td className="muted">{p.college}</td>
+                            <td className="muted">{p.height} · {p.weight}</td>
+                            <td className="num text-mono">{gradeStr(p)}</td>
+                            <td className="num">{projRange(p)}</td>
+                            <td>{lvl > 0 ? <span className={`scout-level-badge level-${lvl}`}>{LEVEL_LABELS[lvl]}</span> : <span className="muted">—</span>}</td>
+                            <td>
+                              {isRanked
+                                ? <button className="btn-sm btn-danger" onClick={() => removeFromBoard(p.id)}>Remove</button>
+                                : <button className="btn-sm btn-positive" onClick={() => addToBoard(p.id)}>+ Board</button>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
               </div>
-            ))}
-          </div>
-        </>
+            );
+          })}
+        </div>
       )}
     </section>
   );

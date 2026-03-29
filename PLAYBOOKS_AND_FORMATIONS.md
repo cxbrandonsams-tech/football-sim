@@ -30,21 +30,20 @@ Standard NFL notation: `XY personnel` where X = number of RBs, Y = number of TEs
 
 ### Offensive Slot Labels
 
-Each formation assigns players into named slots. Plays are authored against these slot names:
+Each formation assigns players into named slots. Plays are authored against these slot names.
 
-| Slot | Meaning |
-|---|---|
-| `X` | Split end — wide receiver aligned to the weak/left side |
-| `Z` | Flanker — wide receiver aligned to the strong/right side, typically in motion-capable position |
-| `SLOT` | Slot receiver — inside receiver in 3-WR sets |
-| `SLOT_L` | Left slot (in 4- or 5-wide sets) |
-| `SLOT_R` | Right slot (in 4- or 5-wide sets) |
-| `TE` | Tight end (single TE sets) |
-| `TE1` | Primary tight end (2TE sets) |
-| `TE2` | Secondary tight end / H-back (2TE sets) |
-| `RB` | Running back |
-| `FB` | Fullback (in 2-back sets) |
-| `QB` | Quarterback (always present) |
+**Implemented slots** (used in code and play library):
+
+| Slot | Meaning | Depth chart mapping |
+|---|---|---|
+| `X` | Split end — primary wide receiver | WR[0] |
+| `Z` | Flanker — secondary wide receiver | WR[1] |
+| `SLOT` | Slot receiver — inside receiver in 3-WR sets | WR[2] |
+| `TE` | Tight end | TE[0] |
+| `RB` | Running back | RB[0] |
+| `FB` | Fullback (in 2-back sets) | RB[1] |
+
+> **Note:** QB is always present and is not a configurable slot. The labels `SLOT_L`, `SLOT_R`, `TE1`, `TE2` were part of the original design vision for 4/5-wide and 2-TE sets but are not currently implemented. If those formations are added in the future, the slot labels will be extended.
 
 ### Formation-Specific Depth Chart
 
@@ -76,22 +75,32 @@ If a slot is unassigned, the engine falls back to the positional depth chart.
 
 ### Defensive Slot Labels
 
-| Slot | Meaning |
-|---|---|
-| `DT` | Defensive tackle (0/1/2 tech) |
-| `DT1` | Nose tackle / primary DT |
-| `DT2` | 3-tech DT |
-| `DE_L` | Left defensive end |
-| `DE_R` | Right defensive end |
-| `MLB` | Middle linebacker |
-| `WLB` | Weak-side linebacker |
-| `SLB` | Strong-side linebacker |
-| `CB_L` | Left cornerback |
-| `CB_R` | Right cornerback |
-| `NICKEL_CB` | Slot cornerback (nickel package only) |
-| `DIME_CB` | Second slot corner (dime package only) |
-| `SS` | Strong safety |
-| `FS` | Free safety |
+**Implemented slots** (used in code and package definitions):
+
+| Slot | Meaning | Depth chart mapping |
+|---|---|---|
+| `DE1` | Defensive end #1 | DE[0] |
+| `DE2` | Defensive end #2 | DE[1] |
+| `DT1` | Defensive tackle #1 | DT[0] |
+| `DT2` | Defensive tackle #2 (3-tech) | DT[1] |
+| `NT` | Nose tackle (3-4 base) | DT[0] |
+| `LB1` | Linebacker #1 | LB[0] |
+| `LB2` | Linebacker #2 | LB[1] |
+| `LB3` | Linebacker #3 | LB[2] |
+| `LB4` | Linebacker #4 (4-3 only) | LB[3] |
+| `OLB1` | Outside linebacker #1 (3-4) | LB[0] |
+| `OLB2` | Outside linebacker #2 (3-4) | LB[1] |
+| `ILB1` | Inside linebacker #1 (3-4) | LB[2] |
+| `ILB2` | Inside linebacker #2 (3-4) | LB[3] |
+| `CB1` | Cornerback #1 | CB[0] |
+| `CB2` | Cornerback #2 | CB[1] |
+| `NCB` | Nickel cornerback (slot) | CB[2] |
+| `DC1` | Dime cornerback #1 | CB[3] |
+| `DC2` | Dime cornerback #2 | CB[4] |
+| `FS` | Free safety | S[0] |
+| `SS` | Strong safety | S[1] |
+
+> **Note:** The original spec used positional names (`MLB`, `WLB`, `SLB`, `DE_L`, `DE_R`, `CB_L`, `CB_R`). The implementation uses numbered slots instead, which are more flexible across different package configurations.
 
 ### Package-Specific Depth Chart
 
@@ -231,20 +240,145 @@ Defensive Plan:
 
 ## Play Selection Flow
 
-On each snap, the engine executes this sequence:
+### Offensive Selection (`resolvePlay` in `playSelection.ts`)
 
-1. **Resolve bucket** — classify down and yards-to-go into one of the 13 buckets
-2. **Find playbook** — look up the bucket in the offensive/defensive game plan
-3. **Filter valid plays** — remove plays where required formation slots are empty/unfilled
-4. **Weighted selection** — randomly pick a play proportional to weights
-5. **Resolve slot assignments** — map each slot in the play to the assigned player from the formation depth chart
-6. **Send to engine** — pass the resolved play + player assignments into the locked simulation engine
+On each offensive snap:
+
+1. **Resolve bucket** — classify down and yards-to-go into one of the 13 buckets via `classifyBucket()`
+2. **Find playbook** — look up the bucket in the team's `offensivePlan`. If the assigned playbook is not found, fall back to `DEFAULT_OFFENSIVE_PLAN` for that bucket.
+3. **Build candidate pool** — resolve each playbook entry to an `OffensivePlay` from the built-in library or the team's custom plays
+4. **Apply weight modifiers** — multiply each play's base weight through the modifier pipeline (see below)
+5. **Weighted selection** — randomly pick from the modified pool via `weightedPick()`
+6. **Record history** — add the selected play to the per-team play history (for repetition tracking)
+7. **Resolve slot assignments** — map the play's formation slots to actual players from the formation depth chart
+8. **Send to engine** — pass the resolved `PlayType` to `simulatePlay()`. The engine receives only the type (e.g., `inside_run`, `deep_pass`), not the play object.
+
+### Weight Modifier Pipeline (Offensive)
+
+Each candidate play's base weight is multiplied through this chain:
+
+```
+finalWeight = baseWeight × tendency × repetition × context × meta
+```
+
+| Modifier | Source | Max Effect | Details |
+|----------|--------|-----------|---------|
+| **Tendency** | Team's `TeamTendencies` sliders | ±25% | `runPassBias` → run/pass balance. `aggressiveness` → deep/short tilt. `shotPlayRate` → additional deep boost. |
+| **Repetition** | Play history (last 6 plays) | ×0.4 to ×1.0 | Same play last snap → ×0.6. Same play 2+ times in window → ×0.4. Same concept → ×0.7. Same formation → ×0.85. Floor: 0.1. |
+| **Context** | Game situation | ±25% | Losing late → pass boost. Winning late → run boost. Red zone → deep suppressed. Backed up → pass suppressed. |
+| **Meta** | League-wide `MetaProfile` | ±10% | Counter-trend: if league is pass-heavy, run gets a slight boost (and vice versa). Requires 50+ league-wide plays tracked. |
+
+**Critical invariant:** All modifiers affect only which play is *selected*. They do not change how the engine *resolves* the play once selected. A deep pass that gets a ×1.3 selection boost still resolves with the exact same engine probabilities as one that wasn't boosted.
+
+### Defensive Selection (`resolveDefensivePlay` in `defensiveSelection.ts`)
+
+Mirrors the offensive flow with its own modifier pipeline:
+
+```
+finalWeight = baseWeight × preGameScouting × halftimeScouting
+```
+
+| Modifier | Source | Max Effect | Details |
+|----------|--------|-----------|---------|
+| **Pre-game scouting** | Opponent's season-long `playStats` | ±20% (scaled by coach intelligence) | Pass-heavy opponent → boost coverage. Run-heavy → boost run-stopping. Deep-heavy → suppress blitz. |
+| **Halftime scouting** | Opponent's first-half play data | ±30% (1.5× intensity, scaled by coach intelligence) | Same logic as pre-game but from live game data. |
+
+Coach intelligence (derived from DC overall + HC game management + defensive_architect trait) scales both scouting intensities (factor 0.3–1.0) and adds noise (0–15%) for lower-quality coaching staffs.
+
+### Tendency Sliders — Active vs. Stored
+
+The `TeamTendencies` interface has 7 fields. Their current wiring status:
+
+| Field | Side | Status | Effect |
+|-------|------|--------|--------|
+| `runPassBias` | Offense | **ACTIVE** | Adjusts run vs. pass play weights |
+| `aggressiveness` | Offense | **ACTIVE** | Adjusts deep vs. short play weights |
+| `shotPlayRate` | Offense | **ACTIVE** | Additional deep pass boost/penalty |
+| `playActionRate` | Offense | **STORED, NOT WIRED** | Saved to database, displayed in UI, but does not currently affect play selection |
+| `blitzRate` | Defense | **STORED, NOT WIRED** | Saved to database, displayed in UI, but does not currently affect defensive play selection |
+| `coverageAggression` | Defense | **STORED, NOT WIRED** | Same — stored but not wired |
+| `runCommitment` | Defense | **STORED, NOT WIRED** | Same — stored but not wired |
+
+> The four "stored but not wired" fields exist in the data model and UI to support future wiring. They do not affect gameplay in the current implementation. Defensive adaptation is driven entirely by opponent scouting + halftime adjustments + coach intelligence.
 
 ### Fallback Rules
 
-- If the assigned playbook is empty after filtering → fall back to the **default playbook** for that down type (run/pass balanced)
-- If no default playbook covers the situation → fall back to a **generic balanced play** (inside zone run or a short pass)
-- Fallbacks are logged for debugging but do not crash the game
+- If a team has no `offensivePlan` → fall back to `selectPlayType()` (legacy path in `simulateGame.ts` with its own down/distance + situational adjustments)
+- If the assigned playbook is not found → use `DEFAULT_OFFENSIVE_PLAN` for that bucket
+- If a playbook resolves to zero valid plays → return null (engine uses legacy fallback)
+- Fallbacks are counted in `playSelectionStats` for debugging
+
+---
+
+## Additional Implemented Systems
+
+These systems are live and affect gameplay. They are implemented in code but were added after the original spec was written.
+
+### Play Effectiveness Tracking
+
+Per-team, per-play cumulative stats tracked during simulation:
+- `calls` — number of times a play was called
+- `totalYards` — total yards gained
+- `successes` — plays with 4+ yards or a first down
+- `firstDowns` — first downs converted
+- `touchdowns` — touchdowns scored
+- `turnovers` — turnovers committed
+
+Stored on `team.playStats` (keyed by play ID). Reset at the start of each new season. Displayed in the playbook UI next to each play entry.
+
+### Play Explanation System
+
+When a play is selected via the playbook path, the system generates human-readable `explanation` strings attached to the `PlayEvent`. These describe which modifiers influenced the selection:
+- Tendency reasons ("Run-heavy tendency → run boost")
+- Repetition reasons ("Repeated play → heavy penalty")
+- Context reasons ("Trailing late → pass emphasis")
+- Meta reasons ("Counter-meta → slight boost")
+
+Visible in the game viewer via the "Logic" toggle button. Explanations are only generated for plays resolved through the playbook system, not the legacy fallback path.
+
+### Coach Intelligence (Defensive Only)
+
+Defensive scouting effectiveness is scaled by coach quality:
+- **Factor (0.3–1.0):** Derived from DC overall (70%) + HC game management (30%) + defensive_architect trait bonus (+0.08). Scales the intensity of all scouting multipliers.
+- **Noise (0–15%):** Inverse of factor. Low-intelligence coaches have inconsistent adjustments that can occasionally move in the wrong direction.
+
+### League Meta Evolution
+
+A `MetaProfile` is computed each week from all teams' `playStats`:
+- `passRate` — league-wide fraction of pass plays
+- `runRate` — league-wide fraction of run plays
+- `deepRate` — fraction of passes that are deep
+
+The meta counter-trend multiplier gives plays that go against the league trend a small boost (max ±10%). This creates natural oscillation: when everyone passes, running becomes slightly more effective, and vice versa.
+
+Requires 50+ league-wide tracked plays before activating (typically week 2–3).
+
+---
+
+## Implementation Notes
+
+### Engine Separation
+
+The playbook system sits entirely above the simulation engine. The boundary is:
+
+```
+Playbook layer → resolves to a PlayType (e.g., 'inside_run', 'deep_pass')
+Engine layer   → receives PlayType, resolves yards/result/events
+```
+
+No playbook logic modifies engine probabilities, yard distributions, or outcome calculations. The engine has no knowledge of playbooks, formations, routes, or weight modifiers.
+
+### What Modifiers Can and Cannot Do
+
+**Can do:** Change which play is called more or less often. A tendency slider that boosts runs makes run plays more likely to be selected. The engine still resolves each run play identically.
+
+**Cannot do:** Change how effective a play is once called. There is no mechanism for a "boosted" play to resolve with better probabilities than a "non-boosted" one. All plays of the same `engineType` resolve through the same engine path.
+
+### Debug Observability
+
+- `PLAY_SELECTION_DEBUG=1` — logs ~5% of offensive play selections with full weight pipeline
+- `DEF_SELECTION_DEBUG=1` — logs ~5% of defensive play selections with package/coverage details
+- `playSelectionStats` / `defensiveSelectionStats` — counters for legacy fallback vs. new path resolution rates
 
 ---
 
@@ -253,11 +387,12 @@ On each snap, the engine executes this sequence:
 These are intentionally deferred. Do not implement without explicit approval:
 
 - ~~**Custom play creator**~~ — ✅ Implemented (Phase 1 MVP, 2026-03-27)
+- ~~**Repetition penalties**~~ — ✅ Implemented (window of 6, multiplicative penalties)
 - **Motion before the snap**
 - **Audibles** — changing the called play at the line
 - **Hot routes** — individual route adjustments
 - **Pre-snap shifts** — formation shifts before snap
 - **Coverage disguise** — defensive pre-snap deception
-- **Repetition penalties** — reduced effectiveness of overused plays
-- **Dynamic playbooks** — AI-driven play-calling adjustments mid-game
+- **Wiring `playActionRate`** — connecting the play-action tendency slider to the selection pipeline
+- **Wiring defensive tendencies** — connecting `blitzRate`, `coverageAggression`, `runCommitment` to defensive play selection
 - **Personnel substitution logic** — auto-substituting players based on game state
