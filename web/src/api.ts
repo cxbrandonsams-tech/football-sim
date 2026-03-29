@@ -56,6 +56,11 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
+    // Auto-logout on 401 (stale token, wiped DB, etc.)
+    if (res.status === 401 && authToken) {
+      clearAuth();
+      window.location.reload();
+    }
     throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;

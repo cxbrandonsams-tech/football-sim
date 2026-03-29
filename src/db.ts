@@ -383,6 +383,11 @@ export function getUserByUsername(username: string): { id: string; username: str
   return row ?? null;
 }
 
+export function getUserById(id: string): { id: string; username: string } | null {
+  const row = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id) as { id: string; username: string } | undefined;
+  return row ?? null;
+}
+
 // ── Membership helpers ────────────────────────────────────────────────────────
 
 export function getMembership(leagueId: string, userId: string): { teamId: string; teamName: string } | null {
