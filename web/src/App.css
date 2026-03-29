@@ -2336,9 +2336,133 @@ tr:hover td { background: var(--bg-row-hover); }
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 1rem 1rem 0.75rem;
+  padding: var(--sp-4);
   background: var(--bg-base);
   border-bottom: 2px solid var(--primary);
+}
+
+.pd-header-left {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Player face placeholder */
+.pd-face-placeholder {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.pd-face-icon {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.pd-identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+.pd-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.pd-meta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+}
+.pd-contract-inline {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accolades row */
+.pd-accolades {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pd-accolade {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0.1rem var(--sp-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+}
+.pd-accolade-icon { font-size: 0.85rem; line-height: 1; }
+.pd-accolade-label { font-weight: 600; white-space: nowrap; }
+
+/* Rating bars */
+.pd-ratings-bars {
+  padding: var(--sp-2) var(--sp-4) var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pd-ratings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--sp-1) var(--sp-4);
+}
+.pd-rating-bar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.pd-rating-bar-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  width: 7rem;
+  flex-shrink: 0;
+  text-align: right;
+}
+.pd-rating-bar-track {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.pd-rating-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  transition: width 0.3s ease;
+}
+.pd-bar-elite { background: var(--success); }
+.pd-bar-avg   { background: var(--warning); }
+.pd-bar-low   { background: var(--danger); }
+.pd-rating-bar-val {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  width: 1.8rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .pd-title {

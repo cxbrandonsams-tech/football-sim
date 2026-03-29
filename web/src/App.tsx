@@ -2231,177 +2231,153 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
     if (hasDefINTs) glCols.push({ label: 'INT', value: r => r.interceptionsCaught });
   }
 
+  // Accolade icons (placeholder until real icons)
+  const ACCOLADE_ICON: Record<string, string> = {
+    MVP: '🏆', OPOY: '⚡', DPOY: '🛡️', OROY: '🌟', DROY: '🌟',
+    AllPro1: '⭐', AllPro2: '☆', Comeback_Player: '🔄', Champion: '💍',
+  };
+
+  // Championship count
+  const championships = seasonHistory.filter(s =>
+    history?.championsByYear[s.year]?.teamId === s.teamId
+  ).length;
+
+  // Ring of Honor data for meter
+  const rohData = (() => {
+    const playerSeasons = history?.playerHistory[player.playerId] ?? [];
+    if (playerSeasons.length === 0 || !history) return null;
+    const teamCounts = new Map<string, number>();
+    for (const s of playerSeasons) teamCounts.set(s.teamId, (teamCounts.get(s.teamId) ?? 0) + 1);
+    const primaryTeamId = [...teamCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (!primaryTeamId) return null;
+    const rohScore = computeClientTeamLegacyScore(player.playerId, position, primaryTeamId, history);
+    if (rohScore <= 0) return null;
+    const rohThreshold = 55;
+    const jerseyThreshold = 100;
+    const rohTier: LegacyTier = rohScore >= jerseyThreshold ? 'hall_of_famer' : rohScore >= rohThreshold ? 'likely' : rohScore >= 35 ? 'building' : rohScore >= 20 ? 'outside_shot' : 'none';
+    const teamName = allTeams.find(t => t.id === primaryTeamId)?.name ?? primaryTeamId;
+    const rohLabel = rohScore >= jerseyThreshold ? '★ Jersey Retired' : rohScore >= rohThreshold ? 'Ring of Honor' : rohScore >= 35 ? 'Building Legacy' : rohScore >= 20 ? 'Franchise Role' : 'Contributing';
+    return { rohScore, rohTier, rohLabel, rohThreshold, jerseyThreshold, teamName };
+  })();
+
   return (
     <div className="pd-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="pd-modal">
 
-        {/* Header */}
+        {/* ── Header: face placeholder + identity + accolades ── */}
         <div className="pd-header">
-          <div className="pd-title">
-            <span className="pd-name">{player.name}</span>
-            <span className="pd-team">{player.teamAbbreviation}</span>
-            {rosterPlayer && (
-              <>
-                <span className="pd-badge">{rosterPlayer.position}</span>
-                <span className="pd-badge">Age {rosterPlayer.age}</span>
-                <span className="pd-badge">OVR {rosterPlayer.scoutedOverall}</span>
-                {rosterPlayer.yearsPro !== undefined && (
-                  <span className="pd-badge">{rosterPlayer.yearsPro === 0 ? 'Rookie' : `Yr ${rosterPlayer.yearsPro}`}</span>
+          <div className="pd-header-left">
+            <div className="pd-face-placeholder" title="Player photo">
+              <span className="pd-face-icon">{position.charAt(0)}</span>
+            </div>
+            <div className="pd-identity">
+              <div className="pd-name-row">
+                <span className="pd-name">{player.name}</span>
+                <span className="pd-team">{player.teamAbbreviation}</span>
+              </div>
+              <div className="pd-meta-row">
+                {rosterPlayer && (
+                  <>
+                    <span className="pd-badge">{rosterPlayer.position}</span>
+                    <span className="pd-badge">Age {rosterPlayer.age}</span>
+                    <span className="pd-badge">OVR {rosterPlayer.scoutedOverall}</span>
+                    {rosterPlayer.yearsPro !== undefined && (
+                      <span className="pd-badge">{rosterPlayer.yearsPro === 0 ? 'Rookie' : `Yr ${rosterPlayer.yearsPro}`}</span>
+                    )}
+                    {devBadge && (
+                      <span className={`pd-badge dev-trait-badge dev-trait-${rosterPlayer.devTrait}`} title={devBadge.label}>{devBadge.short}</span>
+                    )}
+                  </>
                 )}
-                {devBadge && (
-                  <span className={`pd-badge dev-trait-badge dev-trait-${rosterPlayer.devTrait}`} title={devBadge.label}>{devBadge.short}</span>
-                )}
-              </>
-            )}
-            {hofEntry && (
-              <span className="pd-badge hof-badge" title={`Hall of Fame — Inducted ${hofEntry.inductionYear}`}>★ HoF {hofEntry.inductionYear}</span>
-            )}
-            {(() => {
-              const rohEntries = Object.entries(history?.ringOfHonor ?? {})
-                .flatMap(([tid, entries]) => entries.filter(e => e.playerId === player.playerId).map(e => ({ ...e, teamId: tid })));
-              if (rohEntries.length === 0) return null;
-              return rohEntries.map(e => {
-                const teamName = allTeams.find(t => t.id === e.teamId)?.name ?? e.teamId;
-                return (
-                  <span key={e.teamId} className={`pd-badge roh-badge${e.jerseyRetired ? ' roh-jersey-badge' : ''}`}
-                    title={`${teamName} Ring of Honor — ${e.inductedYear}`}>
-                    {e.jerseyRetired ? '◈' : '◇'} {teamName.split(' ').pop()} RoH
-                  </span>
-                );
-              });
-            })()}
+                {hofEntry && <span className="pd-badge hof-badge" title={`Hall of Fame — ${hofEntry.inductionYear}`}>★ HoF</span>}
+              </div>
+              {/* Contract */}
+              {rosterPlayer && (
+                <div className="pd-contract-inline">
+                  ${rosterPlayer.salary.toFixed(1)}M · {rosterPlayer.yearsRemaining}yr
+                  {rosterPlayer.contractDemand && <span className="pd-contract-demand"> · Wants ${rosterPlayer.contractDemand.salary}M/{rosterPlayer.contractDemand.years}yr</span>}
+                </div>
+              )}
+            </div>
           </div>
           <button className="pd-close" onClick={onClose}>✕</button>
         </div>
 
-        {/* Hall of Fame & Ring of Honor meters */}
+        {/* ── Accolades row ── */}
+        {(playerAwards.length > 0 || championships > 0) && (
+          <div className="pd-accolades">
+            {championships > 0 && (
+              <div className="pd-accolade" title={`${championships}× League Champion`}>
+                <span className="pd-accolade-icon">💍</span>
+                <span className="pd-accolade-label">{championships}× Champ</span>
+              </div>
+            )}
+            {(() => {
+              // Group awards by type and count
+              const counts = new Map<string, number>();
+              for (const a of playerAwards) counts.set(a.type, (counts.get(a.type) ?? 0) + 1);
+              return [...counts.entries()]
+                .sort((a, b) => {
+                  const order = ['MVP', 'OPOY', 'DPOY', 'AllPro1', 'AllPro2', 'OROY', 'DROY', 'Comeback_Player'];
+                  return (order.indexOf(a[0]) ?? 99) - (order.indexOf(b[0]) ?? 99);
+                })
+                .map(([type, count]) => (
+                  <div key={type} className="pd-accolade" title={`${count}× ${AWARD_LABELS[type] ?? type}`}>
+                    <span className="pd-accolade-icon">{ACCOLADE_ICON[type] ?? '🏅'}</span>
+                    <span className="pd-accolade-label">{count}× {type === 'AllPro1' ? 'AP1' : type === 'AllPro2' ? 'AP2' : type}</span>
+                  </div>
+                ));
+            })()}
+          </div>
+        )}
+
+        {/* ── Legacy meters ── */}
         {showLegacy && (
           <div className="pd-legacy">
             <div className="pd-legacy-section">
               <div className="pd-legacy-title">Hall of Fame Tracker</div>
               <LegacyMeter score={legacyScore} tier={legacyTier} threshold={HOF_CONFIG.tierThresholds.hall_of_famer} />
             </div>
-            {/* Ring of Honor — show for the player's current/primary team */}
-            {(() => {
-              const playerSeasons = history?.playerHistory[player.playerId] ?? [];
-              if (playerSeasons.length === 0) return null;
-              // Find the team the player spent the most time with
-              const teamCounts = new Map<string, number>();
-              for (const s of playerSeasons) {
-                teamCounts.set(s.teamId, (teamCounts.get(s.teamId) ?? 0) + 1);
-              }
-              const primaryTeamId = [...teamCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-              if (!primaryTeamId || !history) return null;
-              const rohScore = computeClientTeamLegacyScore(player.playerId, position, primaryTeamId, history);
-              if (rohScore <= 0) return null;
-              const rohThreshold = 55;
-              const jerseyThreshold = 100;
-              const rohTier: LegacyTier = rohScore >= jerseyThreshold ? 'hall_of_famer' : rohScore >= rohThreshold ? 'likely' : rohScore >= 35 ? 'building' : rohScore >= 20 ? 'outside_shot' : 'none';
-              const teamName = allTeams.find(t => t.id === primaryTeamId)?.name ?? primaryTeamId;
-              const rohLabel = rohScore >= jerseyThreshold ? '★ Jersey Retired' : rohScore >= rohThreshold ? 'Ring of Honor' : rohScore >= 35 ? 'Building Legacy' : rohScore >= 20 ? 'Franchise Role' : 'Contributing';
-              return (
-                <div className="pd-legacy-section">
-                  <div className="pd-legacy-title">{teamName} Ring of Honor</div>
-                  <LegacyMeter
-                    score={rohScore}
-                    tier={rohTier}
-                    label={rohLabel}
-                    threshold={rohThreshold}
-                    maxOverride={jerseyThreshold + 20}
-                  />
-                </div>
-              );
-            })()}
-          </div>
-        )}
-
-        {/* Contract info */}
-        {rosterPlayer && (
-          <div className="pd-contract-row">
-            <span className="pd-contract-item"><span className="pd-contract-label">Salary</span> ${rosterPlayer.salary.toFixed(1)}M</span>
-            <span className="pd-contract-item"><span className="pd-contract-label">Years</span> {rosterPlayer.contractYears ?? '—'}</span>
-            {rosterPlayer.contractDemand && (
-              <span className="pd-contract-item pd-contract-demand"><span className="pd-contract-label">Wants</span> ${rosterPlayer.contractDemand.salary}M/{rosterPlayer.contractDemand.years}yr</span>
+            {rohData && (
+              <div className="pd-legacy-section">
+                <div className="pd-legacy-title">{rohData.teamName} Ring of Honor</div>
+                <LegacyMeter score={rohData.rohScore} tier={rohData.rohTier} label={rohData.rohLabel} threshold={rohData.rohThreshold} maxOverride={rohData.jerseyThreshold + 20} />
+              </div>
             )}
           </div>
         )}
 
-        {/* Ratings breakdown */}
+        {/* ── Ratings as horizontal bars ── */}
         {visibleRatings && (
-          <div className="pd-ratings-row">
-            {Object.entries(visibleRatings).map(([label, val]) => (
-              <div key={label} className="pd-rating-item">
-                <span className={`pd-rating-val ${val >= 80 ? 'pd-rating-elite' : val >= 65 ? 'pd-rating-avg' : 'pd-rating-low'}`}>{val}</span>
-                <span className="pd-rating-lbl">{label}</span>
-              </div>
-            ))}
+          <div className="pd-ratings-bars">
+            <div className="pd-section-label">Player Ratings</div>
+            <div className="pd-ratings-grid">
+              {Object.entries(visibleRatings).map(([label, val]) => (
+                <div key={label} className="pd-rating-bar-row">
+                  <span className="pd-rating-bar-label">{label}</span>
+                  <div className="pd-rating-bar-track">
+                    <div
+                      className={`pd-rating-bar-fill ${val >= 80 ? 'pd-bar-elite' : val >= 65 ? 'pd-bar-avg' : 'pd-bar-low'}`}
+                      style={{ width: `${val}%` }}
+                    />
+                  </div>
+                  <span className={`pd-rating-bar-val ${val >= 80 ? 'pd-rating-elite' : val >= 65 ? 'pd-rating-avg' : 'pd-rating-low'}`}>{val}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Tab selector */}
-        {seasonHistory.length > 0 && (
-          <div className="pd-tabs">
-            <button className={pdTab === 'season' ? 'active' : ''} onClick={() => setPdTab('season')}>This Season</button>
-            <button className={pdTab === 'career' ? 'active' : ''} onClick={() => setPdTab('career')}>Career</button>
-          </div>
-        )}
-
-        {pdTab === 'career' && seasonHistory.length > 0 ? (
-          <PlayerCareerView seasons={seasonHistory} awards={playerAwards} />
-        ) : (
-          <>
-
-        {/* Season totals */}
-        <div className="pd-section-label">Season Totals</div>
-        <div className="pd-stats-row">
-          {hasPassing && (
-            <>
-              <div className="pd-stat"><span className="pd-stat-val">{player.passingYards}</span><span className="pd-stat-lbl">Pass Yds</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.completions}/{player.attempts}</span><span className="pd-stat-lbl">C/ATT</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.passingTDs}</span><span className="pd-stat-lbl">Pass TD</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.interceptions}</span><span className="pd-stat-lbl">INT</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.attempts > 0 ? ((player.completions / player.attempts) * 100).toFixed(1) : '—'}%</span><span className="pd-stat-lbl">Comp%</span></div>
-            </>
-          )}
-          {hasRushing && (
-            <>
-              <div className="pd-stat"><span className="pd-stat-val">{player.rushingYards}</span><span className="pd-stat-lbl">Rush Yds</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.carries}</span><span className="pd-stat-lbl">Car</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.carries > 0 ? (player.rushingYards / player.carries).toFixed(1) : '—'}</span><span className="pd-stat-lbl">YPC</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.rushingTDs}</span><span className="pd-stat-lbl">Rush TD</span></div>
-            </>
-          )}
-          {hasReceiving && (
-            <>
-              <div className="pd-stat"><span className="pd-stat-val">{player.receivingYards}</span><span className="pd-stat-lbl">Rec Yds</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.receptions}/{player.targets}</span><span className="pd-stat-lbl">REC/TGT</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.receptions > 0 ? (player.receivingYards / player.receptions).toFixed(1) : '—'}</span><span className="pd-stat-lbl">YPR</span></div>
-              <div className="pd-stat"><span className="pd-stat-val">{player.receivingTDs}</span><span className="pd-stat-lbl">Rec TD</span></div>
-            </>
-          )}
-          {totalTDs > 0 && (
-            <div className="pd-stat pd-stat-total"><span className="pd-stat-val">{totalTDs}</span><span className="pd-stat-lbl">Total TD</span></div>
-          )}
-          {hasDefense && (
-            <>
-              {hasTackles && <div className="pd-stat"><span className="pd-stat-val">{player.tackles}</span><span className="pd-stat-lbl">Tackles</span></div>}
-              {hasSacks   && <div className="pd-stat"><span className="pd-stat-val">{player.sacks}</span><span className="pd-stat-lbl">Sacks</span></div>}
-              {hasDefINTs && <div className="pd-stat"><span className="pd-stat-val">{player.interceptionsCaught}</span><span className="pd-stat-lbl">INTs</span></div>}
-            </>
-          )}
-        </div>
-
-        {/* Game log */}
+        {/* ── Game Log (this season) ── */}
         {gameLog.length > 0 && (
           <>
-            <div className="pd-section-label">Game Log</div>
+            <div className="pd-section-label">This Season — Game Log</div>
             <div className="pd-table-wrap">
               <table className="pd-table">
                 <thead>
                   <tr>
                     <th className="col-num">WK</th>
                     <th>OPP</th>
-                    <th className="col-num">H/A</th>
                     <th className="col-num">RESULT</th>
                     {glCols.map(c => <th key={c.label} className="col-num">{c.label}</th>)}
                   </tr>
@@ -2410,15 +2386,12 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
                   {gameLog.map((r, i) => (
                     <tr key={i}>
                       <td className="col-num pd-week">{r.week === 0 ? 'PO' : r.week}</td>
-                      <td className="pd-opp">{r.opponentAbbr}</td>
-                      <td className="col-num pd-ha">{r.homeAway}</td>
+                      <td className="pd-opp">{r.homeAway === 'A' ? '@' : 'vs'} {r.opponentAbbr}</td>
                       <td className={`col-num pd-result pd-result-${r.result.toLowerCase()}`}>
                         {r.result} {r.teamScore}–{r.oppScore}
                       </td>
                       {glCols.map(c => (
-                        <td key={c.label} className={`col-num${c.primary ? ' col-primary' : ''}`}>
-                          {c.value(r)}
-                        </td>
+                        <td key={c.label} className={`col-num${c.primary ? ' col-primary' : ''}`}>{c.value(r)}</td>
                       ))}
                     </tr>
                   ))}
@@ -2427,10 +2400,10 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
             </div>
           </>
         )}
-        {gameLog.length === 0 && (
-          <p className="muted" style={{ padding: '1rem' }}>No game data available.</p>
-        )}
-          </>
+
+        {/* ── Career Stats (PFR-style season-by-season table) ── */}
+        {seasonHistory.length > 0 && (
+          <PlayerCareerView seasons={seasonHistory} awards={playerAwards} />
         )}
 
       </div>
