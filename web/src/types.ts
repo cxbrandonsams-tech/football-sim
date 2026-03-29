@@ -57,6 +57,7 @@ export interface OLRatings {
   passBlocking: number;
   runBlocking:  number;
   awareness:    number;
+  discipline:   number;
   personality:  PersonalityRatings;
 }
 
@@ -76,6 +77,7 @@ export interface LBRatings {
   speed:       number;
   pursuit:     number;
   awareness:   number;
+  discipline:  number;
   personality: PersonalityRatings;
 }
 
@@ -87,6 +89,7 @@ export interface CBRatings {
   speed:        number;
   size:         number;
   awareness:    number;
+  discipline:   number;
   tackling:     number;
   personality:  PersonalityRatings;
 }
@@ -100,6 +103,7 @@ export interface SafetyRatings {
   speed:        number;
   size:         number;
   awareness:    number;
+  discipline:   number;
   tackling:     number;
   personality:  PersonalityRatings;
 }
