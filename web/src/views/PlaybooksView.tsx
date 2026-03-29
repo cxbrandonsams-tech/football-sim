@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { friendlyError } from '../shared';
 import { generateGameplanRecommendation } from '../gameplanRec';
 import {
@@ -12,7 +12,7 @@ import {
   getFormations,
 } from '../api';
 import type {
-  League, Team, OffensiveSlot, OffensiveFormation, OffensivePlay,
+  League, Team, Player, PlayEffStats, OffensiveSlot, OffensiveFormation, OffensivePlay,
   Playbook, PlaybookEntry, DownDistanceBucket, OffensivePlan,
   DefensiveSlot, DefensivePackage, DefensivePlay, DefPlaybook,
   DefPlaybookEntry, DefensivePlan, TeamTendencies, RouteTag,

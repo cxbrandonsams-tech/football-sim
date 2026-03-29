@@ -18,20 +18,12 @@ import {
   offerContract as offerContractApi,
   shopPlayer as shopPlayerApi,
   fireCoach as fireCoachApi, hireCoach as hireCoachApi, promoteWithin as promoteWithinApi,
-  setFormationSlot as setFormationSlotApi, setOffensivePlan as setOffensivePlanApi,
-  setPackageSlot as setPackageSlotApi, setDefensivePlan as setDefensivePlanApi,
-  saveOffensePlaybook as saveOffensePlaybookApi, deleteOffensePlaybook as deleteOffensePlaybookApi,
-  saveDefensePlaybook as saveDefensePlaybookApi, deleteDefensePlaybook as deleteDefensePlaybookApi,
-  setTendencies as setTendenciesApi,
-  saveCustomPlay as saveCustomPlayApi, deleteCustomPlay as deleteCustomPlayApi,
-  saveCustomDefensePlay as saveCustomDefPlayApi, deleteCustomDefensePlay as deleteCustomDefPlayApi,
-  getFormations,
   signup, login, getMyLeagues, getMe,
   getLeagueMembers as getLeagueMembersApi, updateLeagueSettings as updateLeagueSettingsApi, kickMember as kickMemberApi,
   setAuthToken, setAuthUser, clearAuth, authToken, authUserId, authUsername,
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
-import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type ClientProspect, type ProspectScoutingState, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type FrontOfficePersonality, type OffensiveSlot, type OffensiveFormation, type OffensivePlay, type Playbook, type PlaybookEntry, type DownDistanceBucket, type OffensivePlan, type Team, type DefensiveSlot, type DefensivePackage, type DefensivePlay, type DefPlaybook, type DefPlaybookEntry, type DefensivePlan, type TeamTendencies, DEFAULT_TENDENCIES, COACH_ARCHETYPES, type RouteTag } from './types';
+import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type ClientProspect, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type FrontOfficePersonality } from './types';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -1968,7 +1960,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {passers.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num col-primary">{l.passingYards}</td><td className="col-num">{l.passingTDs}</td>
                 </tr>
               ))}
@@ -1988,7 +1980,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {rushers.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num col-primary">{l.rushingYards}</td><td className="col-num">{l.rushingTDs}</td>
                 </tr>
               ))}
@@ -2008,7 +2000,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {receivers.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num">{l.receptions}</td>
                   <td className="col-num col-primary">{l.receivingYards}</td><td className="col-num">{l.receivingTDs}</td>
                 </tr>
@@ -2029,7 +2021,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {sackers.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num col-primary">{l.sacks.toFixed(1)}</td>
                 </tr>
               ))}
@@ -2049,7 +2041,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
               {inters.map((l, i) => (
                 <tr key={l.playerId} className={i === 0 ? 'lc-top' : ''}>
                   <td className="col-rank">{i + 1}</td><td className="col-player">{pBtn(l)}</td>
-                  <td className="col-team">{tBtn(l.teamAbbr)}</td><td className="col-num">{l.seasons}</td>
+                  <td className="col-team">{l.teamAbbr}</td><td className="col-num">{l.seasons}</td>
                   <td className="col-num col-primary">{l.interceptionsCaught}</td>
                 </tr>
               ))}
@@ -2090,7 +2082,7 @@ function SingleSeasonRecordsView({ records, onViewPlayer }: {
                         ? <button className="pd-trigger" onClick={() => onViewPlayer(e.playerId)}>{e.name}</button>
                         : e.name}
                     </td>
-                    <td className="col-team">{tBtn(e.teamAbbr)}</td>
+                    <td className="col-team">{e.teamAbbr}</td>
                     <td className="col-num">{e.year}</td>
                     <td className="col-num col-primary">{fmtVal(cat.key, e.value)}</td>
                   </tr>
@@ -2186,7 +2178,6 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
   history?: LeagueHistory;
   onClose: () => void;
 }) {
-  const [pdTab, setPdTab] = useState<'season' | 'career'>('season');
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handleEsc);
@@ -2213,8 +2204,6 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
   const hasDefINTs   = player.interceptionsCaught > 0;
   const hasTackles   = player.tackles   > 0;
   const hasDefense   = hasSacks || hasDefINTs || hasTackles;
-
-  const totalTDs = player.passingTDs + player.rushingTDs + player.receivingTDs;
 
   // Dynamic game-log columns
   const glCols: { label: string; value: (r: GameLogRow) => string | number; primary?: boolean }[] = [];
@@ -3499,10 +3488,6 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
   const currentEvent = events[idx];
   const quarter = currentEvent?.quarter ?? 1;
   const quarterLabel = atEnd && events.length > 0 ? 'Final' : `Q${Math.min(quarter, 4)}`;
-  const offAbbr = currentEvent
-    ? (currentEvent.offenseTeamId === homeId ? focusGame.homeTeam.abbreviation : focusGame.awayTeam.abbreviation)
-    : '';
-  const playText = currentEvent ? `[${offAbbr}] ${formatPlay(currentEvent)}` : '';
 
   // Live box score up to idx
   const liveGame = { ...focusGame, events: events.slice(0, idx + 1) };
@@ -3632,7 +3617,6 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
               homeAbbr={focusGame.homeTeam.abbreviation}
               awayAbbr={focusGame.awayTeam.abbreviation}
               homeId={homeId}
-              awayId={focusGame.awayTeam.id}
               homeScore={homeScore}
               awayScore={awayScore}
               quarter={quarterLabel}
@@ -4212,12 +4196,6 @@ function PlayoffView({ playoff, teams, seasonHistory, history, league: leagueObj
     wildcard: 'Wild Card', divisional: 'Divisional', conference: 'Conference Championship', championship: 'League Championship',
   };
   const ROUND_ORDER = ['wildcard', 'divisional', 'conference', 'championship'];
-
-  const roundGroups = ROUND_ORDER.map(r => ({
-    round: r,
-    label: ROUND_LABELS[r]!,
-    matchups: playoff?.matchups.filter(m => m.round === r) ?? [],
-  })).filter(g => g.matchups.length > 0);
 
   function MatchupCard({ m, isChampionship }: { m: PlayoffBracket['matchups'][0]; isChampionship?: boolean }) {
     // Derive per-team scores from the game object
@@ -8155,7 +8133,6 @@ function DraftBoardView({ draftClass, myTeam, onUpdateBoard }: {
   const onBoard = draftBoard
     .map(id => draftClass.prospects.find(p => p.id === id))
     .filter((p): p is ClientProspect => !!p);
-  const unranked = draftClass.prospects.filter(p => !draftBoard.includes(p.id));
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [boardView, setBoardView] = useState<'ranked' | 'browse'>('ranked');

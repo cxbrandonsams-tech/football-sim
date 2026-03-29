@@ -135,7 +135,6 @@ interface FieldViewProps {
   homeAbbr: string;
   awayAbbr: string;
   homeId: string;
-  awayId: string;
   homeScore: number;
   awayScore: number;
   quarter: string;
@@ -143,7 +142,7 @@ interface FieldViewProps {
   totalPlays: number;
 }
 
-export function FieldView({ event, homeAbbr, awayAbbr, homeId, awayId, homeScore, awayScore, quarter, playIndex, totalPlays }: FieldViewProps) {
+export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awayScore, quarter, playIndex, totalPlays }: FieldViewProps) {
   const [commentary, setCommentary] = useState<{ text: string; isBig: boolean } | null>(null);
   const [bigPlay, setBigPlay] = useState(false);
   const prevIdxRef = useRef(playIndex);
