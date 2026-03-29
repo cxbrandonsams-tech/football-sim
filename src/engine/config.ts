@@ -475,6 +475,29 @@ export const TUNING = {
     lateGameBonus:      0.08,    // trailing late-game boost
   },
 
+  // ── Special teams scoring ──────────────────────────────────────────────────
+  specialTeams: {
+    kickReturnTDChance:   0.012,  // ~1.2% of kick returns are TDs (~0.15/game)
+    puntReturnTDChance:   0.008,  // ~0.8% of punt returns are TDs (~0.08/game)
+    blockedFGChance:      0.015,  // ~1.5% of FG attempts are blocked
+    blockedPuntChance:    0.008,  // ~0.8% of punts are blocked
+    blockedReturnTDChance: 0.30,  // 30% of blocked kicks are returned for TD
+  },
+
+  // ── Turnover return TDs ──────────────────────────────────────────────────
+  turnoverReturn: {
+    pickSixChance:      0.12,   // ~12% of INTs returned for TD (~0.2/game)
+    fumbleReturnTDChance: 0.08, // ~8% of fumble recoveries returned for TD
+  },
+
+  // ── Safety ────────────────────────────────────────────────────────────────
+  safety: {
+    // Safety occurs when offense is inside own 5 and gets sacked or TFL
+    yardLineThreshold:   5,     // must be at own 5 or closer
+    sackSafetyChance:    0.40,  // 40% of sacks inside own 5 = safety
+    runSafetyChance:     0.25,  // 25% of TFL runs inside own 5 = safety
+  },
+
   // ── Penalties ─────────────────────────────────────────────────────────────
   // NFL averages ~13 penalties/game (both teams combined).
   // Drive-extending defensive penalties are the key PPG driver.

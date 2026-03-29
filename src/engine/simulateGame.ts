@@ -1231,26 +1231,40 @@ function puntReturnerScore(team: Team): number {
   return best;
 }
 
-function resolveKickoffStart(receivingTeam: Team): number {
+/** Returns { yardLine, isTD } — isTD means the return was taken to the house */
+function resolveKickoffStart(receivingTeam: Team): { yardLine: number; isTD: boolean } {
   const c = cfg.kickoffReturn;
-  if (Math.random() < c.touchbackRate) return c.touchbackYardLine;
+  if (Math.random() < c.touchbackRate) return { yardLine: c.touchbackYardLine, isTD: false };
+
+  // Check for kick return TD
+  if (Math.random() < cfg.specialTeams.kickReturnTDChance) {
+    return { yardLine: 100, isTD: true };
+  }
+
   const score  = kickoffReturnerScore(receivingTeam);
   const bonus  = Math.min(c.returnerBonusCap, Math.max(-c.returnerBonusCap, (score - 50) * c.returnerBonusScale));
   if (Math.random() < c.bigReturnChance) {
-    return Math.min(95, c.catchYardLine + randInt(c.bigReturnMin, c.bigReturnMax) + Math.round(bonus));
+    return { yardLine: Math.min(95, c.catchYardLine + randInt(c.bigReturnMin, c.bigReturnMax) + Math.round(bonus)), isTD: false };
   }
-  return Math.min(50, c.catchYardLine + randInt(c.returnBaseMin, c.returnBaseMax) + Math.round(bonus));
+  return { yardLine: Math.min(50, c.catchYardLine + randInt(c.returnBaseMin, c.returnBaseMax) + Math.round(bonus)), isTD: false };
 }
 
-function resolvePuntReturn(receivingTeam: Team, landSpot: number): number {
+/** Returns { yardLine, isTD } */
+function resolvePuntReturn(receivingTeam: Team, landSpot: number): { yardLine: number; isTD: boolean } {
   const c = cfg.puntReturn;
-  if (Math.random() < c.fairCatchRate) return landSpot;
+  if (Math.random() < c.fairCatchRate) return { yardLine: landSpot, isTD: false };
+
+  // Check for punt return TD
+  if (Math.random() < cfg.specialTeams.puntReturnTDChance) {
+    return { yardLine: 100, isTD: true };
+  }
+
   const score = puntReturnerScore(receivingTeam);
   const bonus = Math.min(c.returnerBonusCap, Math.max(-c.returnerBonusCap, (score - 50) * c.returnerBonusScale));
   if (Math.random() < c.bigReturnChance) {
-    return Math.min(95, landSpot + randInt(c.bigReturnMin, c.bigReturnMax) + Math.round(bonus));
+    return { yardLine: Math.min(95, landSpot + randInt(c.bigReturnMin, c.bigReturnMax) + Math.round(bonus)), isTD: false };
   }
-  return Math.min(95, landSpot + randInt(c.returnBaseMin, c.returnBaseMax) + Math.round(bonus));
+  return { yardLine: Math.min(95, landSpot + randInt(c.returnBaseMin, c.returnBaseMax) + Math.round(bonus)), isTD: false };
 }
 
 // ── Clock runoff ─────────────────────────────────────────────────────────────
@@ -1358,13 +1372,27 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
   let possession: 'home' | 'away' = Math.random() < 0.5 ? 'home' : 'away';
   let down     = 1;
   let distance = 10;
-  let yardLine = resolveKickoffStart(possession === 'home' ? home : away);
+  const kickoffResult = resolveKickoffStart(possession === 'home' ? home : away);
+  let yardLine = kickoffResult.yardLine;
   let homeScore = 0;
   let awayScore = 0;
 
   const score = (pts: number) => {
     if (possession === 'home') homeScore += pts;
     else awayScore += pts;
+  };
+
+  /** Handle kickoff return — may score a TD. Returns new yard line. */
+  const handleKickoff = (): number => {
+    const receiving = possession === 'home' ? home : away;
+    const result = resolveKickoffStart(receiving);
+    if (result.isTD) {
+      // Kick return TD! Score for the RECEIVING team (current possession)
+      score(6 + resolveConversion());
+      changePoss();
+      return handleKickoff(); // recursive: other team now kicks off
+    }
+    return result.yardLine;
   };
 
   /** Resolve PAT/2PT after a touchdown. Returns points scored (0, 1, or 2). */
@@ -1422,6 +1450,13 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
     }
   };
 
+  // Handle opening kickoff TD (declarations now available)
+  if (kickoffResult.isTD) {
+    score(6 + resolveConversion());
+    changePoss();
+    yardLine = handleKickoff();
+  }
+
   while (quarter <= 4) {
     const offRaw     = possession === 'home' ? home : away;
     const defRaw     = possession === 'home' ? away : home;
@@ -1459,26 +1494,71 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
 
     if (down === 4 && !goForIt) {
       if (yardLine >= cfg.fieldGoal.attemptYardLine || desperationFG) {
-        const ev = simulatePlay(off, def, 'field_goal', quarter, down, distance, yardLine);
-        events.push(ev);
-        if (ev.result === 'field_goal_good') score(3);
-        changePoss();
-        yardLine = resolveKickoffStart(possession === 'home' ? home : away);
+        // Check for blocked FG
+        if (Math.random() < cfg.specialTeams.blockedFGChance) {
+          events.push({
+            type: 'field_goal' as PlayType, offenseTeamId: off.id, defenseTeamId: def.id,
+            result: 'field_goal_miss' as PlayResult, yards: 0, quarter, down, distance, yardLine,
+          });
+          // Blocked FG — check for return TD
+          if (Math.random() < cfg.specialTeams.blockedReturnTDChance) {
+            changePoss();
+            score(6 + resolveConversion());
+            changePoss();
+            yardLine = handleKickoff();
+          } else {
+            changePoss();
+            yardLine = Math.max(20, 100 - yardLine); // defense gets ball at spot of kick
+          }
+        } else {
+          const ev = simulatePlay(off, def, 'field_goal', quarter, down, distance, yardLine);
+          events.push(ev);
+          if (ev.result === 'field_goal_good') score(3);
+          changePoss();
+          yardLine = handleKickoff();
+        }
       } else {
-        const puntYards = randInt(cfg.punt.minYards, cfg.punt.maxYards);
-        const landingYL = yardLine + puntYards;
-        const puntReceiver = def; // receiver before possession flips
-        const landSpot    = landingYL >= 100
-          ? cfg.punt.touchbackYardLine
-          : Math.max(5, 100 - landingYL);
-        events.push({
-          type: 'punt', offenseTeamId: off.id, defenseTeamId: def.id,
-          result: 'success', yards: puntYards, quarter, down, distance, yardLine,
-        });
-        changePoss();
-        yardLine = landingYL >= 100
-          ? cfg.punt.touchbackYardLine
-          : resolvePuntReturn(puntReceiver, landSpot);
+        // Check for blocked punt
+        if (Math.random() < cfg.specialTeams.blockedPuntChance) {
+          events.push({
+            type: 'punt' as PlayType, offenseTeamId: off.id, defenseTeamId: def.id,
+            result: 'fail' as PlayResult, yards: 0, quarter, down, distance, yardLine,
+          });
+          if (Math.random() < cfg.specialTeams.blockedReturnTDChance) {
+            changePoss();
+            score(6 + resolveConversion());
+            changePoss();
+            yardLine = handleKickoff();
+          } else {
+            changePoss();
+            yardLine = Math.min(95, 100 - yardLine + 5); // defense recovers near LOS
+          }
+        } else {
+          const puntYards = randInt(cfg.punt.minYards, cfg.punt.maxYards);
+          const landingYL = yardLine + puntYards;
+          const puntReceiver = def;
+          const landSpot    = landingYL >= 100
+            ? cfg.punt.touchbackYardLine
+            : Math.max(5, 100 - landingYL);
+          events.push({
+            type: 'punt', offenseTeamId: off.id, defenseTeamId: def.id,
+            result: 'success', yards: puntYards, quarter, down, distance, yardLine,
+          });
+          changePoss();
+        if (landingYL >= 100) {
+          yardLine = cfg.punt.touchbackYardLine;
+        } else {
+          const puntResult = resolvePuntReturn(puntReceiver, landSpot);
+          if (puntResult.isTD) {
+            // Punt return TD! Scored by the new possession team
+            score(6 + resolveConversion());
+            changePoss();
+            yardLine = handleKickoff();
+          } else {
+            yardLine = puntResult.yardLine;
+          }
+        }
+        } // end normal punt (not blocked)
       }
     } else {
       // Playbook system: select play from team's offensive plan (if configured).
@@ -1655,20 +1735,56 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
         if (ev.result === 'touchdown') {
           score(6 + resolveConversion());
           changePoss();
-          yardLine = resolveKickoffStart(possession === 'home' ? home : away);
+          yardLine = handleKickoff();
         } else if (ev.result === 'turnover') {
-          yardLine = Math.max(5, Math.min(95, 100 - yardLine));
-          changePoss();
-        } else {
-          yardLine = Math.min(99, yardLine + ev.yards);
-          if (ev.yards >= distance) {
-            down = 1; distance = 10;
+          // Check for pick-six or fumble return TD
+          const isINT = ev.type === 'interception';
+          const returnTDChance = isINT ? cfg.turnoverReturn.pickSixChance : cfg.turnoverReturn.fumbleReturnTDChance;
+          if (Math.random() < returnTDChance) {
+            // Turnover returned for a TD! Defense scores.
+            changePoss(); // defense now has the ball
+            score(6 + resolveConversion());
+            changePoss(); // flip back for kickoff
+            yardLine = handleKickoff();
           } else {
-            down++;
-            distance -= ev.yards;
-            // Failed 4th-down conversion — turnover on downs
-            if (down > 4) {
+            yardLine = Math.max(5, Math.min(95, 100 - yardLine));
+            changePoss();
+          }
+        } else {
+          const newYL = yardLine + ev.yards;
+
+          // Safety check: if offense is pushed into own end zone
+          if (newYL <= 0) {
+            // Safety! 2 points for the defense.
+            // Score for the DEFENSIVE team (not current possession)
+            if (possession === 'home') awayScore += 2; else homeScore += 2;
+            // After safety: scoring team receives a free kick (punt from 20)
+            changePoss();
+            yardLine = 25; // receiving team starts around own 25 after free kick
+            down = 1; distance = 10;
+          } else if (newYL <= cfg.safety.yardLineThreshold && ev.yards < 0) {
+            // Deep in own territory with a loss — check for safety
+            const isSack = ev.type === 'sack';
+            const safetyChance = isSack ? cfg.safety.sackSafetyChance : cfg.safety.runSafetyChance;
+            if (Math.random() < safetyChance) {
+              // Safety!
+              if (possession === 'home') awayScore += 2; else homeScore += 2;
               changePoss();
+              yardLine = 25;
+              down = 1; distance = 10;
+            } else {
+              yardLine = Math.max(1, newYL);
+              down++; distance -= ev.yards;
+              if (down > 4) changePoss();
+            }
+          } else {
+            yardLine = Math.min(99, newYL);
+            if (ev.yards >= distance) {
+              down = 1; distance = 10;
+            } else {
+              down++;
+              distance -= ev.yards;
+              if (down > 4) changePoss();
             }
           }
         }
@@ -1676,7 +1792,7 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
         // TD still counts even with a defensive penalty
         score(6 + resolveConversion());
         changePoss();
-        yardLine = resolveKickoffStart(possession === 'home' ? home : away);
+        yardLine = handleKickoff();
       }
 
       // Check for DPI creating a TD (ball at 100+)
@@ -1707,7 +1823,7 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
           halftimeProfiles.set(home.id, buildScoutingProfileFromGameStats(awayOffStats, away.customOffensivePlays));
         }
         changePoss(); // halftime flip
-        yardLine = resolveKickoffStart(possession === 'home' ? home : away);
+        yardLine = handleKickoff();
       }
     }
   }
