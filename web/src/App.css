@@ -9100,3 +9100,275 @@ details[open] summary .muted { color: var(--text-secondary); }
   padding: 0.6rem 0.75rem;
   text-align: center;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FIELD VIEW — broadcast football field visualization
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.field-wrap {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  transition: box-shadow 0.3s ease;
+}
+
+.field-wrap.field-big-play {
+  box-shadow: 0 0 20px rgba(249, 115, 22, 0.2), 0 0 40px rgba(249, 115, 22, 0.05);
+}
+
+/* ── Scoreboard strip ── */
+.field-scoreboard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.field-sb-team {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.field-sb-away { flex-direction: row; }
+.field-sb-home { flex-direction: row-reverse; }
+
+.field-sb-abbr {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-style: italic;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  letter-spacing: 0.04em;
+}
+.field-sb-score {
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-bright);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.field-sb-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+}
+.field-sb-quarter {
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-style: italic;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  background: var(--bg-card);
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+.field-sb-play {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Football field ── */
+.field-container {
+  position: relative;
+  height: 100px;
+  background:
+    /* Hash marks */
+    repeating-linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 9.8%,
+      rgba(255,255,255,0.06) 9.8%,
+      rgba(255,255,255,0.06) 10.2%,
+      transparent 10.2%
+    ),
+    /* Field green */
+    linear-gradient(180deg, #1a4d1a 0%, #154015 50%, #1a4d1a 100%);
+  overflow: hidden;
+}
+
+/* End zones */
+.field-endzone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.field-endzone-left {
+  left: 0;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.5), rgba(59, 130, 246, 0.3));
+  border-right: 2px solid rgba(255,255,255,0.2);
+}
+.field-endzone-right {
+  right: 0;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.5), rgba(239, 68, 68, 0.3));
+  border-left: 2px solid rgba(255,255,255,0.2);
+}
+.field-ez-text {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  font-weight: 800;
+  font-style: italic;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.7);
+  letter-spacing: 0.08em;
+  writing-mode: vertical-lr;
+  text-orientation: mixed;
+}
+
+/* Yard lines + numbers */
+.field-grass {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.field-yardline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255,255,255,0.12);
+}
+.field-yardline-num {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.25);
+}
+
+/* 50 yard line special */
+.field-yardline:nth-child(5) {
+  background: rgba(255,255,255,0.25);
+  width: 2px;
+}
+
+/* Ball marker */
+.field-ball-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  transition: left 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.field-ball {
+  font-size: 1.2rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+  animation: ballBounce 0.3s ease;
+}
+@keyframes ballBounce {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-4px); }
+}
+.field-ball-team {
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  font-weight: 800;
+  font-style: italic;
+  color: #fff;
+  text-transform: uppercase;
+  background: rgba(0,0,0,0.6);
+  padding: 0 0.3rem;
+  border-radius: 2px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* First down line */
+.field-first-down {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--warning);
+  z-index: 5;
+  opacity: 0.7;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.4);
+}
+
+/* ── Info bar ── */
+.field-info-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 1rem;
+  background: var(--bg-base);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.72rem;
+}
+.field-down {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-style: italic;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+.field-possession {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.field-yardline-text {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* ── Commentary ── */
+.field-commentary {
+  padding: 0.5rem 1rem 0.6rem;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+  min-height: 2rem;
+}
+.field-commentary-text {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.field-commentary-big {
+  background:
+    linear-gradient(135deg, rgba(249, 115, 22, 0.06), transparent 60%),
+    var(--bg-surface);
+  border-top: 1px solid rgba(249, 115, 22, 0.2);
+}
+.field-commentary-big .field-commentary-text {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--primary-light);
+  animation: commentaryFlash 0.4s ease;
+}
+@keyframes commentaryFlash {
+  0% { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Play logic below field */
+.gc-play-logic {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.4rem 1rem;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-subtle);
+}

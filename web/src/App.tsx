@@ -6,6 +6,7 @@ import { generateGameplanRecommendation } from './gameplanRec';
 import { aggregateSeasonStats, type SeasonPlayerStats } from './seasonStats';
 import { DashboardSchedule } from './DashboardSchedule';
 import { PlaybooksView } from './views/PlaybooksView';
+import { FieldView } from './FieldView';
 import {
   listLeagues, createLeague, joinLeague, fetchLeague, advanceWeek,
   claimTeam as claimTeamApi, proposeTrade as proposeTradeApi, respondTrade as respondTradeApi,
@@ -3599,34 +3600,54 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
           ) : null;
         })()}
 
-        <div className="gc-scoreboard">
-          <div className="gc-team gc-away">
-            <div className="gc-team-abbr">{focusGame.awayTeam.abbreviation}</div>
-            <div className="gc-team-name">{focusGame.awayTeam.name}</div>
-            <div className="gc-team-score">{awayScore}</div>
-          </div>
-          <div className="gc-mid">
-            <div className="gc-quarter-label">{quarterLabel}</div>
-            {events.length > 0 && (
-              <div className="gc-play-count">{idx + 1}/{events.length}</div>
-            )}
-          </div>
-          <div className="gc-team gc-home">
-            <div className="gc-team-score">{homeScore}</div>
-            <div className="gc-team-name">{focusGame.homeTeam.name}</div>
-            <div className="gc-team-abbr">{focusGame.homeTeam.abbreviation}</div>
-          </div>
-        </div>
-
-        <div className="gc-play-area">
-          {events.length === 0
-            ? <p className="muted gc-no-events">
+        {events.length === 0 ? (
+          <>
+            <div className="gc-scoreboard">
+              <div className="gc-team gc-away">
+                <div className="gc-team-abbr">{focusGame.awayTeam.abbreviation}</div>
+                <div className="gc-team-name">{focusGame.awayTeam.name}</div>
+                <div className="gc-team-score">0</div>
+              </div>
+              <div className="gc-mid">
+                <div className="gc-quarter-label">Pre</div>
+              </div>
+              <div className="gc-team gc-home">
+                <div className="gc-team-score">0</div>
+                <div className="gc-team-name">{focusGame.homeTeam.name}</div>
+                <div className="gc-team-abbr">{focusGame.homeTeam.abbreviation}</div>
+              </div>
+            </div>
+            <div className="gc-play-area">
+              <p className="muted gc-no-events">
                 {focusGame.status === 'scheduled'
                   ? 'Game not yet played. The commissioner can advance the week to simulate games.'
                   : 'Play-by-play data not available for this game.'}
               </p>
-            : <PbpLine line={playText} game={focusGame} explanation={showPlayLogic ? currentEvent?.explanation : undefined} />}
-        </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <FieldView
+              event={currentEvent ?? null}
+              homeAbbr={focusGame.homeTeam.abbreviation}
+              awayAbbr={focusGame.awayTeam.abbreviation}
+              homeId={homeId}
+              awayId={focusGame.awayTeam.id}
+              homeScore={homeScore}
+              awayScore={awayScore}
+              quarter={quarterLabel}
+              playIndex={idx}
+              totalPlays={events.length}
+            />
+            {showPlayLogic && currentEvent?.explanation && (
+              <div className="gc-play-logic">
+                {currentEvent.explanation.map((r, i) => (
+                  <span key={i} className="pbp-reason">{r}</span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
         <div className="gc-controls">
           <button onClick={() => { setPlaying(false); setIdx(0); }} disabled={idx === 0 && !playing}>Reset</button>
