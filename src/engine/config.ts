@@ -6,7 +6,7 @@ export const TUNING = {
   // ── Pass engine ───────────────────────────────────────────────────────────
   pass: {
     // Protection phase
-    baseSackChance:        0.062,   // calibrated, do not reduce
+    baseSackChance:        0.050,   // was 0.062 — reduced to lower sack frequency closer to NFL ~5/game
     minSackChance:         0.03,
     maxSackChance:         0.18,
     sackRatingScale:       0.002,   // per point of (passRush − passBlocking)
@@ -30,9 +30,9 @@ export const TUNING = {
     // At avg ratings (50), separation=0.417 → throwQ separation contribution=0.188.
     // Bases raised vs previous to keep baseline success rates identical.
     //   (higher base compensates for the lower separation contribution at the new resistance)
-    shortAccuracyBase:     0.59,    // short  target: ~76% success at avg
-    mediumAccuracyBase:    0.46,    // medium target: ~63% success at avg
-    deepAccuracyBase:      0.25,    // deep   target: ~42% success at avg
+    shortAccuracyBase:     0.56,    // controls comp% — target ~64% for league average
+    mediumAccuracyBase:    0.43,    // medium passes are hardest to complete
+    deepAccuracyBase:      0.22,    // deep balls are high risk high reward
     // Reduced from 0.004 → 0.003 so QB accuracy is still the dominant driver but
     // not so large (~6.75pp 50→80) that WR/CB matchups feel irrelevant.
     accuracyRatingScale:   0.003,   // per point above/below 70
@@ -142,8 +142,8 @@ export const TUNING = {
   // ── Run engine ────────────────────────────────────────────────────────────
   run: {
     // Blocking phase
-    blockingBase:               0.55,
-    defRunDefenseResistance:    0.90,   // was 0.40 (dead code); now wired into ratio formula. <1.0 = slight offense lean; >1.0 = defense amplified
+    blockingBase:               0.52,   // was 0.55 → 0.50 → 0.52; balance run success
+    defRunDefenseResistance:    1.00,   // was 0.90 → 1.05 → 1.00; neutral
 
     // Vision phase
     visionBonusThreshold:    75,      // vision above this grants bonus yards
@@ -165,8 +165,8 @@ export const TUNING = {
     breakawayBonusMax:       28,   // was 15 — allows 12-44 yd outside runs
     // GDD: Inside = lower breakaway chance, Outside = higher breakaway chance
     // Replaces the single breakawayChance for run plays (passes still use bigPlay.burstChance)
-    insideBreakawayChance:   0.04,   // lower — inside runs are congested
-    outsideBreakawayChance:  0.16,   // higher — outside runs reach open field
+    insideBreakawayChance:   0.03,   // was 0.04 — lowered to reduce rushing inflation
+    outsideBreakawayChance:  0.12,   // was 0.16 — lowered to reduce explosive run frequency
 
     // GDD: TE acts as hybrid blocker — contributes to run blocking
     teBlockingWeight:        0.20,   // TE contributes 20% of run blocking composite
@@ -189,10 +189,10 @@ export const TUNING = {
     // Short tier (most carries): max ≤ 9 keeps this entirely below the 10+ bucket.
     // Breakthrough tier (minority): RB gets into the second level for a moderate gain.
     // Burst (+8–28 via speed) and the upgrade layer (breakawayUpgradeChanceRun) handle 20+.
-    insideRunMin:      3,    // short tier
-    insideRunMax:      7,    // short tier  (was 12 — capped to keep base below 10-yard tier)
-    outsideRunMin:     4,    // short tier
-    outsideRunMax:     9,    // short tier  (was 16 — capped to keep base below 10-yard tier)
+    insideRunMin:      2,    // short tier — was 3, lowered for more realistic 3-4 yard average
+    insideRunMax:      6,    // short tier — was 7
+    outsideRunMin:     3,    // short tier — was 4
+    outsideRunMax:     8,    // short tier — was 9
     // Breakthrough tier — fires with this probability on successful inside / outside carries
     insideLongChance:  0.18, // 18% of inside successes reach the second level
     insideLongMin:     8,    //   range: 8–15 yards (all in 10–19 bucket)
@@ -445,8 +445,7 @@ export const TUNING = {
     distancePenalty:     0.007,  // per yard beyond 20
     kickPowerBonus:      0.004,  // per point of kickPower above 70
     minChance:           0.25,
-    attemptYardLine:     67,     // attempt FG at or beyond this yard line on 4th
-                                 // = opponent's 33 yard line ≈ 50-yard FG  (was 70/47 yds, +3 yd range)
+    attemptYardLine:     62,     // was 67 — increased range to opponent's 38 ≈ 55-yard FG; more FG attempts = more NFL-like scoring
     desperationYardLine: 59,     // trailing 2+ scores Q4 late: attempt from opponent's 41 ≈ 58-yard FG  (was 62)
   },
 
@@ -507,15 +506,15 @@ export const TUNING = {
     // gain into a chunk play. Only fires if yards < 20 (naturally excludes bomb/YAC/burst
     // outcomes which already produce 20+ yards). Applies to runs, short, medium passes.
     // Deep passes excluded — they already carry an 18% bomb probability.
-    breakawayUpgradeChancePass: 0.030,  // short/medium passes
-    breakawayUpgradeChanceRun:  0.015,  // runs — lower to avoid scoring inflation
+    breakawayUpgradeChancePass: 0.020,  // was 0.030 — reduced for less explosive pass variance
+    breakawayUpgradeChanceRun:  0.010,  // was 0.015 — reduced to keep rushing more contained
     breakawayUpgradeMin:        20,
     breakawayUpgradeMax:        36,
   },
 
   // ── Game structure ────────────────────────────────────────────────────────
   game: {
-    playsPerQuarter: 36,
+    playsPerQuarter: 32,   // ~128 plays/game total (NFL avg ~125); was 36 (144) → 30 (120, too low) → 32
     /**
      * Global offense success-probability bonus.
      * Reflects the offense's inherent play-calling advantage (they know the
@@ -524,7 +523,7 @@ export const TUNING = {
      * structural advantage; this is just a small residual edge.
      * Set to 0 to restore perfect parity; raise to give offense more edge.
      */
-    offenseAdvantage: 0.065,   // was 0.055; bumped for scoring recovery (run system tightened)
+    offenseAdvantage: 0.10,    // raised to boost scoring floor; weak teams still need to move the ball
   },
 
   // ── Clock model ───────────────────────────────────────────────────────────
@@ -538,8 +537,8 @@ export const TUNING = {
     runoff: {
       incompleteMin:  6,  incompleteMax: 10,   // incomplete pass — clock stops
       sidelineMin:    8,  sidelineMax:   12,   // completed but out-of-bounds proxy
-      completeMin:   27,  completeMax:   36,   // completion in bounds  (was 28/38, −5% for A1)
-      runMin:        29,  runMax:        40,   // run play or sack or scramble  (was 30/42, −5% for A1)
+      completeMin:   32,  completeMax:   42,   // increased to reduce total plays per game to ~125
+      runMin:        34,  runMax:        44,   // increased to reduce total plays per game
       tdMin:         20,  tdMax:         22,   // scoring play — stops for PAT/kickoff
       fgMin:         18,  fgMax:         25,   // field goal attempt
       puntMin:       12,  puntMax:       20,   // punt
@@ -640,9 +639,9 @@ export const TUNING = {
   redZone: {
     yardLine:            80,    // start of red zone (opponent's 20)
     goalLineYardLine:    90,    // inside opponent's 10 — extra run difficulty
-    passSuccessPenalty:  0.03,  // flat reduction to pass successProb inside red zone (locked floor)
-    rushSuccessPenalty:  0.02,  // flat reduction to rush successProb inside goal line  (was 0.04, −5% relative RZ TD%)
-    sackBonus:           0.01,  // extra sack probability inside red zone  (was 0.02, eased for scoring recovery)
+    passSuccessPenalty:  0.035, // was 0.03 → 0.06 → 0.05 → 0.035; slight penalty, not too harsh
+    rushSuccessPenalty:  0.02,  // was 0.02 → 0.04 → 0.03 → 0.02; back to original
+    sackBonus:           0.01,  // was 0.01 → 0.02 → 0.015 → 0.01; back to original
   },
 
   // ── Player progression ────────────────────────────────────────────────────
