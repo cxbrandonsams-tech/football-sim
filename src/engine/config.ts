@@ -468,11 +468,43 @@ export const TUNING = {
 
   // ── Trailing team boost (prevent defense effect) ─────────────────────────
   trailingBoost: {
-    bigLeadDiff:        21,      // trailing by 21+ at any time
-    bigLeadBonus:       0.08,    // strong boost — ensures trailing teams score at least once
+    bigLeadDiff:        21,      // trailing by 21+ at any time (3+ scores)
+    bigLeadBonus:       0.10,    // strong boost — prevent defense gives up yards
     lateGameDiff:       14,      // trailing by 14+ in Q4 late
     lateGameSeconds:    300,     // Q4 with <5 minutes left
-    lateGameBonus:      0.08,    // matches bigLeadBonus
+    lateGameBonus:      0.08,    // trailing late-game boost
+  },
+
+  // ── Penalties ─────────────────────────────────────────────────────────────
+  // NFL averages ~13 penalties/game (both teams combined).
+  // Drive-extending defensive penalties are the key PPG driver.
+  penalties: {
+    // ── Defensive penalties (help offense) ──────────────────────────────
+    // These fire on pass plays and give the offense free yards + first downs.
+    dpiChance:          0.045,  // was 0.035 — increased; DPI is the #1 drive extender in NFL
+    dpiYardsMin:        12,     // spot foul yards
+    dpiYardsMax:        35,
+    dpiDisciplineScale: 0.0005, // per point of CB discipline below 50, increases DPI chance
+
+    defHoldingChance:   0.035,  // was 0.025 — increased for more drive extensions
+    defHoldingYards:    5,      // fixed 5 yards + auto 1st down
+
+    roughingChance:     0.012,  // was 0.008 — increased
+    roughingYards:      15,     // 15 yards + auto 1st down
+
+    offsidesChance:     0.020,  // was 0.015 — increased
+    offsidesYards:      5,      // 5 yards (no auto 1st down unless brings past marker)
+
+    // ── Offensive penalties (hurt offense) ──────────────────────────────
+    // These fire before the play and negate the result.
+    // Kept LOW — offensive penalties kill drives and reduce PPG.
+    holdingChance:      0.020,  // was 0.035 — reduced to avoid killing too many drives
+    holdingYards:       10,     // 10 yards back, replay down
+    holdingDisciplineScale: 0.0003, // per point of OL discipline below 50
+
+    falseStartChance:   0.010,  // was 0.018 — reduced
+    falseStartYards:    5,      // 5 yards back, replay down
+    falseStartDisciplineScale: 0.0003, // per point of OL discipline below 50
   },
 
   // ── Punt ──────────────────────────────────────────────────────────────────
@@ -549,7 +581,7 @@ export const TUNING = {
      * structural advantage; this is just a small residual edge.
      * Set to 0 to restore perfect parity; raise to give offense more edge.
      */
-    offenseAdvantage: 0.08,    // moderate — controlled to avoid comp% inflation
+    offenseAdvantage: 0.10,    // raised to push scoring toward NFL 46 PPG with penalty system active
   },
 
   // ── Clock model ───────────────────────────────────────────────────────────

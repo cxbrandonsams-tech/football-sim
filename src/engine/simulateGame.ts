@@ -1587,25 +1587,102 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
       checkInjury(offPrimary, offRaw.id, offInjured);
       checkInjury(defPrimary, defRaw.id, defInjured);
 
-      if (ev.result === 'touchdown') {
+      // ── Penalty system ──────────────────────────────────────────────────
+      // Penalties fire probabilistically after the play resolves.
+      // Offensive penalties negate the play; defensive penalties give free yards.
+      // Only one penalty per play (first match wins).
+      const pen = cfg.penalties;
+      const olDisc = ol(off)?.discipline ?? 50;
+      const cbDisc = cb(def)?.discipline ?? 50;
+      let penaltyApplied = false;
+
+      // Skip penalties on special teams (punts, FGs, kickoffs)
+      if (ev.type !== 'punt' && ev.type !== 'field_goal') {
+        // 1. Offensive penalties — negate the play, push offense back
+        const holdingProb = pen.holdingChance + Math.max(0, (50 - olDisc) * pen.holdingDisciplineScale);
+        const falseStartProb = pen.falseStartChance + Math.max(0, (50 - olDisc) * pen.falseStartDisciplineScale);
+
+        if (ev.result !== 'touchdown' && Math.random() < falseStartProb) {
+          // False start — 5 yards back, replay down
+          yardLine = Math.max(1, yardLine - pen.falseStartYards);
+          distance += pen.falseStartYards;
+          penaltyApplied = true;
+        } else if (ev.result !== 'touchdown' && Math.random() < holdingProb) {
+          // Offensive holding — 10 yards back, replay down
+          yardLine = Math.max(1, yardLine - pen.holdingYards);
+          distance += pen.holdingYards;
+          penaltyApplied = true;
+        }
+
+        // 2. Defensive penalties — give offense free yards (often auto 1st down)
+        // Only checked if no offensive penalty AND the play wasn't already a TD
+        if (!penaltyApplied && ev.result !== 'touchdown') {
+          const isPenaltyPass = type === 'short_pass' || type === 'medium_pass' || type === 'deep_pass';
+          if (isPenaltyPass && Math.random() < (pen.dpiChance + Math.max(0, (50 - cbDisc) * pen.dpiDisciplineScale))) {
+            // Defensive Pass Interference — spot foul + auto 1st down
+            const dpiYards = randInt(pen.dpiYardsMin, pen.dpiYardsMax);
+            yardLine = Math.min(99, yardLine + dpiYards);
+            down = 1; distance = 10;
+            penaltyApplied = true;
+            // Override turnover — DPI negates an interception
+            if (ev.result === 'turnover') {
+              // Don't process the turnover below — the penalty takes priority
+              ev.result = 'fail' as PlayResult;
+            }
+          } else if (isPenaltyPass && Math.random() < pen.defHoldingChance) {
+            // Defensive holding — 5 yards + auto 1st down
+            yardLine = Math.min(99, yardLine + pen.defHoldingYards);
+            down = 1; distance = 10;
+            penaltyApplied = true;
+          } else if (isPenaltyPass && Math.random() < pen.roughingChance) {
+            // Roughing the passer — 15 yards + auto 1st down
+            yardLine = Math.min(99, yardLine + pen.roughingYards);
+            down = 1; distance = 10;
+            penaltyApplied = true;
+          } else if (Math.random() < pen.offsidesChance) {
+            // Offsides/neutral zone — 5 yards (1st down if brings past marker)
+            yardLine = Math.min(99, yardLine + pen.offsidesYards);
+            if (pen.offsidesYards >= distance) {
+              down = 1; distance = 10;
+            }
+            penaltyApplied = true;
+          }
+        }
+      }
+
+      // ── Standard play resolution (only if no penalty overrode it) ─────
+      if (!penaltyApplied) {
+        if (ev.result === 'touchdown') {
+          score(6 + resolveConversion());
+          changePoss();
+          yardLine = resolveKickoffStart(possession === 'home' ? home : away);
+        } else if (ev.result === 'turnover') {
+          yardLine = Math.max(5, Math.min(95, 100 - yardLine));
+          changePoss();
+        } else {
+          yardLine = Math.min(99, yardLine + ev.yards);
+          if (ev.yards >= distance) {
+            down = 1; distance = 10;
+          } else {
+            down++;
+            distance -= ev.yards;
+            // Failed 4th-down conversion — turnover on downs
+            if (down > 4) {
+              changePoss();
+            }
+          }
+        }
+      } else if (ev.result === 'touchdown') {
+        // TD still counts even with a defensive penalty
         score(6 + resolveConversion());
         changePoss();
         yardLine = resolveKickoffStart(possession === 'home' ? home : away);
-      } else if (ev.result === 'turnover') {
-        yardLine = Math.max(5, Math.min(95, 100 - yardLine));
-        changePoss();
-      } else {
-        yardLine = Math.min(99, yardLine + ev.yards);
-        if (ev.yards >= distance) {
-          down = 1; distance = 10;
-        } else {
-          down++;
-          distance -= ev.yards;
-          // Failed 4th-down conversion — turnover on downs
-          if (down > 4) {
-            changePoss();
-          }
-        }
+      }
+
+      // Check for DPI creating a TD (ball at 100+)
+      if (penaltyApplied && yardLine >= 100) {
+        yardLine = 99; // spot at 1 yard line, offense gets first and goal
+        down = 1; distance = 1;
       }
     }
 
