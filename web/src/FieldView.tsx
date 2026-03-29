@@ -3,7 +3,7 @@
  * and broadcast-style commentary for big plays.
  */
 import { useState, useEffect, useRef } from 'react';
-import type { PlayEvent } from './types';
+import type { PlayEvent, PenaltyInfo } from './types';
 
 // ── Broadcaster commentary ──────────────────────────────────────────────────
 
@@ -125,7 +125,29 @@ function generateCommentary(ev: PlayEvent): { text: string; isBig: boolean } {
     return { text: `Punt away.`, isBig: false };
   }
 
+  if (ev.type === 'spike') {
+    return { text: 'QB spikes the ball to stop the clock.', isBig: false };
+  }
+
   return { text: `Play result: ${ev.yards} yards.`, isBig: false };
+}
+
+const PENALTY_LABELS: Record<string, string> = {
+  dpi:          'Defensive Pass Interference',
+  def_holding:  'Defensive Holding',
+  roughing:     'Roughing the Passer',
+  offsides:     'Offsides',
+  off_holding:  'Offensive Holding',
+  false_start:  'False Start',
+};
+
+function penaltyCommentary(pen: PenaltyInfo): string {
+  const name = PENALTY_LABELS[pen.type] ?? pen.type;
+  const yds = Math.abs(pen.yards);
+  if (pen.onOffense) {
+    return `FLAG! ${name}, ${yds}-yard penalty on the offense.${pen.autoFirst ? ' Automatic first down.' : ' Replay the down.'}`;
+  }
+  return `FLAG! ${name}, ${yds} yards on the defense.${pen.autoFirst ? ' Automatic first down.' : ''}`;
 }
 
 // ── Field Component ─────────────────────────────────────────────────────────
@@ -152,7 +174,12 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
     if (playIndex === prevIdxRef.current) return;
     prevIdxRef.current = playIndex;
 
-    const c = generateCommentary(event);
+    let c = generateCommentary(event);
+    // Append penalty commentary if a flag was thrown
+    if (event.penalty) {
+      const penText = penaltyCommentary(event.penalty);
+      c = { text: c.text + ' ' + penText, isBig: true };
+    }
     setCommentary(c);
     if (c.isBig) {
       setBigPlay(true);

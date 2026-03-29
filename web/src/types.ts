@@ -532,11 +532,24 @@ export type PlayType =
   | 'inside_run' | 'outside_run'
   | 'short_pass' | 'medium_pass' | 'deep_pass'
   | 'sack' | 'scramble' | 'interception' | 'fumble'
-  | 'field_goal' | 'punt';
+  | 'field_goal' | 'punt'
+  | 'spike';
 
 export type PlayResult =
   | 'success' | 'fail' | 'touchdown' | 'turnover'
-  | 'field_goal_good' | 'field_goal_miss';
+  | 'field_goal_good' | 'field_goal_miss'
+  | 'safety';
+
+export type PenaltyType =
+  | 'dpi' | 'def_holding' | 'roughing' | 'offsides'
+  | 'off_holding' | 'false_start';
+
+export interface PenaltyInfo {
+  type:       PenaltyType;
+  onOffense:  boolean;
+  yards:      number;
+  autoFirst:  boolean;
+}
 
 export interface PlayEvent {
   type:           PlayType;
@@ -549,12 +562,13 @@ export interface PlayEvent {
   distance:       number;
   yardLine:       number;
   firstDown?:     boolean;
-  ballCarrier?:   string;       // last name (display)
-  target?:        string;       // last name (display)
-  ballCarrierId?: string;       // player.id
-  targetId?:      string;       // player.id
-  defPlayerId?:   string;       // player.id of defensive player
-  explanation?:   string[];    // play selection reasoning
+  ballCarrier?:   string;
+  target?:        string;
+  ballCarrierId?: string;
+  targetId?:      string;
+  defPlayerId?:   string;
+  explanation?:   string[];
+  penalty?:       PenaltyInfo;
 }
 
 // ── Box score ──────────────────────────────────────────────────────────────────

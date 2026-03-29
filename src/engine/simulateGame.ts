@@ -1372,6 +1372,9 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
   let possession: 'home' | 'away' = Math.random() < 0.5 ? 'home' : 'away';
   let down     = 1;
   let distance = 10;
+  // Timeout tracking: each team gets 3 per half, reset at halftime
+  let homeTimeouts = cfg.twoMinuteDrill.timeoutsPerHalf;
+  let awayTimeouts = cfg.twoMinuteDrill.timeoutsPerHalf;
   const kickoffResult = resolveKickoffStart(possession === 'home' ? home : away);
   let yardLine = kickoffResult.yardLine;
   let homeScore = 0;
@@ -1475,6 +1478,22 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
       clockSeconds,
       scoreDiff: offScore - defScore,
     };
+
+    // ── Spike the ball (2-minute drill clock management) ─────────────
+    // QB spikes the ball to stop the clock, costing 1 down and ~3 seconds
+    const offNeed2Min = (quarter === 2 || quarter === 4) && clockSeconds < 40 && clockSeconds > 5
+      && offScore < defScore && down < 4;
+    if (offNeed2Min) {
+      events.push({
+        type: 'spike' as PlayType, offenseTeamId: off.id, defenseTeamId: def.id,
+        result: 'fail' as PlayResult, yards: 0, quarter, down, distance, yardLine,
+      });
+      clockSeconds -= cfg.twoMinuteDrill.spikeClockCost;
+      down++;
+      // Skip to next iteration — spike is the entire play
+      quarterPlays++;
+      continue;
+    }
 
     // 4th-down decision: FG attempt, go-for-it, or punt
     const offPersonality = getPersonality(off.coaches.hc);
@@ -1580,6 +1599,10 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
       const defFatigue = fatigueMap.get(defPrimary?.id ?? '') ?? 0;
       let playAdj = (defFatigue - offFatigue) * cfg.fatigue.effectivenessPenalty;
 
+      // Hurry-up/2-minute drill completion bonus (defense on heels)
+      const inHurryUp = (quarter === 2 || quarter === 4) && clockSeconds < 120 && (possession === 'home' ? homeScore : awayScore) < (possession === 'home' ? awayScore : homeScore);
+      if (inHurryUp) playAdj += cfg.twoMinuteDrill.hurryUpCompBonus;
+
       // Trailing team boost (prevent defense effect)
       // When trailing by 21+ at any time, or 14+ in Q4 late, offense gets a small boost
       const trailCfg = cfg.trailingBoost;
@@ -1683,15 +1706,15 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
         const falseStartProb = pen.falseStartChance + Math.max(0, (50 - olDisc) * pen.falseStartDisciplineScale);
 
         if (ev.result !== 'touchdown' && Math.random() < falseStartProb) {
-          // False start — 5 yards back, replay down
           yardLine = Math.max(1, yardLine - pen.falseStartYards);
           distance += pen.falseStartYards;
           penaltyApplied = true;
+          ev.penalty = { type: 'false_start', onOffense: true, yards: -pen.falseStartYards, autoFirst: false };
         } else if (ev.result !== 'touchdown' && Math.random() < holdingProb) {
-          // Offensive holding — 10 yards back, replay down
           yardLine = Math.max(1, yardLine - pen.holdingYards);
           distance += pen.holdingYards;
           penaltyApplied = true;
+          ev.penalty = { type: 'off_holding', onOffense: true, yards: -pen.holdingYards, autoFirst: false };
         }
 
         // 2. Defensive penalties — give offense free yards (often auto 1st down)
@@ -1699,33 +1722,28 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
         if (!penaltyApplied && ev.result !== 'touchdown') {
           const isPenaltyPass = type === 'short_pass' || type === 'medium_pass' || type === 'deep_pass';
           if (isPenaltyPass && Math.random() < (pen.dpiChance + Math.max(0, (50 - cbDisc) * pen.dpiDisciplineScale))) {
-            // Defensive Pass Interference — spot foul + auto 1st down
             const dpiYards = randInt(pen.dpiYardsMin, pen.dpiYardsMax);
             yardLine = Math.min(99, yardLine + dpiYards);
             down = 1; distance = 10;
             penaltyApplied = true;
-            // Override turnover — DPI negates an interception
-            if (ev.result === 'turnover') {
-              // Don't process the turnover below — the penalty takes priority
-              ev.result = 'fail' as PlayResult;
-            }
+            ev.penalty = { type: 'dpi', onOffense: false, yards: dpiYards, autoFirst: true };
+            if (ev.result === 'turnover') ev.result = 'fail' as PlayResult;
           } else if (isPenaltyPass && Math.random() < pen.defHoldingChance) {
-            // Defensive holding — 5 yards + auto 1st down
             yardLine = Math.min(99, yardLine + pen.defHoldingYards);
             down = 1; distance = 10;
             penaltyApplied = true;
+            ev.penalty = { type: 'def_holding', onOffense: false, yards: pen.defHoldingYards, autoFirst: true };
           } else if (isPenaltyPass && Math.random() < pen.roughingChance) {
-            // Roughing the passer — 15 yards + auto 1st down
             yardLine = Math.min(99, yardLine + pen.roughingYards);
             down = 1; distance = 10;
             penaltyApplied = true;
+            ev.penalty = { type: 'roughing', onOffense: false, yards: pen.roughingYards, autoFirst: true };
           } else if (Math.random() < pen.offsidesChance) {
-            // Offsides/neutral zone — 5 yards (1st down if brings past marker)
+            const autoFirst = pen.offsidesYards >= distance;
             yardLine = Math.min(99, yardLine + pen.offsidesYards);
-            if (pen.offsidesYards >= distance) {
-              down = 1; distance = 10;
-            }
+            if (autoFirst) { down = 1; distance = 10; }
             penaltyApplied = true;
+            ev.penalty = { type: 'offsides', onOffense: false, yards: pen.offsidesYards, autoFirst };
           }
         }
       }
@@ -1804,12 +1822,31 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
 
     quarterPlays++;
     // Deduct clock — primary quarter-ender
-    clockSeconds -= computeClockRunoff(events[events.length - 1]!, offRaw, quarter, clockSeconds, offScore - defScore);
+    let runoff = computeClockRunoff(events[events.length - 1]!, offRaw, quarter, clockSeconds, offScore - defScore);
+
+    // ── Timeout / clock management ───────────────────────────────────
+    // In 2-minute drill situations, the offense uses timeouts after clock-running plays
+    const is2MinDrill = (quarter === 2 || quarter === 4) && clockSeconds < 120 && (possession === 'home' ? homeScore : awayScore) < (possession === 'home' ? awayScore : homeScore);
+    const offTimeouts = possession === 'home' ? homeTimeouts : awayTimeouts;
+    const lastEv = events[events.length - 1];
+    const clockRunning = lastEv && lastEv.result !== 'fail' && lastEv.type !== 'interception' && lastEv.result !== 'touchdown' && lastEv.result !== 'field_goal_good' && lastEv.result !== 'field_goal_miss';
+
+    if (is2MinDrill && clockRunning && offTimeouts > 0 && runoff > 15) {
+      // Call timeout to save clock
+      if (possession === 'home') homeTimeouts--; else awayTimeouts--;
+      runoff = 5; // timeout stops clock, only ~5 seconds elapse
+    }
+
+    clockSeconds -= runoff;
+
     if (clockSeconds <= 0 || quarterPlays >= cfg.clock.maxPlaysPerQuarter) {
       quarter++;
       quarterPlays = 0;
       clockSeconds = cfg.clock.secondsPerQuarter;
       if (quarter === 3) {
+        // Reset timeouts at halftime
+        homeTimeouts = cfg.twoMinuteDrill.timeoutsPerHalf;
+        awayTimeouts = cfg.twoMinuteDrill.timeoutsPerHalf;
         // Halftime: build scouting profiles from first-half offensive data
         // Each defense scouts the opposing offense's first-half tendencies
         const homeOffStats = firstHalfStats.get(home.id);

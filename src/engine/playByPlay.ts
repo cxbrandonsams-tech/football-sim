@@ -66,6 +66,9 @@ function formatPlay(ev: PlayEvent): string {
     case 'punt':
       action = `Punt ${yds} yds`;
       break;
+    case 'spike':
+      action = `QB spikes the ball`;
+      break;
   }
 
   const fd = ev.firstDown ? ' ↑' : '';

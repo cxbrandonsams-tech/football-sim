@@ -607,6 +607,22 @@ export const TUNING = {
     offenseAdvantage: 0.10,    // raised to push scoring toward NFL 46 PPG with penalty system active
   },
 
+  // ── Two-minute drill / timeouts ───────────────────────────────────────────
+  twoMinuteDrill: {
+    /** Timeouts per team per half */
+    timeoutsPerHalf:     3,
+    /** Seconds saved by calling a timeout */
+    timeoutClockSave:    35,
+    /** Spike the ball to stop the clock (loses 1 down, saves ~3 seconds) */
+    spikeClockCost:      3,
+    /** Hurry-up tempo clock reduction per play (seconds) */
+    hurryUpReduction:   -15,    // was -12 in tempoModifier; more aggressive for 2-min drill
+    /** Extra pass% shift in 2-minute drill (on top of situational adjustments) */
+    passBoost:          0.20,   // +20% more passes in 2-min drill
+    /** Completion bonus in hurry-up (defense is on heels) */
+    hurryUpCompBonus:   0.03,   // +3% completion rate in hurry-up
+  },
+
   // ── Clock model ───────────────────────────────────────────────────────────
   // Primary quarter-ender: clockSeconds <= 0.
   // Safety fallback: quarterPlays >= maxPlaysPerQuarter prevents infinite loops.
