@@ -1,6 +1,6 @@
 # ENGINE STATE — Source of Truth
 
-> Last updated: 2026-03-27
+> Last updated: 2026-03-29
 > **STATUS: LOCKED — Engine calibration complete. No further play-resolution tuning.**
 > Validation baseline: 1000 games, `scripts/nfl-compare.ts` + 496 games, `scripts/dist-analysis.ts`
 
@@ -110,3 +110,36 @@
   Controls target weight by receiver role × depth combination.
 - **Target weight formula:** `w = roleMult × (ratingScore/50)^exponent × (1 ± noise)`
   `targetWeightExponent: 0.80`, `targetWeightNoise: 0.10`
+
+---
+
+## Post-Lock Additions (2026-03-28+)
+
+These systems were added *after* the core engine lock. They operate as layers on top of the locked play-resolution pipeline — they do not modify pass/run completion formulas, yard distributions, or window state logic.
+
+### Penalty System
+6 penalty types (DPI, defensive holding, roughing the passer, offsides, offensive holding, false start). Checked after each play. Defensive penalties extend drives and boost PPG; offensive penalties negate plays. `discipline` rating on OL/CB/LB/Safety positions modulates frequency. Net effect: ~12-13 penalties/game matching NFL average.
+
+### PAT / 2-Point Conversion
+After every touchdown, `resolveConversion()` runs. XP base success: 94%, 2PT base: 48%. AI goes for 2 when trailing by specific amounts in Q4. Scoring changed from `score(7)` to `score(6 + resolveConversion())`.
+
+### Talent Gap Compression
+`compress(diff)` reduces rating gaps by `factor: 0.80` — a 40-point gap becomes 32. Applied to sack chance and run success probability. Prevents blowouts and shutouts.
+
+### Trailing Team Boost
+When trailing by 21+ points, offense gets +0.10 success bonus (simulating prevent defense). In Q4 with <5 minutes left, 14+ deficit triggers +0.08 bonus.
+
+### Special Teams Scoring
+Kick return TDs (1.2%), punt return TDs (0.8%), blocked FGs (1.5%), blocked punts (0.8%), blocked kick return TDs (30% of blocks), pick-six (12% of INTs), fumble return TDs (8%).
+
+### Safety
+When offense is sacked or gets TFL inside their own 5-yard line, safety chance fires (40% for sacks, 25% for TFL runs). Awards 2 points to defense + possession change.
+
+### Clock Model
+Real 15-minute quarters (900 seconds) with variable runoffs per play type. TD runoffs: 45-55s (includes PAT + kickoff). Sideline pass chance: 31%. Tempo modifiers for hurry-up (-12s) and clock-kill (+10s).
+
+### Two-Minute Drill
+Activated when trailing with <2 minutes in a half. Timeout management (3 per half), spike plays (stop clock, lose 1 down), hurry-up completion bonus (+3%), increased pass rate (+20%).
+
+### Impact on Core Metrics
+These additions increased combined PPG from ~42 to ~44-46 (closer to NFL 44.7 average). The original locked play-resolution stats (completion%, YPC, sack rate, etc.) remain unchanged — the PPG increase comes entirely from penalty drive extensions, return TDs, and conversion mechanics.

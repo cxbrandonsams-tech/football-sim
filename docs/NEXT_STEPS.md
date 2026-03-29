@@ -1,8 +1,8 @@
 # DEVELOPMENT ROADMAP
 
-> **Updated:** 2026-03-27
+> **Updated:** 2026-03-29
 > **Engine status:** LOCKED — no play-resolution tuning.
-> **Current phase:** Playbooks, formations, and strategy systems.
+> **Current phase:** Polish, presentation, and franchise experience.
 
 ---
 
@@ -34,6 +34,21 @@ The project has completed:
 | Draft room UI with feedback & tension | COMPLETE |
 | Draft pick trading (during draft) | COMPLETE |
 | College-Scouting integration | COMPLETE |
+| Penalty system (6 types, discipline rating) | COMPLETE |
+| PAT / 2-point conversion system | COMPLETE |
+| Talent gap compression | COMPLETE |
+| Trailing team boost (prevent defense) | COMPLETE |
+| Special teams scoring (return TDs, blocked kicks) | COMPLETE |
+| Pick-six and fumble return TDs | COMPLETE |
+| Safety detection | COMPLETE |
+| Clock model (real 15-min quarters) | COMPLETE |
+| Two-minute drill with timeouts and spikes | COMPLETE |
+| Full UI overhaul with design system | COMPLETE |
+| Team logos (32 teams, TeamLogo component) | COMPLETE |
+| Football field visualization with broadcast commentary | COMPLETE |
+| Hall of Fame (era-relative scoring) | COMPLETE |
+| Ring of Honor (team-specific legacy) | COMPLETE |
+| Auth hardening (stale token handling) | COMPLETE |
 
 ---
 
@@ -54,13 +69,13 @@ See `LOCKED_VALUES.md` for the full frozen config list.
 
 ---
 
-## 3. Current Phase: Strategy & Presentation
+## 3. Current Phase: Polish & Franchise Experience
 
 Active development focus areas:
 - Expanding the play library (more formations, more plays per formation)
-- Deepening the weekly coaching workflow
-- Polishing the draft-to-season lifecycle
-- Building out the franchise management experience
+- Roster management workflow improvements
+- Trade AI and free agency depth
+- Multi-season storylines and franchise identity
 
 ---
 
@@ -74,16 +89,15 @@ These are the highest-value next tasks:
 - Add more defensive plays and packages
 - Ensure variety across run/pass/play-action concepts
 
-### 4.2 Live Game Experience
-- Center-field visualization with ball tracking
-- Around-the-league score panels during a week's games
-- Broadcast-style presentation with scoreboard and game state
-- Clean, readable, not graphically complex
+### 4.2 Roster Management Polish
+- Cut/sign workflow, practice squad, roster limits UI
+- In-season free agent pickups
+- Injury replacement workflow
 
-### 4.3 Schedule & Matchup UI
-- Visual schedule with results, upcoming games, bye weeks
-- Matchup preview cards with head-to-head context
-- League-wide schedule browser
+### 4.3 Trade AI Improvements
+- Need-based evaluation, win-now vs rebuild logic
+- Counter-offer system
+- Future pick valuation
 
 ---
 
@@ -92,11 +106,11 @@ These are the highest-value next tasks:
 | Priority | System | Description |
 |----------|--------|-------------|
 | 1 | Play library expansion | More formations, plays, and defensive packages |
-| 2 | Live game broadcast UI | Field visualization, scoreboard, around-the-league |
-| 3 | Schedule & matchup experience | Visual schedule, preview cards |
-| 4 | Roster management polish | Cut/sign workflow, practice squad, roster limits UI |
-| 5 | Free agency improvements | Market dynamics, bidding wars, AI negotiation depth |
-| 6 | Trade AI improvements | Need-based evaluation, win-now vs rebuild logic |
+| 2 | Roster management polish | Cut/sign workflow, practice squad, roster limits UI |
+| 3 | Free agency improvements | Market dynamics, bidding wars, AI negotiation depth |
+| 4 | Trade AI improvements | Need-based evaluation, win-now vs rebuild logic |
+| 5 | Enhanced draft experience | Mock drafts, trade-up AI, draft grades |
+| 6 | Multi-season storylines | Rivalries, dynasty tracking, narrative arcs |
 
 ---
 
@@ -108,8 +122,6 @@ These are the highest-value next tasks:
 | Progression system review | Development curves, breakout seasons, aging, decline over 10-year franchise |
 | Contract/cap depth | Cap pressure, dead money, extensions, restructures |
 | History & records UI | Career stat browsers, franchise records, league-wide records |
-| Enhanced draft experience | Mock drafts, trade-up AI, draft grades |
-| Multi-season storylines | Rivalries, dynasty tracking, narrative arcs |
 
 ---
 
@@ -138,7 +150,8 @@ These are not planned for near-term development. Do not build without explicit r
 | `TUNING_LOG.md` | Calibration change history |
 | `game-design.md` | Ratings architecture and simulation pipeline |
 | `FRANCHISE_SOURCE_OF_TRUTH.md` | League structure, coaching, awards, playbook design, product philosophy |
+| `HALL_OF_FAME_AND_RING_OF_HONOR.md` | Era-relative legacy scoring, induction thresholds, UI display |
 
 ---
 
-*This roadmap reflects the state of the project as of 2026-03-27. Update as priorities shift.*
+*This roadmap reflects the state of the project as of 2026-03-29. Update as priorities shift.*

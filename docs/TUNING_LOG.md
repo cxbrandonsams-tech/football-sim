@@ -103,3 +103,70 @@
 | `TUNING.personnel.roleMult` | hardcoded | **in config** |
 
 **ENGINE LOCKED 2026-03-27. No further play-resolution changes.**
+
+---
+
+## 2026-03-28 — Post-Lock Mechanics Additions
+
+After the core engine lock, new NFL mechanics were layered on top of the locked play-resolution pipeline. These do not modify pass/run completion formulas — they add new scoring paths and game management systems.
+
+### Phase K — Penalty System
+- Added 6 penalty types: DPI, defensive holding, roughing, offsides, offensive holding, false start
+- `discipline` rating added to OL, CB, LB, Safety positions — modulates penalty frequency
+- Defensive penalties extend drives (auto first downs); offensive penalties negate plays
+- Net effect: ~12-13 penalties/game (NFL avg 12.5)
+
+### Phase L — PAT / 2-Point Conversion
+- After every TD, `resolveConversion()` replaces flat +7 scoring
+- XP: 94% base success, 2PT: 48% base success
+- AI goes for 2 when trailing by specific amounts in Q4
+- Net effect: ~6.6 pts per TD instead of 7.0
+
+### Phase M — Talent Compression + Trailing Boost
+- `compress(diff)` at factor 0.80 — reduces rating gaps (40→32 pts)
+- Applied to sack chance and run success probability
+- Trailing by 21+: +0.10 offense success bonus (prevent defense)
+- Trailing by 14+ in Q4 late: +0.08 bonus
+- **Result:** Shutouts reduced from 12/season to ~2/season
+
+### Phase N — Special Teams Scoring
+- Kick return TDs (1.2%), punt return TDs (0.8%)
+- Blocked FGs (1.5%) and blocked punts (0.8%) with 30% return TD chance
+- Pick-six: 12% of interceptions returned for TD
+- Fumble return TDs: 8% of fumble recoveries
+- **Result:** +1-2 pts/game from non-drive scoring
+
+### Phase O — Safety
+- Fires when offense is sacked or TFL'd inside own 5-yard line
+- 40% chance on sacks, 25% on TFL runs
+- Awards 2 points + possession change
+
+### Phase P — Clock Model
+- Real 15-minute quarters (900 seconds) with variable runoffs
+- TD runoffs: 45-55s (includes PAT + kickoff + return)
+- **Result:** ~125 plays/game matching NFL average
+
+### Phase Q — Two-Minute Drill
+- Activated when trailing with <2 min in a half
+- 3 timeouts per team per half, intelligent usage
+- Spike plays (stop clock, lose 1 down)
+- Hurry-up completion bonus +3%, pass rate boost +20%
+
+### Phase R — Offense Advantage Retuning
+- `offenseAdvantage: 0.065 → 0.115` to target ~44-46 PPG with all new mechanics
+- Multiple accuracy bases reduced (short 0.59→0.52, medium 0.46→0.42, deep 0.25→0.22)
+- `coverageResistance: 1.50 → 1.60`, contested/covered mods tightened
+- Run yard ranges reduced (inside 2-6, outside 3-8)
+- `baseSackChance: 0.062 → 0.050`, `blockingBase: 0.55 → 0.52`
+- `defRunDefenseResistance: 0.90 → 1.00`
+- FG `attemptYardLine: 67 → 58`
+- **Result:** Combined PPG ~44-46 (NFL 44.7), completion% ~65-67%, plays/game ~125
+
+---
+
+## 2026-03-29 — Team Logos & Auth Fix
+
+- Added 32 team logo images (`team_{abbr}.png`)
+- Created `TeamLogo` component integrated across all views
+- Fixed 500 error on claim-team when user no longer exists in wiped DB
+- `requireAuth` now verifies user exists in DB; frontend auto-clears on 401

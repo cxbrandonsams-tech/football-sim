@@ -1,7 +1,7 @@
 # LOCKED VALUES — Frozen Config
 
 > These values are calibrated and must not be changed without explicit discussion.
-> Last audited: 2026-03-27 — ENGINE LOCKED
+> Last audited: 2026-03-29 — ENGINE LOCKED
 
 **This document owns:** Every frozen numeric constant from `src/engine/config.ts` with its lock status and modification rules.
 
@@ -220,6 +220,173 @@ roleMult: {
   check_down:      { short: 1.00, medium: 0.65, deep: 0.10 },  // LOCKED — was 0.90/0.50/0.10
 }
 // Achieved: WR1 share 25.5% ✓, WR leader 1,891 ✓, TE leader 957 ✓
+```
+
+---
+
+## PAT / 2-Point Conversion
+
+```typescript
+// src/engine/config.ts — TUNING.pat
+
+xpBaseChance:       0.94    // NFL XP success rate
+xpKickerBonus:      0.002   // per point of kickAccuracy above 70
+twoPtBaseChance:    0.48    // NFL 2PT success rate
+twoPtOffBonus:      0.003   // per point of QB overall above 70
+goFor2LateQtr:      4       // Q4 only
+goFor2LateDiff:     5       // trailing by ≤5 late
+```
+
+---
+
+## Talent Gap Compression
+
+```typescript
+// src/engine/config.ts — TUNING.talentCompression
+
+factor:             0.80    // CALIBRATED — a 40-pt rating gap becomes 32
+```
+
+---
+
+## Trailing Team Boost
+
+```typescript
+// src/engine/config.ts — TUNING.trailingBoost
+
+bigLeadDiff:        21      // trailing by 21+ at any time
+bigLeadBonus:       0.10    // strong success boost (prevent defense)
+lateGameDiff:       14      // trailing by 14+ in Q4 late
+lateGameSeconds:    300     // Q4 with <5 minutes left
+lateGameBonus:      0.08    // late-game trailing boost
+```
+
+---
+
+## Special Teams
+
+```typescript
+// src/engine/config.ts — TUNING.specialTeams
+
+kickReturnTDChance:    0.012   // ~1.2% of kick returns are TDs
+puntReturnTDChance:    0.008   // ~0.8% of punt returns
+blockedFGChance:       0.015   // ~1.5% of FG attempts blocked
+blockedPuntChance:     0.008   // ~0.8% of punts blocked
+blockedReturnTDChance: 0.30    // 30% of blocks returned for TD
+```
+
+---
+
+## Turnover Returns
+
+```typescript
+// src/engine/config.ts — TUNING.turnoverReturn
+
+pickSixChance:         0.12    // ~12% of INTs returned for TD
+fumbleReturnTDChance:  0.08    // ~8% of fumble recoveries returned
+```
+
+---
+
+## Safety
+
+```typescript
+// src/engine/config.ts — TUNING.safety
+
+yardLineThreshold:   5       // must be at own 5 or closer
+sackSafetyChance:    0.40    // 40% of sacks inside own 5
+runSafetyChance:     0.25    // 25% of TFL runs inside own 5
+```
+
+---
+
+## Penalties
+
+```typescript
+// src/engine/config.ts — TUNING.penalties
+
+// Defensive penalties (help offense)
+dpiChance:              0.045   // pass interference
+dpiYardsMin:            12
+dpiYardsMax:            35
+dpiDisciplineScale:     0.0005
+defHoldingChance:       0.030
+defHoldingYards:        5
+roughingChance:         0.008
+roughingYards:          15
+offsidesChance:         0.020
+offsidesYards:          5
+
+// Offensive penalties (hurt offense)
+holdingChance:          0.020
+holdingYards:           10
+holdingDisciplineScale: 0.0003
+falseStartChance:       0.010
+falseStartYards:        5
+falseStartDisciplineScale: 0.0003
+```
+
+---
+
+## Two-Minute Drill
+
+```typescript
+// src/engine/config.ts — TUNING.twoMinuteDrill
+
+timeoutsPerHalf:     3
+timeoutClockSave:    35
+spikeClockCost:      3
+hurryUpReduction:   -15
+passBoost:          0.20
+hurryUpCompBonus:   0.03
+```
+
+---
+
+## Clock Model
+
+```typescript
+// src/engine/config.ts — TUNING.clock
+
+secondsPerQuarter: 900
+maxPlaysPerQuarter: 55
+
+runoff.incompleteMin:  8   runoff.incompleteMax: 14
+runoff.sidelineMin:   10   runoff.sidelineMax:  16
+runoff.completeMin:   30   runoff.completeMax:  40
+runoff.runMin:        32   runoff.runMax:       42
+runoff.tdMin:         45   runoff.tdMax:        55
+runoff.fgMin:         30   runoff.fgMax:        40
+runoff.puntMin:       25   runoff.puntMax:      35
+
+sidelinePassChance: 0.31
+
+tempoModifier.normal:      0
+tempoModifier.hurry_up:  -12
+tempoModifier.clock_kill: +10
+```
+
+---
+
+## Updated Core Values (Post-Lock Retuning)
+
+These core values were adjusted during the post-lock mechanics additions:
+
+```typescript
+offenseAdvantage:         0.115   // was 0.065 — raised for ~44-46 PPG with new mechanics
+baseSackChance:           0.050   // was 0.062 — reduced
+blockingBase:             0.52    // was 0.55 — tightened
+defRunDefenseResistance:  1.00    // was 0.90 — full defensive value
+shortAccuracyBase:        0.52    // was 0.59 — reduced
+mediumAccuracyBase:       0.42    // was 0.46 — reduced
+deepAccuracyBase:         0.22    // was 0.25 — reduced
+coverageResistance:       1.60    // was 1.50 — increased
+contestedSuccessMod:     -0.09    // was -0.06
+coveredSuccessMod:       -0.20    // was -0.14
+insideRunMin: 2  insideRunMax: 6  // was 3-7
+outsideRunMin: 3 outsideRunMax: 8 // was 4-9
+passSuccessPenalty (RZ):  0.02    // was 0.03
+attemptYardLine (FG):     58      // was 67
 ```
 
 ---

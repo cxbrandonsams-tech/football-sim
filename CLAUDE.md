@@ -108,16 +108,24 @@ Season lifecycle (in `seasonEngine.ts`):
 | Draft | `draft.ts`, `scoutingEngine.ts` |
 | News generation | `news.ts` |
 | Hall of Fame / Ring of Honor | `hallOfFame.ts`, `ringOfHonor.ts` |
+| Era-relative legacy scoring | `legacy.ts` |
 | GM career tracking | `gmCareer.ts` |
 | All sim constants | `config.ts` |
 
 ### Frontend structure (`web/src/`)
-- `App.tsx` (~6000 lines) — single-file React app. All views are functions inside this file. Navigation is a `tab` state variable; the active tab determines which view renders.
-- `App.css` — all styles in one file. Uses a dark theme (`#0f1117` background, `#e2e8f0` text, `#1d4ed8` blue accent).
-- `api.ts` — typed wrappers for every backend endpoint.
+- `App.tsx` (~8000 lines) — most views as functions inside this file. Navigation is a `tab` state variable; the active tab determines which view renders.
+- `App.css` — all styles in one file. Design token system: 5-tier background elevation, 3-tier borders, semantic colors, spacing scale. Dark theme (`#05080e` base, `#f97316` ember orange accent).
+- `api.ts` — typed wrappers for every backend endpoint. Auto-clears auth on 401.
 - `types.ts` — client-side TypeScript types mirroring the backend models.
-- `DashboardSchedule.tsx` — team schedule strip component (week tiles with W/L/bye).
+- `TeamLogo.tsx` — reusable team logo component (renders `/assets/teams/team_{abbr}.png` with fallback).
+- `FieldView.tsx` — football field visualization with broadcast-style commentary, scoreboard, end zones with team logos.
+- `DashboardSchedule.tsx` — 18-week schedule strip component (week tiles with W/L/bye + team logos).
+- `views/PlaybooksView.tsx` — extracted playbook editor (~2,500 lines).
 - `seasonStats.ts` / `boxScore.ts` — client-side stat aggregation from game events.
+- `weeklyReport.ts` / `gameRecap.ts` / `gameplanRec.ts` — report/recommendation generators.
+- `shared.ts` — shared utilities (friendlyError, fmtTime).
+
+Reusable UI primitives (CSS classes): `ui-card`, `ui-table`, `ui-badge`, `ui-stat`, `ui-empty`, `entity-link`.
 
 The top nav is `header.top-nav` (sticky, full-width). Each primary nav item maps to a tab: **GM** → `team`, **Roster** → `roster`, etc. Contextual sub-navs appear for Roster and GM sections.
 
@@ -133,13 +141,24 @@ Strong, realistic simulation engine and clean UI. Build vertical slices (complet
 ### Active systems (previously shelved, now implemented)
 - **Playbook system** — fully implemented. Route-based plays, 13 down/distance buckets, weighted selection, custom play creator, formation depth charts. See `PLAYBOOKS_AND_FORMATIONS.md`.
 - **Tendencies / Gameplan** — 7-slider system with 8 coach archetype presets, recommendations, weekly prep. See `docs/FRANCHISE_SOURCE_OF_TRUTH.md` Section 7.
+- **Penalty system** — 6 penalty types (DPI, def holding, roughing, offsides, off holding, false start). `discipline` rating modulates frequency.
+- **PAT / 2PT** — after every TD. XP 94% base, 2PT 48% base. AI decision logic for going for 2.
+- **Talent compression** — rating gaps compressed by 0.80x. Prevents shutouts.
+- **Trailing boost** — +0.10 success at 21+ deficit, +0.08 at 14+ late Q4 (prevent defense).
+- **Special teams scoring** — kick/punt return TDs, blocked FG/punt with return TD chance, pick-six, fumble return TDs, safeties.
+- **Clock model** — real 15-min quarters with variable runoffs. ~125 plays/game.
+- **Two-minute drill** — 3 timeouts/half, spike plays, hurry-up completion bonus, AI timeout management.
+- **Hall of Fame** — era-relative scoring using seasonal league rankings. 150-point threshold. See `docs/HALL_OF_FAME_AND_RING_OF_HONOR.md`.
+- **Ring of Honor** — team-specific legacy with loyalty bonus. 55-point threshold, 100 for jersey retirement.
+- **Team logos** — 32 PNG logos at `web/public/assets/teams/team_{abbr}.png`. `TeamLogo` component with fallback.
 
-### Live game vision
-The in-game experience should feel like a broadcast:
-- Center-field visualization with ball tracking
+### Live game experience (implemented)
+The in-game experience feels like a broadcast:
+- Center-field visualization with ball tracking, yard lines, first-down marker
+- Team logos in end zones and scoreboard
 - Around-the-league score panels during a week's games
-- Play-by-play with announcer-style commentary
-- Clear scoreboard and game state at all times
+- Play-by-play with announcer-style commentary (big play calls, penalty flags)
+- Clear scoreboard with quarter, down & distance, possession indicator
 
 Prefer clean and readable over graphically complex.
 

@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-> **Last updated:** 2026-03-27
+> **Last updated:** 2026-03-29
 > **Audience:** Engineers working on this codebase. Assumes familiarity with TypeScript, Express, React.
 
 ---
@@ -51,7 +51,15 @@ The engine resolves individual plays via sequential phase pipelines. It receives
 - `defensiveSelection.ts` — defensive play selection (scouting, halftime, coach intelligence)
 - `gameStats.ts` — box score builder from `PlayEvent[]`
 
-**Critical invariant:** The engine only sees `PlayType` values (`inside_run`, `outside_run`, `short_pass`, `medium_pass`, `deep_pass`). It has no knowledge of playbooks, formations, or routes. All strategy-layer logic must resolve to a `PlayType` before entering the engine.
+**Additional game mechanics** (layered on top of play resolution, in `simulateGame.ts`):
+- Penalty system (6 types, checked after each play)
+- PAT/2PT conversion after touchdowns
+- Talent gap compression and trailing team boost
+- Special teams scoring (return TDs, blocked kicks, pick-six, safeties)
+- Clock model (real 15-min quarters with variable runoffs)
+- Two-minute drill with timeout management and spike plays
+
+**Critical invariant:** The engine only sees `PlayType` values (`inside_run`, `outside_run`, `short_pass`, `medium_pass`, `deep_pass`, `spike`). It has no knowledge of playbooks, formations, or routes. All strategy-layer logic must resolve to a `PlayType` before entering the engine.
 
 ### 2.2 League / Domain Model (`src/models/`)
 
@@ -148,10 +156,20 @@ app.post('/league/:id/some-action', requireAuth, (req, res) => {
 
 Single-page React application. Nearly all logic lives in one file:
 
-- `App.tsx` (~10,000 lines) — all views as functions, `tab` state variable drives navigation
+- `App.tsx` (~8,000 lines) — most views as functions, `tab` state variable drives navigation
 - `api.ts` — typed wrappers for every backend endpoint
 - `types.ts` — TypeScript interfaces mirroring backend models (manually kept in sync)
-- `App.css` — all styles in one file, dark theme
+- `App.css` — all styles in one file, dark theme with design token system
+- `TeamLogo.tsx` — reusable team logo component (`/assets/teams/team_{abbr}.png` with fallback)
+- `FieldView.tsx` — football field visualization with broadcast commentary
+- `DashboardSchedule.tsx` — 18-week schedule strip component
+- `views/PlaybooksView.tsx` — extracted playbook editor (~2,500 lines)
+- `seasonStats.ts`, `boxScore.ts` — client-side stat aggregation
+- `weeklyReport.ts`, `gameRecap.ts`, `gameplanRec.ts` — report generators
+
+**Design system:** CSS custom properties for backgrounds (5-tier elevation), borders (3-tier), semantic colors, spacing scale, and typography (Barlow Condensed display / Barlow body / Space Mono code). Reusable primitives: `ui-card`, `ui-table`, `ui-badge`, `ui-stat`, `ui-empty`, `entity-link`.
+
+**Team logos:** 32 PNG images at `web/public/assets/teams/team_{abbr}.png`. The `TeamLogo` component renders them with graceful fallback to abbreviation text if the image fails to load. Logos appear in dashboard, standings, game center, field view, playoff bracket, roster header, and schedule strip.
 
 **Navigation model:** A `tab` state variable (`'dashboard' | 'roster' | 'draft' | ...`) determines which view function renders. There is no router library. URL does not change with navigation.
 

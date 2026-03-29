@@ -1,7 +1,7 @@
 # Simulation & Ratings Design
 
-> **Version:** 2.0
-> **Last Updated:** 2026-03-27
+> **Version:** 3.0
+> **Last Updated:** 2026-03-29
 > **Status:** LOCKED — Ratings architecture and engine pipeline are finalized.
 
 ---
@@ -635,6 +635,99 @@ Each step receives the output of the previous step. Step 2 and Step 3 run in par
 5. **Realism first** — realistic outcomes over arcade behavior, always.
 6. **Separate pipelines** — run and pass have distinct phase logic.
 7. **Ratings drive outcomes** — no decorative stats; if it exists, it affects simulation.
+
+---
+
+---
+
+## Advanced Mechanics (Post-Lock Additions)
+
+These systems were added after the core pass/run pipelines were locked. They layer on top of play resolution without modifying completion formulas or yard distributions.
+
+### Penalty System
+
+Six penalty types, checked after each play:
+
+| Penalty | Base Chance | Yards | Effect |
+|---------|------------|-------|--------|
+| DPI (Defensive Pass Interference) | 4.5% | 12-35 (spot foul) | Auto first down |
+| Defensive Holding | 3.0% | 5 | Auto first down |
+| Roughing the Passer | 0.8% | 15 | Auto first down |
+| Offsides | 2.0% | 5 | Replay down |
+| Offensive Holding | 2.0% | 10 | Replay down |
+| False Start | 1.0% | 5 | Dead ball, replay down |
+
+**Rating impact:** `discipline` rating on OL, CB, LB, and Safety positions modulates penalty frequency. Lower discipline = more penalties for that unit.
+
+**Design rule:** Defensive penalties are the primary drive-extension mechanic. Offensive penalties are kept low to avoid killing scoring.
+
+### PAT / 2-Point Conversion
+
+After every touchdown, `resolveConversion()` fires:
+- **Extra point:** 94% base success + kicker accuracy bonus
+- **2-point conversion:** 48% base success + QB overall bonus
+- **AI decision:** Goes for 2 when trailing by specific amounts in Q4 (configurable thresholds)
+
+This replaces the previous flat +7 scoring per TD.
+
+### Talent Gap Compression
+
+Rating differences between teams are compressed by `factor: 0.80` before affecting sack chance and run success probability. A 40-point rating gap becomes 32.
+
+**Purpose:** Prevents shutouts and unrealistic blowouts. Weaker teams always have a competitive chance.
+
+### Trailing Team Boost (Prevent Defense)
+
+When the offense is trailing by a large margin:
+- **21+ points (any time):** +0.10 success probability bonus
+- **14+ points in Q4 with <5 min left:** +0.08 success probability bonus
+
+**Design intent:** Simulates NFL prevent defense tendencies. Leading teams play conservative, trailing teams get more completions but burn clock.
+
+### Special Teams Scoring
+
+Non-drive scoring paths that add realism:
+
+| Event | Chance | Notes |
+|-------|--------|-------|
+| Kick return TD | 1.2% of returns | Speed/elusiveness-based |
+| Punt return TD | 0.8% of returns | Speed/hands-based |
+| Blocked FG | 1.5% of attempts | 30% of blocks returned for TD |
+| Blocked punt | 0.8% of punts | 30% of blocks returned for TD |
+| Pick-six | 12% of INTs | Interception returned for TD |
+| Fumble return TD | 8% of recoveries | Fumble recovered and returned |
+
+### Safety
+
+When the offense is sacked or suffers a TFL inside their own 5-yard line:
+- **Sack:** 40% chance of safety
+- **TFL run:** 25% chance of safety
+
+Awards 2 points to defense + possession change via kickoff.
+
+### Clock Model
+
+Real 15-minute quarters (900 seconds) with variable runoffs per play type:
+
+| Play Type | Runoff Range |
+|-----------|-------------|
+| Incomplete pass | 8-14s |
+| Sideline pass | 10-16s |
+| In-bounds completion | 30-40s |
+| Run/sack/scramble | 32-42s |
+| Touchdown (+ PAT + kickoff) | 45-55s |
+| Field goal (+ return) | 30-40s |
+| Punt (+ return) | 25-35s |
+
+31% of completed passes are treated as sideline (clock stops). Tempo modifiers: hurry-up (-12s), clock-kill (+10s).
+
+### Two-Minute Drill
+
+Activated when trailing with <2 minutes remaining in a half:
+- **Timeouts:** 3 per team per half, used intelligently by AI
+- **Spike plays:** Stop the clock, lose 1 down, costs ~3 seconds
+- **Hurry-up bonus:** +3% completion rate (defense on heels)
+- **Pass rate boost:** +20% more pass plays during 2-minute drill
 
 ---
 
