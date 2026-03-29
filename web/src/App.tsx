@@ -223,22 +223,37 @@ function AuthScreen({ onSuccess }: { onSuccess: (r: AuthResult) => void }) {
   }
 
   return (
-    <div className="form-screen">
-      <div className="form-card">
-        <h1>Gridiron</h1>
-        <p className="landing-sub">Football simulation league manager</p>
+    <div className="auth-screen">
+      <div className="auth-bg" />
+      <div className="auth-card">
+        <div className="auth-brand">
+          <h1 className="auth-title">Gridiron</h1>
+          <p className="auth-subtitle">Football Simulation League</p>
+        </div>
         <div className="auth-mode-toggle">
           <button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Log In</button>
           <button className={mode === 'signup' ? 'active' : ''} onClick={() => setMode('signup')}>Sign Up</button>
         </div>
-        <form onSubmit={submit}>
-          <label>Username<input value={username} onChange={e => setUsername(e.target.value)} autoFocus /></label>
-          <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} /></label>
+        <form onSubmit={submit} className="auth-form">
+          <label className="auth-label">
+            <span>Username</span>
+            <input value={username} onChange={e => setUsername(e.target.value)} autoFocus placeholder="Enter username" />
+          </label>
+          <label className="auth-label">
+            <span>Password</span>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter password" />
+          </label>
           {error && <div className="form-error">{error}</div>}
-          <button type="submit" className="btn-primary" disabled={busy}>
-            {busy ? '…' : mode === 'login' ? 'Log In' : 'Sign Up'}
+          <button type="submit" className="auth-submit" disabled={busy}>
+            {busy ? 'Working…' : mode === 'login' ? 'Log In' : 'Create Account'}
           </button>
         </form>
+        <p className="auth-footer">
+          {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+          <button className="auth-switch" onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}>
+            {mode === 'login' ? 'Sign Up' : 'Log In'}
+          </button>
+        </p>
       </div>
     </div>
   );
