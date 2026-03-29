@@ -2274,10 +2274,44 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
           <button className="pd-close" onClick={onClose}>✕</button>
         </div>
 
-        {/* Legacy meter */}
+        {/* Hall of Fame & Ring of Honor meters */}
         {showLegacy && (
           <div className="pd-legacy">
-            <LegacyMeter score={legacyScore} tier={legacyTier} />
+            <div className="pd-legacy-section">
+              <div className="pd-legacy-title">Hall of Fame Tracker</div>
+              <LegacyMeter score={legacyScore} tier={legacyTier} threshold={HOF_CONFIG.tierThresholds.hall_of_famer} />
+            </div>
+            {/* Ring of Honor — show for the player's current/primary team */}
+            {(() => {
+              const playerSeasons = history?.playerHistory[player.playerId] ?? [];
+              if (playerSeasons.length === 0) return null;
+              // Find the team the player spent the most time with
+              const teamCounts = new Map<string, number>();
+              for (const s of playerSeasons) {
+                teamCounts.set(s.teamId, (teamCounts.get(s.teamId) ?? 0) + 1);
+              }
+              const primaryTeamId = [...teamCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+              if (!primaryTeamId || !history) return null;
+              const rohScore = computeClientTeamLegacyScore(player.playerId, position, primaryTeamId, history);
+              if (rohScore <= 0) return null;
+              const rohThreshold = 55;
+              const jerseyThreshold = 100;
+              const rohTier: LegacyTier = rohScore >= jerseyThreshold ? 'hall_of_famer' : rohScore >= rohThreshold ? 'likely' : rohScore >= 35 ? 'building' : rohScore >= 20 ? 'outside_shot' : 'none';
+              const teamName = allTeams.find(t => t.id === primaryTeamId)?.name ?? primaryTeamId;
+              const rohLabel = rohScore >= jerseyThreshold ? '★ Jersey Retired' : rohScore >= rohThreshold ? 'Ring of Honor' : rohScore >= 35 ? 'Building Legacy' : rohScore >= 20 ? 'Franchise Role' : 'Contributing';
+              return (
+                <div className="pd-legacy-section">
+                  <div className="pd-legacy-title">{teamName} Ring of Honor</div>
+                  <LegacyMeter
+                    score={rohScore}
+                    tier={rohTier}
+                    label={rohLabel}
+                    threshold={rohThreshold}
+                    maxOverride={jerseyThreshold + 20}
+                  />
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -5371,9 +5405,14 @@ function getLegacyLabel(tier: LegacyTier): string {
   }
 }
 
-function LegacyMeter({ score, tier }: { score: number; tier: LegacyTier }) {
-  const maxScore = HOF_CONFIG.tierThresholds.hall_of_famer + 30; // a bit above threshold for visual
+function LegacyMeter({ score, tier, label, threshold, maxOverride }: {
+  score: number; tier: LegacyTier;
+  label?: string; threshold?: number; maxOverride?: number;
+}) {
+  const thresholdVal = threshold ?? HOF_CONFIG.tierThresholds.hall_of_famer;
+  const maxScore = maxOverride ?? thresholdVal + 30;
   const pct = Math.min(100, Math.round((score / maxScore) * 100));
+  const thresholdPct = Math.round((thresholdVal / maxScore) * 100);
   const tierColor: Record<LegacyTier, string> = {
     hall_of_famer: '#fbbf24',
     likely:        '#a78bfa',
@@ -5387,20 +5426,93 @@ function LegacyMeter({ score, tier }: { score: number; tier: LegacyTier }) {
     <div className="legacy-meter">
       <div className="legacy-meter-header">
         <span className="legacy-meter-label" style={{ color }}>
-          {tier === 'hall_of_famer' ? '★ ' : ''}{getLegacyLabel(tier)}
+          {tier === 'hall_of_famer' ? '★ ' : ''}{label ?? getLegacyLabel(tier)}
         </span>
-        <span className="legacy-meter-score">{score} pts</span>
+        <span className="legacy-meter-score">{score} / {thresholdVal}</span>
       </div>
       <div className="legacy-meter-bar-bg">
         <div className="legacy-meter-bar-fill" style={{ width: `${pct}%`, background: color }} />
         <div
           className="legacy-meter-threshold"
-          style={{ left: `${Math.round((HOF_CONFIG.tierThresholds.hall_of_famer / maxScore) * 100)}%` }}
-          title="HoF threshold"
+          style={{ left: `${thresholdPct}%` }}
+          title={`${label ?? 'HoF'} threshold: ${thresholdVal}`}
         />
       </div>
     </div>
   );
+}
+
+/** Compute a team-specific Ring of Honor score for a player (client-side mirror). */
+function computeClientTeamLegacyScore(
+  playerId: string, position: string, teamId: string, history: LeagueHistory,
+): number {
+  const allSeasons = history.playerHistory[playerId] ?? [];
+  const teamSeasons = allSeasons.filter(s => s.teamId === teamId);
+  if (teamSeasons.length === 0) return 0;
+
+  const posGroup = getPositionGroupClient(position);
+  const w = HOF_CONFIG.statWeights[posGroup] ?? {};
+  const rankStats = HOF_CONFIG.seasonalRankStats[posGroup] ?? [];
+
+  let score = 0;
+
+  // 1. Era-relative seasonal rank (team seasons only, but ranked league-wide)
+  for (const s of teamSeasons) {
+    for (const stat of rankStats) {
+      const entries: number[] = [];
+      let myVal = 0;
+      for (const [pid, pSeasons] of Object.entries(history.playerHistory)) {
+        const ps = pSeasons.find(ps2 => ps2.year === s.year);
+        if (!ps) continue;
+        const v = getSeasonStat(ps, stat);
+        if (v > 0) {
+          entries.push(v);
+          if (pid === playerId) myVal = v;
+        }
+      }
+      if (myVal <= 0) continue;
+      entries.sort((a, b) => b - a);
+      const rank = entries.indexOf(myVal) + 1;
+      if (rank === 1)       score += 5;
+      else if (rank <= 3)   score += 3;
+      else if (rank <= 5)   score += 2;
+      else if (rank <= 10)  score += 1;
+    }
+  }
+
+  // 2. Small stat contribution (0.3× multiplier, team seasons only)
+  let pYds = 0, pTDs = 0, rYds = 0, rTDs = 0, recYds = 0, recTDs = 0, rec = 0, sacks = 0, intC = 0;
+  for (const s of teamSeasons) {
+    pYds += s.passingYards; pTDs += s.passingTDs;
+    rYds += s.rushingYards; rTDs += s.rushingTDs;
+    recYds += s.receivingYards; recTDs += s.receivingTDs;
+    rec += s.receptions; sacks += s.sacks; intC += s.interceptionsCaught;
+  }
+  score += (pYds * (w.passingYards ?? 0) + pTDs * (w.passingTDs ?? 0) +
+    rYds * (w.rushingYards ?? 0) + rTDs * (w.rushingTDs ?? 0) +
+    recYds * (w.receivingYards ?? 0) + recTDs * (w.receivingTDs ?? 0) +
+    rec * (w.receptions ?? 0) + sacks * (w.sacks ?? 0) + intC * (w.interceptionsCaught ?? 0)) * 0.3;
+
+  // 3. Longevity + loyalty
+  score += teamSeasons.length * 2;
+  if (teamSeasons.length > 3) score += (teamSeasons.length - 3) * 3;
+
+  // 4. Awards earned while on team
+  const rohAwards: Record<string, number> = { MVP: 20, OPOY: 12, DPOY: 12, OROY: 4, DROY: 4, AllPro1: 10, AllPro2: 4, Comeback_Player: 2 };
+  for (const sa of history.seasonAwards) {
+    for (const a of sa.awards) {
+      if (a.playerId !== playerId) continue;
+      if (!teamSeasons.some(s => s.year === sa.year)) continue;
+      score += rohAwards[a.type] ?? 0;
+    }
+  }
+
+  // 5. Championships with team
+  for (const s of teamSeasons) {
+    if (history.championsByYear[s.year]?.teamId === teamId) score += 10;
+  }
+
+  return Math.round(score);
 }
 
 function HallOfFameView({ history, teams, onViewPlayer }: {
