@@ -1717,14 +1717,18 @@ app.get('/formations', (req: Request, res: Response) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-const PORT = process.env['PORT'] ?? 3000;
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`[server] Gridiron running on http://0.0.0.0:${PORT} (${process.env['NODE_ENV'] ?? 'development'})`);
-  if (allowedOrigins.length > 0) {
-    console.log(`[cors]   Allowed origins (${allowedOrigins.length}): ${allowedOrigins.join(', ')}`);
-  } else {
-    console.log(`[cors]   No ALLOWED_ORIGINS set — all origins permitted (dev mode)`);
-  }
-  if (allowVercelPreviews) console.log(`[cors]   Vercel preview domains (*.vercel.app) allowed`);
-  runScheduler();
-});
+export { app };
+
+if (require.main === module || !process.env['VITEST']) {
+  const PORT = process.env['PORT'] ?? 3000;
+  app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`[server] Gridiron running on http://0.0.0.0:${PORT} (${process.env['NODE_ENV'] ?? 'development'})`);
+    if (allowedOrigins.length > 0) {
+      console.log(`[cors]   Allowed origins (${allowedOrigins.length}): ${allowedOrigins.join(', ')}`);
+    } else {
+      console.log(`[cors]   No ALLOWED_ORIGINS set — all origins permitted (dev mode)`);
+    }
+    if (allowVercelPreviews) console.log(`[cors]   Vercel preview domains (*.vercel.app) allowed`);
+    runScheduler();
+  });
+}
