@@ -19,6 +19,15 @@ import { resolveDefensivePlay, applyPackageToTeam, buildScoutingProfileFromGameS
 
 const cfg = TUNING;
 
+/**
+ * Compress a rating difference to reduce the talent gap between teams.
+ * A 40-point raw advantage becomes ~30 effective points.
+ * Keeps the sign — just reduces magnitude.
+ */
+function compress(diff: number): number {
+  return diff * cfg.talentCompression.factor;
+}
+
 // ── Injury / fatigue result types ─────────────────────────────────────────────
 
 export interface GameInjury {
@@ -922,7 +931,7 @@ function simulatePlay(
   if (isPass) {
     const dePassRush    = dl(def, 'DE')?.passRush    ?? 50;
     const olBlocking    = ol(off)?.passBlocking ?? 50;
-    const advantage     = dePassRush - olBlocking;
+    const advantage     = compress(dePassRush - olBlocking);
     const rawSackChance = Math.max(
       cfg.pass.minSackChance,
       Math.min(cfg.pass.maxSackChance, cfg.pass.baseSackChance + advantage * cfg.pass.sackRatingScale),
@@ -1157,8 +1166,11 @@ function simulatePlay(
   // ── Run: rating-ratio approach ────────────────────────────────────────────
   // defRunDefenseResistance scales how much defensive rating resists blocking.
   // At 1.0 defense is at full strength; lower values dampen DL impact.
-  const oRating = offRating(off, type);
-  const dRating = defRating(def, type);
+  // Talent compression: compress both ratings toward 50 to reduce blowout gap.
+  const rawORating = offRating(off, type);
+  const rawDRating = defRating(def, type);
+  const oRating = 50 + compress(rawORating - 50);
+  const dRating = 50 + compress(rawDRating - 50);
   const baseProb = oRating / (oRating + dRating * cfg.run.defRunDefenseResistance);
   const rzRushPenalty = yardLine >= cfg.redZone.goalLineYardLine ? cfg.redZone.rushSuccessPenalty : 0;
   successProb = Math.max(0.05, Math.min(0.95,
@@ -1355,6 +1367,37 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
     else awayScore += pts;
   };
 
+  /** Resolve PAT/2PT after a touchdown. Returns points scored (0, 1, or 2). */
+  const resolveConversion = (): number => {
+    const off = possession === 'home' ? home : away;
+    const offScore = possession === 'home' ? homeScore : awayScore;
+    const defScore = possession === 'home' ? awayScore : homeScore;
+    const diff = offScore - defScore; // after the 6-pt TD
+
+    // Decision: go for 2?
+    const goFor2Diffs = cfg.pat.goFor2Diffs as unknown as number[];
+    const trail = -diff; // how much we're trailing (positive = behind)
+    const isLateGame = quarter === 4 && clockSeconds < 300;
+    const goFor2 = goFor2Diffs.includes(trail)
+      || (isLateGame && trail > 0 && trail <= (cfg.pat.goFor2LateDiff ?? 8));
+
+    if (goFor2) {
+      // 2-point conversion: short-yardage play
+      const qb = off.depthChart['QB']?.[0];
+      const qbOvr = qb?.scoutedOverall ?? 50;
+      const chance = Math.min(0.65, Math.max(0.30,
+        cfg.pat.twoPtBaseChance + (qbOvr - 70) * cfg.pat.twoPtOffBonus));
+      return Math.random() < chance ? 2 : 0;
+    } else {
+      // Extra point kick
+      const kicker = off.depthChart['K']?.[0];
+      const kAcc = kicker?.scoutedOverall ?? 50;
+      const chance = Math.min(0.99, Math.max(0.85,
+        cfg.pat.xpBaseChance + (kAcc - 70) * cfg.pat.xpKickerBonus));
+      return Math.random() < chance ? 1 : 0;
+    }
+  };
+
   const changePoss = () => {
     possession = possession === 'home' ? 'away' : 'home';
     down = 1; distance = 10; yardLine = 25; // default; overridden by kickoff/punt logic below
@@ -1457,6 +1500,16 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
       const defFatigue = fatigueMap.get(defPrimary?.id ?? '') ?? 0;
       let playAdj = (defFatigue - offFatigue) * cfg.fatigue.effectivenessPenalty;
 
+      // Trailing team boost (prevent defense effect)
+      // When trailing by 21+ at any time, or 14+ in Q4 late, offense gets a small boost
+      const trailCfg = cfg.trailingBoost;
+      const scoreDiff = (possession === 'home' ? homeScore : awayScore) - (possession === 'home' ? awayScore : homeScore);
+      if (scoreDiff <= -trailCfg.bigLeadDiff) {
+        playAdj += trailCfg.bigLeadBonus;
+      } else if (scoreDiff <= -trailCfg.lateGameDiff && quarter === 4 && clockSeconds < trailCfg.lateGameSeconds) {
+        playAdj += trailCfg.lateGameBonus;
+      }
+
       // Down-and-distance difficulty penalties.
       // Pass penalties excluded inside the red zone — that system has its own pass penalty
       // and stacking both causes scoring to drop too far.
@@ -1535,7 +1588,7 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
       checkInjury(defPrimary, defRaw.id, defInjured);
 
       if (ev.result === 'touchdown') {
-        score(7);
+        score(6 + resolveConversion());
         changePoss();
         yardLine = resolveKickoffStart(possession === 'home' ? home : away);
       } else if (ev.result === 'turnover') {

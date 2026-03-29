@@ -19,7 +19,7 @@ export const TUNING = {
     // At 1.50, denominator is 50+75+1=126 → baseline separation 0.397 (defense slight edge).
     // Higher value → defense has a structural positional advantage; WR must earn separation.
     // The PA bonus then provides a slight offense lift over this coverage-biased floor.
-    coverageResistance:    1.50,    // how much coverage suppresses separation
+    coverageResistance:    1.60,    // was 1.50 → 1.70 (too aggressive with talent compression) → 1.60
 
     // Decision phase
     processingReadlineScalar: 0.01, // per point above 50
@@ -30,9 +30,9 @@ export const TUNING = {
     // At avg ratings (50), separation=0.417 → throwQ separation contribution=0.188.
     // Bases raised vs previous to keep baseline success rates identical.
     //   (higher base compensates for the lower separation contribution at the new resistance)
-    shortAccuracyBase:     0.56,    // controls comp% — target ~64% for league average
-    mediumAccuracyBase:    0.43,    // medium passes are hardest to complete
-    deepAccuracyBase:      0.22,    // deep balls are high risk high reward
+    shortAccuracyBase:     0.54,    // lowered to bring comp% down (short passes are majority of attempts)
+    mediumAccuracyBase:    0.44,    // slightly easier than short — medium passes drive offense
+    deepAccuracyBase:      0.24,    // slightly easier deep — big plays create scoring
     // Reduced from 0.004 → 0.003 so QB accuracy is still the dominant driver but
     // not so large (~6.75pp 50→80) that WR/CB matchups feel irrelevant.
     accuracyRatingScale:   0.003,   // per point above/below 70
@@ -110,8 +110,8 @@ export const TUNING = {
       openSuccessMod:       0.04,
       softOpenSuccessMod:   0.02,
       tightSuccessMod:      0.00,
-      contestedSuccessMod: -0.06,
-      coveredSuccessMod:   -0.14,
+      contestedSuccessMod: -0.09,   // was -0.06 — increased to penalize forced throws
+      coveredSuccessMod:   -0.20,   // was -0.14 — increased to penalize throws into coverage
 
       // INT chance modifiers per window state (applied inside the INT formula)
       openIntMod:          -0.015,
@@ -449,6 +449,32 @@ export const TUNING = {
     desperationYardLine: 59,     // trailing 2+ scores Q4 late: attempt from opponent's 41 ≈ 58-yard FG  (was 62)
   },
 
+  // ── PAT / 2-point conversion ───────────────────────────────────────────
+  pat: {
+    xpBaseChance:       0.94,    // NFL XP success rate ~94%
+    xpKickerBonus:      0.002,   // per point of kickAccuracy above 70
+    twoPtBaseChance:    0.48,    // NFL 2PT success rate ~48%
+    twoPtOffBonus:      0.003,   // per point of QB overall above 70
+    // AI decision: go for 2 when trailing by these amounts
+    goFor2Diffs:        [2, 5],  // trailing by exactly 2 or 5 points
+    goFor2LateQtr:      4,       // also go for 2 in Q4 when trailing by any amount ≤ 8
+    goFor2LateDiff:     8,
+  },
+
+  // ── Talent gap compression ───────────────────────────────────────────────
+  talentCompression: {
+    factor:             0.80,    // was 0.75 (too aggressive) → 0.80; a 40-pt gap becomes 32
+  },
+
+  // ── Trailing team boost (prevent defense effect) ─────────────────────────
+  trailingBoost: {
+    bigLeadDiff:        21,      // trailing by 21+ at any time
+    bigLeadBonus:       0.06,    // was 0.04 — increased to ensure trailing teams can sustain some drives
+    lateGameDiff:       14,      // trailing by 14+ in Q4 late
+    lateGameSeconds:    300,     // Q4 with <5 minutes left
+    lateGameBonus:      0.06,    // was 0.04 — matches bigLeadBonus
+  },
+
   // ── Punt ──────────────────────────────────────────────────────────────────
   punt: {
     minYards:          35,
@@ -523,7 +549,7 @@ export const TUNING = {
      * structural advantage; this is just a small residual edge.
      * Set to 0 to restore perfect parity; raise to give offense more edge.
      */
-    offenseAdvantage: 0.10,    // raised to boost scoring floor; weak teams still need to move the ball
+    offenseAdvantage: 0.08,    // moderate — high values inflate comp% too much
   },
 
   // ── Clock model ───────────────────────────────────────────────────────────
@@ -639,7 +665,7 @@ export const TUNING = {
   redZone: {
     yardLine:            80,    // start of red zone (opponent's 20)
     goalLineYardLine:    90,    // inside opponent's 10 — extra run difficulty
-    passSuccessPenalty:  0.035, // was 0.03 → 0.06 → 0.05 → 0.035; slight penalty, not too harsh
+    passSuccessPenalty:  0.025, // eased further — RZ needs to be scoreable for PPG to reach NFL levels
     rushSuccessPenalty:  0.02,  // was 0.02 → 0.04 → 0.03 → 0.02; back to original
     sackBonus:           0.01,  // was 0.01 → 0.02 → 0.015 → 0.01; back to original
   },
