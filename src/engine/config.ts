@@ -30,9 +30,9 @@ export const TUNING = {
     // At avg ratings (50), separation=0.417 → throwQ separation contribution=0.188.
     // Bases raised vs previous to keep baseline success rates identical.
     //   (higher base compensates for the lower separation contribution at the new resistance)
-    shortAccuracyBase:     0.54,    // lowered to bring comp% down (short passes are majority of attempts)
-    mediumAccuracyBase:    0.44,    // slightly easier than short — medium passes drive offense
-    deepAccuracyBase:      0.24,    // slightly easier deep — big plays create scoring
+    shortAccuracyBase:     0.52,    // short passes — target ~65% overall comp
+    mediumAccuracyBase:    0.42,    // medium passes
+    deepAccuracyBase:      0.22,    // deep passes — difficult
     // Reduced from 0.004 → 0.003 so QB accuracy is still the dominant driver but
     // not so large (~6.75pp 50→80) that WR/CB matchups feel irrelevant.
     accuracyRatingScale:   0.003,   // per point above/below 70
@@ -469,10 +469,10 @@ export const TUNING = {
   // ── Trailing team boost (prevent defense effect) ─────────────────────────
   trailingBoost: {
     bigLeadDiff:        21,      // trailing by 21+ at any time
-    bigLeadBonus:       0.06,    // was 0.04 — increased to ensure trailing teams can sustain some drives
+    bigLeadBonus:       0.08,    // strong boost — ensures trailing teams score at least once
     lateGameDiff:       14,      // trailing by 14+ in Q4 late
     lateGameSeconds:    300,     // Q4 with <5 minutes left
-    lateGameBonus:      0.06,    // was 0.04 — matches bigLeadBonus
+    lateGameBonus:      0.08,    // matches bigLeadBonus
   },
 
   // ── Punt ──────────────────────────────────────────────────────────────────
@@ -540,7 +540,7 @@ export const TUNING = {
 
   // ── Game structure ────────────────────────────────────────────────────────
   game: {
-    playsPerQuarter: 32,   // ~128 plays/game total (NFL avg ~125); was 36 (144) → 30 (120, too low) → 32
+    playsPerQuarter: 35,   // base target; clock model is primary limiter
     /**
      * Global offense success-probability bonus.
      * Reflects the offense's inherent play-calling advantage (they know the
@@ -549,7 +549,7 @@ export const TUNING = {
      * structural advantage; this is just a small residual edge.
      * Set to 0 to restore perfect parity; raise to give offense more edge.
      */
-    offenseAdvantage: 0.08,    // moderate — high values inflate comp% too much
+    offenseAdvantage: 0.08,    // moderate — controlled to avoid comp% inflation
   },
 
   // ── Clock model ───────────────────────────────────────────────────────────
@@ -561,13 +561,13 @@ export const TUNING = {
 
     // Clock runoff ranges (min, max seconds); randomized each play for realism
     runoff: {
-      incompleteMin:  6,  incompleteMax: 10,   // incomplete pass — clock stops
-      sidelineMin:    8,  sidelineMax:   12,   // completed but out-of-bounds proxy
-      completeMin:   32,  completeMax:   42,   // increased to reduce total plays per game to ~125
-      runMin:        34,  runMax:        44,   // increased to reduce total plays per game
-      tdMin:         20,  tdMax:         22,   // scoring play — stops for PAT/kickoff
-      fgMin:         18,  fgMax:         25,   // field goal attempt
-      puntMin:       12,  puntMax:       20,   // punt
+      incompleteMin:  8,  incompleteMax: 14,   // incomplete — clock stops but time passes (huddle, reset)
+      sidelineMin:   10,  sidelineMax:  16,   // sideline — clock stops but still time for huddle
+      completeMin:   30,  completeMax:  40,   // in-bounds completion — full play clock
+      runMin:        32,  runMax:       42,   // run/sack/scramble — full play clock
+      tdMin:         45,  tdMax:        55,   // TD — PAT + kickoff + return = significant time
+      fgMin:         30,  fgMax:        40,   // FG attempt — snap, kick, return/touchback
+      puntMin:       25,  puntMax:      35,   // punt — snap, kick, return, fair catch
     },
 
     // Probability a completed pass is treated as "sideline" (clock stops)
@@ -643,10 +643,10 @@ export const TUNING = {
     d3LongThreshold:  8,    // 3rd and 8+
     d3VeryThreshold: 12,    // 3rd and 12+
 
-    d2LongPenalty:   0.06,  // −6%  on 2nd and 8+
-    d3ShortPenalty:  0.03,  // −3%  on 3rd and 1–4 passes
-    d3MedPenalty:    0.02,  // −2% on 3rd and 5–7  (was 0.12 → 0.07 → 0.02)
-    d3LongPenalty:   0.07,  // −7% on 3rd and 8–11 (was 0.19 → 0.13 → 0.07)
+    d2LongPenalty:   0.04,  // was 0.06 — eased to improve 3rd down conversion rate toward 40%
+    d3ShortPenalty:  0.02,  // was 0.03 — eased
+    d3MedPenalty:    0.01,  // was 0.02 — eased for more 3rd-and-medium conversions
+    d3LongPenalty:   0.05,  // was 0.07 — eased slightly
     d3VeryPenalty:   0.23,  // −23% on 3rd and 12+  (was 0.12)
     d3RunPenalty:    0.05,  // −5%  on any 3rd down run (defense keys up stops)
     d3SackBonus:     0.018, // +1.8% sack chance on any 3rd down pass
@@ -665,7 +665,7 @@ export const TUNING = {
   redZone: {
     yardLine:            80,    // start of red zone (opponent's 20)
     goalLineYardLine:    90,    // inside opponent's 10 — extra run difficulty
-    passSuccessPenalty:  0.025, // eased further — RZ needs to be scoreable for PPG to reach NFL levels
+    passSuccessPenalty:  0.02,  // minimal — compressed field already makes RZ harder naturally
     rushSuccessPenalty:  0.02,  // was 0.02 → 0.04 → 0.03 → 0.02; back to original
     sackBonus:           0.01,  // was 0.01 → 0.02 → 0.015 → 0.01; back to original
   },
