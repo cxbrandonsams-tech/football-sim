@@ -809,27 +809,27 @@ export const TUNING = {
   // ── Hall of Fame / Legacy scoring (Phase 31) ──────────────────────────────
   hof: {
     /** Minimum legacy score required for induction. */
-    inductionThreshold: 120,
+    inductionThreshold: 150,
     /** Score added per season of professional play. */
-    longevityPerYear:   3,
+    longevityPerYear:   2,
     /** Score added per championship won (as a member of the winning team). */
-    championshipBonus:  20,
+    championshipBonus:  12,
     /** Score bonus for all-time rank in a position's primary stat(s). */
     rankBonus: {
-      top3:  25,
-      top5:  15,
-      top10:  8,
+      top3:  15,
+      top5:  10,
+      top10:  5,
     },
     /** Award point values. Keyed by AwardType string. */
     awardPoints: {
-      MVP:             30,
-      OPOY:            20,
-      DPOY:            20,
-      OROY:            10,
-      DROY:            10,
-      AllPro1:         15,
-      AllPro2:          8,
-      Comeback_Player: 10,
+      MVP:             25,
+      OPOY:            15,
+      DPOY:            15,
+      OROY:             5,
+      DROY:             5,
+      AllPro1:         12,
+      AllPro2:          5,
+      Comeback_Player:  3,
     },
     /**
      * Career stat multipliers per position group.
@@ -849,20 +849,20 @@ export const TUNING = {
     },
     /** Minimum score (inclusive) for each tier label. */
     tierThresholds: {
-      outside_shot:  30,
-      building:      55,
-      strong:        80,
-      likely:       100,
-      hall_of_famer: 120,
+      outside_shot:  40,
+      building:      70,
+      strong:       100,
+      likely:       130,
+      hall_of_famer: 150,
     },
   },
 
   // ── Ring of Honor / Team Legacy (Phase 34) ───────────────────────────────
   ringOfHonor: {
     /** Minimum team-legacy score to enter a team's Ring of Honor. */
-    inductionThreshold:        45,
+    inductionThreshold:        55,
     /** Score to trigger jersey retirement (above inductionThreshold). */
-    jerseyRetirementThreshold: 80,
+    jerseyRetirementThreshold: 100,
     /** Points per season played with the team. */
     longevityPerYear:           2,
     /**
@@ -870,19 +870,19 @@ export const TUNING = {
      * beyond loyaltyThreshold.  Rewards franchise cornerstones.
      */
     loyaltyThreshold: 3,
-    loyaltyBonus:     4,
+    loyaltyBonus:     3,
     /** Points added per championship won while on this specific team. */
-    championshipBonus: 15,
-    /** Award point values — mirrors HoF but slightly scaled down. */
+    championshipBonus: 10,
+    /** Award point values — mirrors HoF but scaled down for team context. */
     awardPoints: {
-      MVP:             25,
-      OPOY:            15,
-      DPOY:            15,
-      OROY:             8,
-      DROY:             8,
-      AllPro1:         12,
-      AllPro2:          5,
-      Comeback_Player:  8,
+      MVP:             20,
+      OPOY:            12,
+      DPOY:            12,
+      OROY:             4,
+      DROY:             4,
+      AllPro1:         10,
+      AllPro2:          4,
+      Comeback_Player:  2,
     },
     // Stat weights are shared with TUNING.hof.statWeights — same multipliers,
     // only applied to team-filtered seasons instead of full career.

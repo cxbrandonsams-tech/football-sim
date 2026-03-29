@@ -5189,12 +5189,12 @@ function ActivityFeed({ activities }: { activities: Activity[] }) {
 // ── Hall of Fame ───────────────────────────────────────────────────────────────
 
 const HOF_CONFIG = {
-  inductionThreshold: 120,
-  longevityPerYear:   3,
-  championshipBonus:  20,
-  rankBonus: { top3: 25, top5: 15, top10: 8 },
-  seasonalRankPoints: { top1: 8, top3: 5, top5: 3, top10: 1 },
-  awardPoints: { MVP: 30, OPOY: 20, DPOY: 20, OROY: 10, DROY: 10, AllPro1: 15, AllPro2: 8, Comeback_Player: 10 } as Record<string, number>,
+  inductionThreshold: 150,
+  longevityPerYear:   2,
+  championshipBonus:  12,
+  rankBonus: { top3: 15, top5: 10, top10: 5 },
+  seasonalRankPoints: { top1: 6, top3: 4, top5: 2, top10: 1 },
+  awardPoints: { MVP: 25, OPOY: 15, DPOY: 15, OROY: 5, DROY: 5, AllPro1: 12, AllPro2: 5, Comeback_Player: 3 } as Record<string, number>,
   // Stat weights are now reduced (0.3× multiplier) — seasonal league ranks carry primary weight
   statWeights: {
     QB:  { passingYards: 0.018, passingTDs: 5.0, rushingYards: 0.008, rushingTDs: 2.0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
@@ -5215,7 +5215,7 @@ const HOF_CONFIG = {
     OL: [], DL: ['sacks'], LB: ['tackles', 'sacks'],
     CB: ['interceptionsCaught'], SAF: ['interceptionsCaught'], ST: [],
   } as Record<string, string[]>,
-  tierThresholds: { outside_shot: 30, building: 55, strong: 80, likely: 100, hall_of_famer: 120 },
+  tierThresholds: { outside_shot: 40, building: 70, strong: 100, likely: 130, hall_of_famer: 150 },
 };
 
 const PRIMARY_STATS_CLIENT: Record<string, string[]> = {

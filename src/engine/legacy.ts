@@ -55,9 +55,9 @@ const SEASONAL_RANK_STATS: Record<PosGroup, (keyof PlayerSeasonStats)[]> = {
 
 // Points awarded for seasonal league rank in a tracked stat
 const SEASONAL_RANK_POINTS = {
-  top1:  8,
-  top3:  5,
-  top5:  3,
+  top1:  6,
+  top3:  4,
+  top5:  2,
   top10: 1,
 };
 
