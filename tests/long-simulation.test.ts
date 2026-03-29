@@ -21,7 +21,9 @@ describe('Full season simulation (18 weeks + postseason)', () => {
     // Simulate all 18 weeks
     for (let w = 1; w <= 18; w++) {
       league = simulateWeek(league);
-      expect(league.currentWeek).toBe(w + 1); // Week counter always increments
+      // After simulating week w, currentWeek advances to w+1.
+      // After week 18, currentWeek=19 is the internal trigger for postseason — not a real "week 19".
+      expect(league.currentWeek).toBe(w + 1);
 
       // All week-w games should be final
       const weekGames = league.currentSeason.games.filter(g => g.week === w);
