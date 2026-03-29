@@ -10,12 +10,12 @@
  * in the offseason flow.
  */
 
-import { type League }                             from '../models/League';
-import { type RingOfHonorEntry, deriveCareerStats } from '../models/History';
-import { type NewsItem }                           from '../models/News';
-import { getPositionGroup }                        from './legacy';
+import { type League }                                             from '../models/League';
+import { type RingOfHonorEntry, type PlayerSeasonStats, deriveCareerStats } from '../models/History';
+import { type NewsItem }                                           from '../models/News';
+import { getPositionGroup }                                        from './legacy';
 import { newsForRingOfHonorInduction, newsForJerseyRetirement, addNewsItems } from './news';
-import { TUNING }                                  from './config';
+import { TUNING }                                                  from './config';
 
 // ── Team-specific legacy score ─────────────────────────────────────────────────
 
@@ -41,17 +41,48 @@ export function computeTeamLegacyScore(
   const w        = TUNING.hof.statWeights[posGroup];
   const cfg      = TUNING.ringOfHonor;
 
-  // 1. Stat contribution (position-weighted, team seasons only)
+  // 1. Era-relative seasonal rank (for team seasons only)
+  const RANK_STATS: Record<string, (keyof PlayerSeasonStats)[]> = {
+    QB: ['passingYards', 'passingTDs'], RB: ['rushingYards', 'rushingTDs'],
+    WR: ['receivingYards', 'receivingTDs'], TE: ['receivingYards', 'receptions'],
+    OL: [], DL: ['sacks'], LB: ['tackles', 'sacks'],
+    CB: ['interceptionsCaught'], SAF: ['interceptionsCaught'], ST: [],
+  };
+  const rankStats = RANK_STATS[posGroup] ?? [];
   let score = 0;
-  score += career.passingYards        * w.passingYards;
-  score += career.passingTDs          * w.passingTDs;
-  score += career.rushingYards        * w.rushingYards;
-  score += career.rushingTDs          * w.rushingTDs;
-  score += career.receivingYards      * w.receivingYards;
-  score += career.receivingTDs        * w.receivingTDs;
-  score += career.receptions          * w.receptions;
-  score += career.sacks               * w.sacks;
-  score += career.interceptionsCaught * w.interceptionsCaught;
+  for (const s of teamSeasons) {
+    for (const stat of rankStats) {
+      const entries: { val: number }[] = [];
+      let myVal = 0;
+      for (const pSeasons of Object.values(history.playerHistory)) {
+        const ps = pSeasons.find(ps2 => ps2.year === s.year);
+        if (!ps) continue;
+        const v = ps[stat];
+        if (typeof v === 'number' && v > 0) {
+          entries.push({ val: v });
+          if (pSeasons === allSeasons) myVal = v;
+        }
+      }
+      if (myVal <= 0) continue;
+      entries.sort((a, b) => b.val - a.val);
+      const rank = entries.findIndex(e => e.val <= myVal) + 1;
+      if (rank === 1)       score += 5;
+      else if (rank <= 3)   score += 3;
+      else if (rank <= 5)   score += 2;
+      else if (rank <= 10)  score += 1;
+    }
+  }
+
+  // 2. Small stat contribution (reduced — seasonal ranks carry primary weight)
+  score += career.passingYards        * w.passingYards * 0.3;
+  score += career.passingTDs          * w.passingTDs * 0.3;
+  score += career.rushingYards        * w.rushingYards * 0.3;
+  score += career.rushingTDs          * w.rushingTDs * 0.3;
+  score += career.receivingYards      * w.receivingYards * 0.3;
+  score += career.receivingTDs        * w.receivingTDs * 0.3;
+  score += career.receptions          * w.receptions * 0.3;
+  score += career.sacks               * w.sacks * 0.3;
+  score += career.interceptionsCaught * w.interceptionsCaught * 0.3;
 
   // 2. Longevity with this team
   score += career.seasons * (cfg.longevityPerYear ?? 2);

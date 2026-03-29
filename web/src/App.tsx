@@ -5193,10 +5193,12 @@ const HOF_CONFIG = {
   longevityPerYear:   3,
   championshipBonus:  20,
   rankBonus: { top3: 25, top5: 15, top10: 8 },
+  seasonalRankPoints: { top1: 8, top3: 5, top5: 3, top10: 1 },
   awardPoints: { MVP: 30, OPOY: 20, DPOY: 20, OROY: 10, DROY: 10, AllPro1: 15, AllPro2: 8, Comeback_Player: 10 } as Record<string, number>,
+  // Stat weights are now reduced (0.3× multiplier) — seasonal league ranks carry primary weight
   statWeights: {
-    QB:  { passingYards: 0.018, passingTDs: 5.0, rushingYards: 0.008, rushingTDs: 3.0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
-    RB:  { passingYards: 0, passingTDs: 0, rushingYards: 0.050, rushingTDs: 6.0, receivingYards: 0.015, receivingTDs: 3.0, receptions: 0.20, sacks: 0, interceptionsCaught: 0 },
+    QB:  { passingYards: 0.018, passingTDs: 5.0, rushingYards: 0.008, rushingTDs: 2.0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
+    RB:  { passingYards: 0, passingTDs: 0, rushingYards: 0.050, rushingTDs: 6.0, receivingYards: 0.015, receivingTDs: 2.0, receptions: 0.30, sacks: 0, interceptionsCaught: 0 },
     WR:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0.050, receivingTDs: 6.0, receptions: 0.40, sacks: 0, interceptionsCaught: 0 },
     TE:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0.050, receivingTDs: 6.0, receptions: 0.40, sacks: 0, interceptionsCaught: 0 },
     OL:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
@@ -5206,6 +5208,13 @@ const HOF_CONFIG = {
     SAF: { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 4.0, interceptionsCaught: 10.0 },
     ST:  { passingYards: 0, passingTDs: 0, rushingYards: 0, rushingTDs: 0, receivingYards: 0, receivingTDs: 0, receptions: 0, sacks: 0, interceptionsCaught: 0 },
   } as Record<string, Record<string, number>>,
+  // Stats tracked for seasonal league rankings, per position group
+  seasonalRankStats: {
+    QB: ['passingYards', 'passingTDs'], RB: ['rushingYards', 'rushingTDs'],
+    WR: ['receivingYards', 'receivingTDs'], TE: ['receivingYards', 'receptions'],
+    OL: [], DL: ['sacks'], LB: ['tackles', 'sacks'],
+    CB: ['interceptionsCaught'], SAF: ['interceptionsCaught'], ST: [],
+  } as Record<string, string[]>,
   tierThresholds: { outside_shot: 30, building: 55, strong: 80, likely: 100, hall_of_famer: 120 },
 };
 
@@ -5255,8 +5264,36 @@ function computeClientLegacyScore(playerId: string, position: string, history: L
 
   const posGroup = getPositionGroupClient(position);
   const w = HOF_CONFIG.statWeights[posGroup];
+  const srp = HOF_CONFIG.seasonalRankPoints;
 
-  // Career totals
+  // 1. Era-relative seasonal league rank (primary stat contribution)
+  const rankStats = HOF_CONFIG.seasonalRankStats[posGroup] ?? [];
+  let score = 0;
+  for (const s of seasons) {
+    for (const stat of rankStats) {
+      // Gather all players' values for this stat in this season
+      const entries: number[] = [];
+      let myVal = 0;
+      for (const [pid, pSeasons] of Object.entries(history.playerHistory)) {
+        const ps = pSeasons.find(ps2 => ps2.year === s.year);
+        if (!ps) continue;
+        const v = getSeasonStat(ps, stat);
+        if (v > 0) {
+          entries.push(v);
+          if (pid === playerId) myVal = v;
+        }
+      }
+      if (myVal <= 0) continue;
+      entries.sort((a, b) => b - a);
+      const rank = entries.indexOf(myVal) + 1;
+      if (rank === 1)       score += srp.top1;
+      else if (rank <= 3)   score += srp.top3;
+      else if (rank <= 5)   score += srp.top5;
+      else if (rank <= 10)  score += srp.top10;
+    }
+  }
+
+  // 2. Small career stat contribution (0.3× multiplier — seasonal ranks carry primary weight)
   let pYds = 0, pTDs = 0, rYds = 0, rTDs = 0, recYds = 0, recTDs = 0, rec = 0, sacks = 0, intC = 0;
   for (const s of seasons) {
     pYds   += s.passingYards;        pTDs  += s.passingTDs;
@@ -5265,20 +5302,20 @@ function computeClientLegacyScore(playerId: string, position: string, history: L
     rec    += s.receptions;          sacks  += s.sacks;
     intC   += s.interceptionsCaught;
   }
+  score += pYds   * w.passingYards * 0.3;
+  score += pTDs   * w.passingTDs * 0.3;
+  score += rYds   * w.rushingYards * 0.3;
+  score += rTDs   * w.rushingTDs * 0.3;
+  score += recYds * w.receivingYards * 0.3;
+  score += recTDs * w.receivingTDs * 0.3;
+  score += rec    * w.receptions * 0.3;
+  score += sacks  * w.sacks * 0.3;
+  score += intC   * w.interceptionsCaught * 0.3;
 
-  let score = 0;
-  score += pYds   * w.passingYards;
-  score += pTDs   * w.passingTDs;
-  score += rYds   * w.rushingYards;
-  score += rTDs   * w.rushingTDs;
-  score += recYds * w.receivingYards;
-  score += recTDs * w.receivingTDs;
-  score += rec    * w.receptions;
-  score += sacks  * w.sacks;
-  score += intC   * w.interceptionsCaught;
+  // 3. Longevity
   score += seasons.length * HOF_CONFIG.longevityPerYear;
 
-  // Awards
+  // 4. Awards
   for (const sa of history.seasonAwards) {
     for (const a of sa.awards) {
       if (a.playerId !== playerId) continue;
@@ -5286,14 +5323,14 @@ function computeClientLegacyScore(playerId: string, position: string, history: L
     }
   }
 
-  // Championships
+  // 5. Championships
   for (const s of seasons) {
     if (history.championsByYear[s.year]?.teamId === s.teamId) {
       score += HOF_CONFIG.championshipBonus;
     }
   }
 
-  // All-time rank bonus
+  // 6. All-time career rank bonus (smaller complement to seasonal ranks)
   const primStats = PRIMARY_STATS_CLIENT[posGroup] ?? [];
   for (const stat of primStats) {
     const leaders = Object.entries(history.playerHistory)
