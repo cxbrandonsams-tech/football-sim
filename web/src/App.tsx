@@ -704,10 +704,10 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
     if (league.phase === 'draft') return league.draft?.complete ? 'Start Season' : 'Draft In Progress';
     if (league.phase === 'postseason') {
       const round = league.playoff?.currentRound;
-      if (round === 'wildcard')     return 'Sim Wild Card Round';
+      if (round === 'wildcard')     return 'Sim Wild Card';
       if (round === 'divisional')   return 'Sim Divisional';
-      if (round === 'conference')   return 'Sim Conference';
-      if (round === 'championship') return 'Sim Championship';
+      if (round === 'conference')   return 'Sim Conference Championship';
+      if (round === 'championship') return 'Sim League Championship';
       return 'Season Complete';
     }
     return league.currentWeek > maxWeek ? 'Start Playoffs' : 'Advance Week';
@@ -2507,9 +2507,9 @@ const AWARD_LABELS: Record<string, string> = {
 function formatPlayoffRound(madePlayoffs: boolean, round?: string): string {
   if (!madePlayoffs) return '—';
   const labels: Record<string, string> = {
-    wildcard:     'Wild Card Round',
+    wildcard:     'Wild Card',
     divisional:   'Divisional',
-    conference:   'Conference',
+    conference:   'Conf. Championship',
     championship: 'Runner-Up',
     champion:     'Champion',
   };
@@ -4166,7 +4166,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, league: leagueObj
   const hasHistory = seasonHistory.length > 0;
 
   const ROUND_LABELS: Record<string, string> = {
-    wildcard: 'Wild Card Round', divisional: 'Divisional', conference: 'Conference', championship: 'Championship',
+    wildcard: 'Wild Card', divisional: 'Divisional', conference: 'Conference Championship', championship: 'League Championship',
   };
   const ROUND_ORDER = ['wildcard', 'divisional', 'conference', 'championship'];
 

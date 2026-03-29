@@ -247,10 +247,10 @@ export function advancePlayoffRound(
 // ── Activity message helper ───────────────────────────────────────────────────
 
 const ROUND_LABELS: Record<string, string> = {
-  wildcard:     'Wild Card Round',
+  wildcard:     'Wild Card',
   divisional:   'Divisional',
-  conference:   'Conference',
-  championship: 'Championship',
+  conference:   'Conference Championship',
+  championship: 'League Championship',
   complete:     'completion',
 };
 

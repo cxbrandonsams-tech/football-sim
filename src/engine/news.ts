@@ -45,10 +45,10 @@ export function addNewsItems(league: League, items: NewsItem[]): League {
 
 function roundLabel(round: string): string {
   switch (round) {
-    case 'wildcard':      return 'Wild Card Round';
+    case 'wildcard':      return 'Wild Card';
     case 'divisional':   return 'Divisional';
-    case 'conference':   return 'Conference';
-    case 'championship': return 'Championship';
+    case 'conference':   return 'Conference Championship';
+    case 'championship': return 'League Championship';
     default:             return round;
   }
 }
