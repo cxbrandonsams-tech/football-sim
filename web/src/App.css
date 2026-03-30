@@ -626,6 +626,38 @@ html { scroll-behavior: smooth; }
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
+  /* Team Overview responsive */
+  .ov-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .ov-header-stats {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .ov-top-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+  /* Player Detail responsive */
+  .pd-modal {
+    max-width: 100%;
+    border-radius: 0;
+    max-height: 100vh;
+  }
+  .pd-ratings-grid {
+    grid-template-columns: 1fr;
+  }
+  .pd-rating-bar-label {
+    width: 6rem;
+    font-size: var(--text-xs);
+  }
+  /* Scouting responsive */
+  .scouting-row-college {
+    display: none;
+  }
+  .scouting-row-proj {
+    width: 2.5rem;
+  }
 }
 
 /* Phone */
@@ -2582,16 +2614,17 @@ tr:hover td { background: var(--bg-row-hover); }
   overflow-y: auto;
 }
 
+/* Player Detail Modal — "Scouting Report" premium feel */
 .pd-modal {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   width: 100%;
-  max-width: 780px;
+  max-width: 860px;
   overflow: hidden;
   flex-shrink: 0;
   animation: fadeSlideUp 0.25s ease both;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(249, 115, 22, 0.08);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(249, 115, 22, 0.08);
 }
 
 /* ── Player card header ── */
@@ -2705,36 +2738,37 @@ tr:hover td { background: var(--bg-row-hover); }
 .pd-accolade-label { white-space: nowrap; letter-spacing: 0.02em; }
 
 /* ── Rating bars — skill gauge system ── */
+/* Ratings — "scouting report" feel */
 .pd-ratings-bars {
-  padding: var(--sp-3) var(--sp-5);
+  padding: var(--sp-4) var(--sp-5);
   border-bottom: 1px solid var(--border-subtle);
 }
 .pd-ratings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.35rem var(--sp-5);
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--sp-2) var(--sp-6);
 }
 .pd-rating-bar-row {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: 0.15rem 0;
+  gap: var(--sp-3);
+  padding: 0.2rem 0;
 }
 .pd-rating-bar-label {
-  font-size: 0.6rem;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  width: 7.5rem;
+  width: 8rem;
   flex-shrink: 0;
   text-align: right;
 }
 .pd-rating-bar-track {
   flex: 1;
-  height: 8px;
+  height: 10px;
   background: rgba(255, 255, 255, 0.04);
-  border-radius: 4px;
+  border-radius: 5px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.03);
 }
@@ -2817,17 +2851,19 @@ tr:hover td { background: var(--bg-row-hover); }
 }
 .pd-close:hover { color: var(--text-primary); background: var(--bg-hover); }
 
-/* Section label */
+/* Section labels — clear hierarchy dividers */
 .pd-section-label {
   font-family: var(--font-display);
   font-size: var(--text-xs);
   font-weight: 700;
   font-style: italic;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--primary);
-  padding: var(--sp-3) var(--sp-5) var(--sp-1);
-  border-top: 1px solid var(--border-subtle);
+  padding: var(--sp-4) var(--sp-5) var(--sp-2);
+  border-top: 2px solid var(--border-subtle);
+  margin-top: var(--sp-2);
+  background: linear-gradient(to bottom, rgba(249,115,22,0.03), transparent);
 }
 
 /* Season stat chips */
@@ -3670,20 +3706,21 @@ tr:hover td { background: var(--bg-row-hover); }
 .ov-page {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
+  gap: var(--sp-5);
 }
 
-/* Header bar */
+/* Header bar — "Command Center" feel */
 .ov-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-4);
+  gap: var(--sp-5);
   background: var(--bg-card);
   border: 1px solid var(--border-default);
-  border-top: 2px solid var(--primary);
-  border-radius: var(--radius-xl);
-  padding: var(--sp-4) var(--sp-5);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5) var(--sp-6);
+  box-shadow: var(--shadow-sm);
 }
 
 .ov-header-identity {
@@ -3765,10 +3802,10 @@ tr:hover td { background: var(--bg-row-hover); }
   color: var(--text-muted);
 }
 
-/* Top cards grid */
+/* Top cards grid — wider minimum for readability */
 .ov-top-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--sp-3);
 }
 
@@ -3776,7 +3813,12 @@ tr:hover td { background: var(--bg-row-hover); }
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-4);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.ov-card:hover {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-sm);
 }
 
 .ov-card-title {
@@ -3824,23 +3866,26 @@ tr:hover td { background: var(--bg-row-hover); }
   margin-bottom: var(--sp-3);
 }
 
-/* Roster breakdown grid */
+/* Roster breakdown grid — wider cells for readability */
 .ov-roster-grid {
-  display: flex;
-  gap: var(--sp-1);
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: var(--sp-2);
 }
 
 .ov-roster-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.1rem;
+  gap: 2px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  padding: var(--sp-2) var(--sp-3);
-  min-width: 52px;
+  padding: var(--sp-2) var(--sp-2);
+  transition: border-color var(--transition-fast);
+}
+.ov-roster-cell:hover {
+  border-color: var(--border-default);
 }
 
 .ov-roster-pos {
@@ -5781,24 +5826,26 @@ tr:hover td { background: var(--bg-row-hover); }
 
 .scouting-prospect {
   border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--transition-fast);
 }
 .scouting-prospect:last-child { border-bottom: none; }
 
 .scouting-prospect-open {
   background: var(--bg-surface);
+  border-left: 2px solid var(--primary);
 }
 
-.scouting-prospect-unscouted .scouting-row { opacity: 0.7; }
+.scouting-prospect-unscouted .scouting-row { opacity: 0.6; }
 .scouting-prospect-unscouted:hover .scouting-row { opacity: 1; }
 
 .scouting-row {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-3);
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
   cursor: pointer;
   font-size: var(--text-sm);
-  transition: background 0.1s;
+  transition: background var(--transition-fast);
 }
 .scouting-row:hover { background: var(--bg-elevated); }
 
@@ -5856,21 +5903,29 @@ tr:hover td { background: var(--bg-row-hover); }
 
 .btn-scout-inline {
   font-size: var(--text-xs) !important;
-  padding: 0.1rem 0.4rem !important;
+  padding: 0.2rem 0.55rem !important;
   white-space: nowrap;
   flex-shrink: 0;
-  background: var(--info-dim) !important;
-  border-color: transparent !important;
-  color: var(--info) !important;
+  background: var(--primary-dim) !important;
+  border: 1px solid rgba(249,115,22,0.3) !important;
+  color: var(--primary) !important;
+  border-radius: var(--radius-md) !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
 .btn-scout-inline:hover:not(:disabled) {
-  background: rgba(96, 165, 250, 0.2) !important;
+  background: rgba(249,115,22,0.2) !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 8px rgba(249,115,22,0.15);
 }
 
-/* Expanded scouting detail */
+/* Expanded scouting detail — "evaluation card" feel */
 .scouting-detail {
-  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
   border-top: 1px solid var(--border-subtle);
+  background: linear-gradient(to bottom, rgba(249,115,22,0.02), transparent 60%);
+  animation: fadeSlideUp 0.2s ease both;
 }
 
 .scouting-detail-meta {
@@ -5963,9 +6018,11 @@ tr:hover td { background: var(--bg-row-hover); }
 .weakness-lbl { color: var(--danger); }
 
 .report-tag {
-  font-size: 0.75rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
+  font-size: var(--text-xs);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 .report-tag.strength { background: #14532d; color: var(--success); }
 .report-tag.weakness { background: #450a0a; color: var(--danger); }
