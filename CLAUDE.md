@@ -89,7 +89,8 @@ The core pipeline for a week:
 3. `passEngine.ts` / `runEngine.ts` — resolve individual pass and run plays
 4. `config.ts` (`TUNING`) — all numeric constants for the simulation (probabilities, modifiers, thresholds). **This is the single source of truth for tuning.** Change numbers here, not in the engine functions.
 5. `gameStats.ts` — builds box scores from `PlayEvent[]` after a game
-6. `playByPlay.ts` — formats events into human-readable strings
+6. `playByPlay.ts` — formats events into human-readable strings (CLI only)
+7. `commentary.ts` — phase-based commentary generation. Produces `commentaryFull` (rich broadcast paragraph) and `commentaryLog` (compact log line) for each `PlayEvent`. Uses structured `CommentaryMeta` captured during play resolution (pressureLevel, windowState, throwQuality, defPlayerName, drivePlayNum, prevPlayType/Result, etc.).
 
 The pass system uses **window states** (`open` → `soft_open` → `tight` → `contested` → `covered`) derived from WR/DB separation. Each state applies a success modifier, INT modifier, and YAC bonus. QB `decisionMaking` drives throwaway probability on covered windows. All thresholds and modifiers live in `TUNING.pass.window`.
 
@@ -110,6 +111,7 @@ Season lifecycle (in `seasonEngine.ts`):
 | Hall of Fame / Ring of Honor | `hallOfFame.ts`, `ringOfHonor.ts` |
 | Era-relative legacy scoring | `legacy.ts` |
 | GM career tracking | `gmCareer.ts` |
+| Play commentary | `commentary.ts` |
 | All sim constants | `config.ts` |
 
 ### Frontend structure (`web/src/`)
@@ -118,7 +120,7 @@ Season lifecycle (in `seasonEngine.ts`):
 - `api.ts` — typed wrappers for every backend endpoint. Auto-clears auth on 401.
 - `types.ts` — client-side TypeScript types mirroring the backend models.
 - `TeamLogo.tsx` — reusable team logo component (renders `/assets/teams/team_{abbr}.png` with fallback).
-- `FieldView.tsx` — football field visualization with broadcast-style commentary, scoreboard, end zones with team logos.
+- `FieldView.tsx` — football field visualization (160px tall, team-colored end zones via `TEAM_COLORS` map for all 32 teams). Enlarged fonts throughout (scoreboard 1.8rem, down/distance 0.95rem, commentary 0.95rem). Around-the-league toasts positioned below the field (not overlapping). `TeamLogo` + team abbreviation in end zones.
 - `DashboardSchedule.tsx` — 18-week schedule strip component (week tiles with W/L/bye + team logos).
 - `views/PlaybooksView.tsx` — extracted playbook editor (~2,500 lines).
 - `seasonStats.ts` / `boxScore.ts` — client-side stat aggregation from game events.
@@ -153,14 +155,18 @@ Strong, realistic simulation engine and clean UI. Build vertical slices (complet
 - **Team logos** — 32 PNG logos at `web/public/assets/teams/team_{abbr}.png`. `TeamLogo` component with fallback.
 - **Overtime** — NFL modified sudden death rules. Regular season: one 10-min OT period (can still tie). Postseason: unlimited OT (no ties). First-possession TD wins; FG gives other team a chance. `simulateGame()` accepts `{ isPlayoff: true }` option.
 - **Play-by-play enhancements** — 10-feature broadcast experience: drive summary strip, momentum tug-of-war bar, key play flash (gold/red/orange), red zone overlay, penalty accept/decline inline display, OT drama (pulsing badge + amber glow), around-the-league toast alerts, bottom score ticker, H2H rivalry stats, post-game highlights reel (top 5 by score swing, clickable). Utility modules: `momentum.ts`, `driveTracker.ts`, `highlights.ts`, `leagueAlerts.ts`.
+- **Two-layer commentary system** — `commentary.ts` generates phase-based commentary from `CommentaryMeta` captured during play resolution. `commentaryFull` is a rich broadcast paragraph for the current play (pressure → throw → catch → YAC → outcome). `commentaryLog` is a compact one-liner for the play history log. The GameViewer shows current play with full commentary + a scrollable ESPN-style log of previous plays with icons for TD/INT/sack/penalty/first down. Phrase pools are per-phase (not per-play-type templates), producing varied and coherent multi-sentence commentary. Features: **multi-style system** (neutral/hype/analytical — stored in League, selectable in settings), defender names in sacks/INTs/breakups/TFLs/tackles, drive-level narrative (drive yards/first downs tracked, stalled/rolling detection, long drive acknowledgment), streak awareness (consecutive runs/passes/completions/negative plays), game context (score differential drives urgency/clock phrasing), special situation awareness (3rd/4th down, red zone, goal-to-go, two-minute drill), penalty integration woven into commentary, ~400+ phrase fragments across 3 styles. Narrative fires probabilistically with priority tiers: game-critical > drive narrative > streaks > light context. Style is threaded: League.commentaryStyle → simulateGame options → generateFullCommentary.
 
 ### Live game experience (implemented)
 The in-game experience feels like a broadcast:
 - Center-field visualization with ball tracking, yard lines, first-down marker
 - Team logos in end zones and scoreboard
 - Around-the-league score panels during a week's games
-- Play-by-play with announcer-style commentary (big play calls, penalty flags)
-- Clear scoreboard with quarter, down & distance, possession indicator
+- Play-by-play with rich phase-based commentary (pocket pressure, coverage windows, throw quality, YAC, broken tackles, penalty flags)
+- GameViewer: current play uses `BroadcastCommentary` component with progressive sentence-by-sentence reveal, play-type-based pacing (fast for runs, dramatic pauses for TDs/INTs), keyword highlighting (TOUCHDOWN gold, INTERCEPTION red, SACK orange), and auto-play waits for commentary completion before advancing. Big play callout banners for TDs/turnovers/30+ yard plays. Drive summary markers between drives in the play history log (play count, yards, result). Quarter headers. Extended post-play pauses for dramatic moments (600ms after TD, 450ms after turnover). Previous plays shown in compact ESPN-style log with clickable history and drive/quarter markers interspersed.
+- **Broadcast score bug** with team logos, tabular scores, possession dot indicator, quarter badge. Late-game urgency pulse when Q4 within 8 points.
+- **Possession transitions**: labeled banners between possessions (KICKOFF / TURNOVER / CHANGE OF POSSESSION) with extended pauses (up to 900ms after scoring TDs)
+- **Atmosphere text**: probabilistic ambient lines after big moments ("The crowd erupts!" / "The tension is palpable.") — fires ~30-55% on TDs/turnovers/big plays
 
 Prefer clean and readable over graphically complex.
 

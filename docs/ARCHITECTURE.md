@@ -41,7 +41,7 @@ The frontend talks to the backend exclusively via REST (`VITE_API_URL`). There i
 
 ### 2.1 Simulation Engine (`src/engine/`)
 
-The engine resolves individual plays via sequential phase pipelines. It receives a `Team` pair and a `PlayType`, and returns a `PlayEvent` with yards, result, and player attributions.
+The engine resolves individual plays via sequential phase pipelines. It receives a `Team` pair and a `PlayType`, and returns a `PlayEvent` with yards, result, player attributions, and structured commentary metadata (`CommentaryMeta`).
 
 **Key files:**
 - `simulateGame.ts` — drives the full game loop (quarters, downs, clock, special teams)
@@ -50,6 +50,7 @@ The engine resolves individual plays via sequential phase pipelines. It receives
 - `playSelection.ts` — offensive play selection (tendencies, repetition, context, meta multipliers)
 - `defensiveSelection.ts` — defensive play selection (scouting, halftime, coach intelligence)
 - `gameStats.ts` — box score builder from `PlayEvent[]`
+- `commentary.ts` — generates rich (`commentaryFull`) and compact (`commentaryLog`) commentary from `CommentaryMeta` phase data captured during play resolution. Multi-style system (neutral/hype/analytical). Phase-based phrase pools (~400+ fragments) with defender names, drive narrative, streaks, and game situation awareness. Style threaded from `League.commentaryStyle` → `simulateGame` options → `generateFullCommentary`.
 
 **Additional game mechanics** (layered on top of play resolution, in `simulateGame.ts`):
 - Penalty system (6 types, checked after each play)
@@ -161,7 +162,9 @@ Single-page React application. Nearly all logic lives in one file:
 - `types.ts` — TypeScript interfaces mirroring backend models (manually kept in sync)
 - `App.css` — all styles in one file, dark theme with design token system
 - `TeamLogo.tsx` — reusable team logo component (`/assets/teams/team_{abbr}.png` with fallback)
-- `FieldView.tsx` — football field visualization with broadcast commentary
+- `FieldView.tsx` — football field visualization (160px, team-colored end zones via `TEAM_COLORS`, enlarged fonts). Scoreboard, momentum bar, engine-generated commentary. Around-the-league toasts positioned below field.
+- `BroadcastCommentary` (in App.tsx) — progressive sentence reveal with play-type-based pacing, dramatic pauses, keyword highlighting. Completion-driven auto-play queue.
+- `GameViewer` (in App.tsx) — broadcast score bug, drive summary markers, quarter headers, big play callout banners, possession transition labels, atmosphere text, play history log with interleaved markers
 - `DashboardSchedule.tsx` — 18-week schedule strip component
 - `views/PlaybooksView.tsx` — extracted playbook editor (~2,500 lines)
 - `seasonStats.ts`, `boxScore.ts` — client-side stat aggregation

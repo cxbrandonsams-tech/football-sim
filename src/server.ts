@@ -963,10 +963,11 @@ app.post('/league/:id/settings', requireAuth, async (req: Request, res: Response
     return;
   }
 
-  const { displayName, maxUsers, visibility } = req.body as {
+  const { displayName, maxUsers, visibility, commentaryStyle } = req.body as {
     displayName?: string;
     maxUsers?: number;
     visibility?: 'public' | 'private';
+    commentaryStyle?: 'neutral' | 'hype' | 'analytical';
   };
 
   let updated: League = { ...league };
@@ -977,6 +978,9 @@ app.post('/league/:id/settings', requireAuth, async (req: Request, res: Response
     const newMaxUsers = maxUsers > 0 ? maxUsers : undefined;
     const { maxUsers: _old, ...rest } = updated;
     updated = newMaxUsers !== undefined ? { ...rest, maxUsers: newMaxUsers } : rest as League;
+  }
+  if (commentaryStyle !== undefined) {
+    updated = { ...updated, commentaryStyle };
   }
   if (visibility !== undefined && visibility !== league.visibility) {
     updated = { ...updated, visibility };

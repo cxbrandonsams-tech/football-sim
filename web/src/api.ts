@@ -231,7 +231,7 @@ export const getLeagueMembers = (id: string) =>
 
 export const updateLeagueSettings = (
   id: string,
-  settings: { displayName?: string; maxUsers?: number; visibility?: 'public' | 'private' },
+  settings: { displayName?: string; maxUsers?: number; visibility?: 'public' | 'private'; commentaryStyle?: 'neutral' | 'hype' | 'analytical' },
 ) => request<League>(`/league/${id}/settings`, 'POST', settings);
 
 export const kickMember = (id: string, userId: string) =>

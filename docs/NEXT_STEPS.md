@@ -24,6 +24,15 @@ The project has completed:
 | League meta evolution | COMPLETE |
 | Play effectiveness tracking | COMPLETE |
 | Natural language commentary | COMPLETE |
+| Phase-based rich commentary + compact play log | COMPLETE |
+| Multi-style commentary (neutral/hype/analytical) | COMPLETE |
+| Defender names in commentary (sacks, INTs, breakups, TFLs) | COMPLETE |
+| Drive/streak/game narrative layer | COMPLETE |
+| Broadcast presentation (progressive reveal, pacing, keyword highlights) | COMPLETE |
+| Drive summaries + quarter headers in play history | COMPLETE |
+| Broadcast score bug, possession transitions, atmosphere text | COMPLETE |
+| Team-colored end zones + enlarged field + font readability | COMPLETE |
+| Around-the-league toast fix (no longer overlaps commentary) | COMPLETE |
 | Drive summaries & postgame recaps | COMPLETE |
 | Weekly league reports & headlines | COMPLETE |
 | Gameplan UI (presets, recommendations, weekly prep) | COMPLETE |

@@ -8,9 +8,10 @@ import {
 import { type Team, type PlayEffStats } from '../models/Team';
 import { type Game } from '../models/Game';
 import { type DepthChart, type DepthChartSlot } from '../models/DepthChart';
-import { type PlayEvent, type PlayType, type PlayResult } from '../models/PlayEvent';
+import { type PlayEvent, type PlayType, type PlayResult, type CommentaryMeta, type WindowState } from '../models/PlayEvent';
 import { DEFAULT_PLAYCALLING } from '../models/Playcalling';
 import { buildBoxScoreFromGame } from './gameStats';
+import { generateFullCommentary, generateLogLine } from './commentary';
 import { computeSchemeAdjustment } from './schemeBonus';
 import { getPersonality } from '../models/Coach';
 import { TUNING } from './config';
@@ -59,6 +60,42 @@ function lastName(team: Team, slot: DepthChartSlot): string {
 
 function pid(team: Team, slot: DepthChartSlot): string | undefined {
   return firstHealthy(team, slot)?.id;
+}
+
+/** Resolve a player ID to their last name for commentary display. */
+function playerLastName(team: Team, playerId: string | undefined): string | undefined {
+  if (!playerId) return undefined;
+  for (const players of Object.values(team.depthChart)) {
+    for (const p of players) {
+      if (p && p.id === playerId) {
+        const parts = p.name.split(' ');
+        return parts[parts.length - 1] ?? p.name;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Pick a random defensive player for run-stop / tackle credit (commentary only). */
+function pickTacklerName(def: Team): string | undefined {
+  // Weighted: LB 50%, DL 30%, DB 20%
+  const roll = Math.random();
+  const slot: DepthChartSlot = roll < 0.50 ? 'LB' : roll < 0.80 ? 'DT' : 'CB';
+  const p = firstHealthy(def, slot);
+  if (!p) return undefined;
+  const parts = p.name.split(' ');
+  return parts[parts.length - 1] ?? p.name;
+}
+
+/** Pick a DB name for pass breakup credit (commentary only). */
+function pickBreakupName(def: Team, depth: 'short' | 'medium' | 'deep'): string | undefined {
+  // Deep passes: safety more likely; short/medium: CB more likely
+  const slot: DepthChartSlot = (depth === 'deep' && Math.random() < 0.4) ? 'S' : 'CB';
+  const idx = Math.random() < 0.65 ? 0 : 1;
+  const p = def.depthChart[slot][idx] ?? firstHealthy(def, slot);
+  if (!p) return undefined;
+  const parts = p.name.split(' ');
+  return parts[parts.length - 1] ?? p.name;
 }
 
 // ── Typed rating accessors ────────────────────────────────────────────────────
@@ -767,7 +804,7 @@ function resolveThrowQuality(
  * Layers categorical behavior (throwaway, ball-skills contest, accuracy reliance)
  * on top of the continuous separation → throwQuality pipeline.
  */
-type WindowState = 'open' | 'soft_open' | 'tight' | 'contested' | 'covered';
+// WindowState type now imported from PlayEvent.ts
 
 /**
  * Maps the 0-1 separation score to a discrete window state.
@@ -951,6 +988,7 @@ function simulatePlay(
       // QB was brought down — sack credited to the ratings-weighted pass rusher
       const qbId  = pid(off, 'QB');
       const sackId = pickSackCredit(def);
+      const sackName = playerLastName(def, sackId);
       return {
         ...base,
         type:        'sack',
@@ -959,6 +997,7 @@ function simulatePlay(
         ballCarrier: lastName(off, 'QB'),
         ...(qbId   !== undefined ? { ballCarrierId: qbId   } : {}),
         ...(sackId !== undefined ? { defPlayerId:   sackId } : {}),
+        commentaryMeta: { pressureLevel, ...(sackName ? { defPlayerName: sackName } : {}) },
       };
     }
     // Scramble — independent of the sack window.
@@ -980,6 +1019,7 @@ function simulatePlay(
         yards:       isTD_s ? 100 - yardLine : scrambleYards,
         ballCarrier: lastName(off, 'QB'),
         ...(qbId !== undefined ? { ballCarrierId: qbId } : {}),
+        commentaryMeta: { pressureLevel },
       };
     }
   }
@@ -1049,6 +1089,10 @@ function simulatePlay(
         target:      tgt.name,
         ...(qbId          !== undefined ? { ballCarrierId: qbId } : {}),
         ...(tgt.playerId  !== undefined ? { targetId: tgt.playerId } : {}),
+        commentaryMeta: {
+          pressureLevel, windowState, thrownAway: true,
+          depth, targetRole: tgt.role,
+        },
       };
     }
 
@@ -1113,6 +1157,7 @@ function simulatePlay(
       if (Math.random() < intChance) {
         const qbId  = pid(off, 'QB');
         const intId = pickIntCredit(def, tgt, depth);
+        const intName = playerLastName(def, intId);
         return {
           ...base,
           type:        'interception',
@@ -1122,6 +1167,11 @@ function simulatePlay(
           target:      tgt.name,
           ...(qbId         !== undefined ? { ballCarrierId: qbId  } : {}),
           ...(tgt.playerId !== undefined ? { targetId: tgt.playerId } : {}),
+          commentaryMeta: {
+            pressureLevel, windowState, throwQuality, depth,
+            targetRole: tgt.role, catchContested: windowState === 'contested' || windowState === 'covered',
+            ...(intName ? { defPlayerName: intName } : {}),
+          },
           ...(intId        !== undefined ? { defPlayerId:   intId } : {}),
         };
       }
@@ -1130,6 +1180,8 @@ function simulatePlay(
     // Phase 6: YAC on successful catch
     // Soft-open windows give a YAC bonus — receiver has open field after the catch
     let yards = success ? yardsOnSuccess(type, tgt.speed) : yardsOnFail(type);
+    const basePassYards = yards;  // pre-YAC yards for commentary
+    let passBreakaway = false;
     if (success) {
       const cbTackle = cb(def)?.tackling    ?? 50;
       const sfTackle = safety(def)?.tackling ?? 50;
@@ -1144,13 +1196,17 @@ function simulatePlay(
       if ((type === 'short_pass' || type === 'medium_pass') && yards < 20
           && Math.random() < cfg.bigPlay.breakawayUpgradeChancePass) {
         yards = randInt(cfg.bigPlay.breakawayUpgradeMin, cfg.bigPlay.breakawayUpgradeMax);
+        passBreakaway = true;
       }
     }
+    const yacYards = success ? Math.max(0, yards - basePassYards) : 0;
     const newYardLine = yardLine + yards;
     const isTD       = newYardLine >= 100;
     const result: PlayResult = isTD ? 'touchdown' : success ? 'success' : 'fail';
     const firstDown = !isTD && success && yards >= distance;
     const qbId = pid(off, 'QB');
+    // Defender name: on incompletions, credit a DB for the breakup (commentary only)
+    const passDefName = !success ? pickBreakupName(def, depth) : undefined;
     return {
       ...base,
       result,
@@ -1160,6 +1216,13 @@ function simulatePlay(
       target:      tgt.name,
       ...(qbId         !== undefined ? { ballCarrierId: qbId } : {}),
       ...(tgt.playerId !== undefined ? { targetId: tgt.playerId } : {}),
+      commentaryMeta: {
+        pressureLevel, windowState, throwQuality, depth,
+        targetRole: tgt.role,
+        catchContested: windowState === 'contested' || windowState === 'covered',
+        ...(success ? { yacYards, breakaway: passBreakaway } : {}),
+        ...(passDefName ? { defPlayerName: passDefName } : {}),
+      },
     };
   }
 
@@ -1181,13 +1244,26 @@ function simulatePlay(
   const speedRating = runCarrierRb?.speed ?? rb(off)?.speed ?? 50;
   let yards         = success ? yardsOnSuccess(type, speedRating) : yardsOnFail(type);
   // Breakaway upgrade: only on successful carries, only if not already a burst run (yards < 20)
+  let runBreakaway = false;
   if (success && yards < 20 && Math.random() < cfg.bigPlay.breakawayUpgradeChanceRun) {
     yards = randInt(cfg.bigPlay.breakawayUpgradeMin, cfg.bigPlay.breakawayUpgradeMax);
+    runBreakaway = true;
   }
+  // Commentary metadata — derive from outcome (no engine changes)
+  const runTfl       = !success && yards < 0;
+  const runVision    = runCarrierRb?.vision ?? rb(off)?.vision ?? 50;
+  const blockingEff  = Math.min(1, Math.max(0, successProb));
+  // Heuristic: infer broken tackle from yards exceeding expected range on success
+  const brokeTackle  = success && yards >= 6 && Math.random() < 0.35;
+  // Heuristic: infer cutback from vision rating on moderate gains
+  const foundCutback = success && yards >= 4 && runVision >= 65 && Math.random() < 0.25;
+
   const newYardLine = yardLine + yards;
   const isTD        = newYardLine >= 100;
   const result: PlayResult = isTD ? 'touchdown' : success ? 'success' : 'fail';
   const firstDown   = !isTD && success && yards >= distance;
+  // Pick a tackler name for commentary (not TDs — nobody tackled them)
+  const runDefName = !isTD ? pickTacklerName(def) : undefined;
   return {
     ...base,
     result,
@@ -1195,6 +1271,12 @@ function simulatePlay(
     ...(firstDown ? { firstDown: true as const } : {}),
     ballCarrier: runCarrierLastName,
     ...(runCarrier !== undefined ? { ballCarrierId: runCarrier.id } : {}),
+    commentaryMeta: {
+      tfl: runTfl, breakaway: runBreakaway,
+      brokeTackle, foundCutback,
+      blockingScore: blockingEff,
+      ...(runDefName ? { defPlayerName: runDefName } : {}),
+    },
   };
 }
 
@@ -1344,7 +1426,7 @@ function shouldGoForIt(
   return Math.random() < clamp(base * mult, 0.02, 0.95);
 }
 
-export function simulateGame(game: Game, metaProfile?: import('../models/League').MetaProfile, options?: { isPlayoff?: boolean }): GameResult {
+export function simulateGame(game: Game, metaProfile?: import('../models/League').MetaProfile, options?: { isPlayoff?: boolean; commentaryStyle?: import('../models/PlayEvent').CommentaryStyle }): GameResult {
   const isPlayoff = options?.isPlayoff ?? false;
   const home = game.homeTeam;
   const away = game.awayTeam;
@@ -2183,6 +2265,116 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
       }
       // OT period expired — if regular season, it's a tie; if playoff, next period
       if (homeScore !== awayScore) break; // someone scored, game over
+    }
+  }
+
+  // ── Compute drive/streak/game context + generate commentary ─────────────
+  {
+    const homeId = home.id;
+    // Drive state (resets on drive boundary)
+    let driveTeam = '';
+    let drivePlayNum = 0;
+    let driveYards = 0;
+    let driveFirstDowns = 0;
+    // Streak state (resets on type change)
+    let consecutiveRuns = 0;
+    let consecutivePasses = 0;
+    let consecutiveCompletions = 0;
+    let consecutiveNegative = 0;
+    // Game score tracking (rebuilt from events)
+    let hScore = 0;
+    let aScore = 0;
+    let prevSpike = false;
+
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i]!;
+      const prev = i > 0 ? events[i - 1]! : undefined;
+      const isPass = ev.type === 'short_pass' || ev.type === 'medium_pass' || ev.type === 'deep_pass';
+      const isRun  = ev.type === 'inside_run' || ev.type === 'outside_run';
+
+      // ── Drive boundary detection ────────────────────────────────────────
+      const isNewDrive =
+        ev.offenseTeamId !== driveTeam ||
+        (prev && (prev.result === 'touchdown' || prev.result === 'field_goal_good'
+          || prev.result === 'field_goal_miss' || prev.result === 'turnover'
+          || prev.result === 'safety' || prev.type === 'punt'));
+
+      if (isNewDrive) {
+        driveTeam = ev.offenseTeamId;
+        drivePlayNum = 1;
+        driveYards = 0;
+        driveFirstDowns = 0;
+        consecutiveRuns = 0;
+        consecutivePasses = 0;
+        consecutiveCompletions = 0;
+        consecutiveNegative = 0;
+      } else {
+        drivePlayNum++;
+      }
+
+      // ── Accumulate drive yards/first downs (before current play) ────────
+      // These represent the state BEFORE this play
+      const driveYardsBefore = driveYards;
+      const driveFirstDownsBefore = driveFirstDowns;
+
+      // ── Streak tracking (state BEFORE this play resolves) ───────────────
+      const runsBeforeThis = consecutiveRuns;
+      const passesBeforeThis = consecutivePasses;
+      const completionsBeforeThis = consecutiveCompletions;
+      const negativeBeforeThis = consecutiveNegative;
+
+      // ── Two-minute heuristic ────────────────────────────────────────────
+      const isTwoMin = prevSpike || ev.type === 'spike'
+        || ((ev.quarter === 2 || ev.quarter === 4) && drivePlayNum >= 8);
+      prevSpike = ev.type === 'spike';
+
+      // ── Game score differential for this play's offense ─────────────────
+      const offIsHome = ev.offenseTeamId === homeId;
+      const offScore = offIsHome ? hScore : aScore;
+      const defScore = offIsHome ? aScore : hScore;
+
+      // ── Attach all context to commentaryMeta ────────────────────────────
+      if (!ev.commentaryMeta) ev.commentaryMeta = {};
+      ev.commentaryMeta.drivePlayNum = drivePlayNum;
+      ev.commentaryMeta.driveYards = driveYardsBefore;
+      ev.commentaryMeta.driveFirstDowns = driveFirstDownsBefore;
+      ev.commentaryMeta.scoreDiff = offScore - defScore;
+      if (prev) {
+        ev.commentaryMeta.prevPlayType = prev.type;
+        ev.commentaryMeta.prevPlayResult = prev.result;
+      }
+      if (isTwoMin) ev.commentaryMeta.isTwoMinute = true;
+      if (runsBeforeThis >= 2 && isRun) ev.commentaryMeta.consecutiveRuns = runsBeforeThis + 1;
+      if (passesBeforeThis >= 2 && isPass) ev.commentaryMeta.consecutivePasses = passesBeforeThis + 1;
+      if (completionsBeforeThis >= 2) ev.commentaryMeta.consecutiveCompletions = completionsBeforeThis;
+      if (negativeBeforeThis >= 2) ev.commentaryMeta.consecutiveNegative = negativeBeforeThis;
+
+      // ── Generate commentary ─────────────────────────────────────────────
+      if (!ev.commentaryFull) ev.commentaryFull = generateFullCommentary(ev, options?.commentaryStyle);
+      if (!ev.commentaryLog)  ev.commentaryLog  = generateLogLine(ev);
+
+      // ── Update state AFTER commentary generation ────────────────────────
+      driveYards += ev.yards;
+      if (ev.firstDown) driveFirstDowns++;
+
+      // Streak updates
+      if (isRun) { consecutiveRuns++; consecutivePasses = 0; }
+      else if (isPass) { consecutivePasses++; consecutiveRuns = 0; }
+      else { consecutiveRuns = 0; consecutivePasses = 0; }
+
+      if (isPass && (ev.result === 'success' || ev.result === 'touchdown')) {
+        consecutiveCompletions++;
+      } else {
+        consecutiveCompletions = 0;
+      }
+
+      const isNegative = ev.type === 'sack' || ev.yards < 0
+        || (isPass && ev.result === 'fail');
+      if (isNegative) { consecutiveNegative++; } else { consecutiveNegative = 0; }
+
+      // Score updates (TDs = 7, FGs = 3 — simplified)
+      if (ev.result === 'touchdown') { if (offIsHome) hScore += 7; else aScore += 7; }
+      if (ev.result === 'field_goal_good') { if (offIsHome) hScore += 3; else aScore += 3; }
     }
   }
 

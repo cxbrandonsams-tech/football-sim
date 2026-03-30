@@ -133,7 +133,7 @@ export function simulateWeek(league: League): League {
       ...g,
       homeTeam: teamMap.get(g.homeTeam.id) ?? g.homeTeam,
       awayTeam: teamMap.get(g.awayTeam.id) ?? g.awayTeam,
-    }, meta);
+    }, meta, league.commentaryStyle ? { commentaryStyle: league.commentaryStyle } : undefined);
     allInjuries.push(...result.injuries);
     // Merge play effectiveness stats from this game
     for (const [teamId, playMap] of result.playStats) {

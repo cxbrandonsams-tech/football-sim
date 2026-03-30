@@ -540,6 +540,8 @@ export interface Team {
 
 // ── Game events ───────────────────────────────────────────────────────────────
 
+export type CommentaryStyle = 'neutral' | 'hype' | 'analytical';
+
 export type PlayType =
   | 'inside_run' | 'outside_run'
   | 'short_pass' | 'medium_pass' | 'deep_pass'
@@ -565,6 +567,36 @@ export interface PenaltyInfo {
   declinedPlayYards?: number;
 }
 
+export type WindowState = 'open' | 'soft_open' | 'tight' | 'contested' | 'covered';
+
+export interface CommentaryMeta {
+  pressureLevel?:   number;
+  windowState?:     WindowState;
+  throwQuality?:    number;
+  thrownAway?:      boolean;
+  depth?:           'short' | 'medium' | 'deep';
+  targetRole?:      string;
+  catchContested?:  boolean;
+  yacYards?:        number;
+  tfl?:             boolean;
+  brokeTackle?:     boolean;
+  foundCutback?:    boolean;
+  breakaway?:       boolean;
+  blockingScore?:   number;
+  defPlayerName?:   string;
+  drivePlayNum?:    number;
+  prevPlayType?:    PlayType;
+  prevPlayResult?:  PlayResult;
+  isTwoMinute?:     boolean;
+  driveYards?:      number;
+  driveFirstDowns?: number;
+  consecutiveRuns?:         number;
+  consecutivePasses?:       number;
+  consecutiveCompletions?:  number;
+  consecutiveNegative?:     number;
+  scoreDiff?:       number;
+}
+
 export interface PlayEvent {
   type:           PlayType;
   offenseTeamId:  string;
@@ -583,6 +615,9 @@ export interface PlayEvent {
   defPlayerId?:   string;
   explanation?:   string[];
   penalty?:       PenaltyInfo;
+  commentaryFull?: string;
+  commentaryLog?:  string;
+  commentaryMeta?: CommentaryMeta;
 }
 
 // ── Box score ──────────────────────────────────────────────────────────────────
@@ -1033,6 +1068,7 @@ export interface League {
   currentSeasonStats:   Record<string, PlayerSeasonStats>;
   scoutingBudget:       number;
   developmentBudget:    number;
+  commentaryStyle?:     CommentaryStyle;
   ownerBudget:          number;
   news:                 NewsItem[];
   milestonesHit:        Record<string, string[]>;

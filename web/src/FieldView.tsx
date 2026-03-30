@@ -1,146 +1,49 @@
 /**
- * FieldView — visual football field with ball position, team end zones,
- * and broadcast-style commentary for big plays.
+ * FieldView — visual football field with ball position, team-colored end zones,
+ * broadcast-style scoreboard, and engine-generated commentary.
  */
 import { useState, useEffect, useRef } from 'react';
 import type { PlayEvent } from './types';
 import { TeamLogo } from './TeamLogo';
 
-// ── Broadcaster commentary ──────────────────────────────────────────────────
+// ── Team Colors ──────────────────────────────────────────────────────────────
 
-const BIG_PLAY_THRESHOLD = 20; // yards to trigger "big play" commentary
-const TD_CALLS = [
-  "TOUCHDOWN! What a play!",
-  "HE'S IN! TOUCHDOWN!",
-  "INTO THE END ZONE! TOUCHDOWN!",
-  "SCORES! What a drive!",
-  "THAT'S SIX! INCREDIBLE!",
-  "THE CROWD GOES WILD! TOUCHDOWN!",
-  "NOTHING BUT END ZONE! TD!",
-  "HE FINDS THE PROMISED LAND! TOUCHDOWN!",
-];
+const TEAM_COLORS: Record<string, string> = {
+  ARI: '#97233F', ATL: '#A71930', BAL: '#241773', BUF: '#00338D',
+  CAR: '#0085CA', CHI: '#0B162A', CIN: '#FB4F14', CLE: '#311D00',
+  DAL: '#003594', DEN: '#FB4F14', DET: '#0076B6', GB:  '#203731',
+  HOU: '#03202F', IND: '#002C5F', JAX: '#006778', KC:  '#E31837',
+  LAC: '#0080C6', LAR: '#003594', LV:  '#A5ACAF', MIA: '#008E97',
+  MIN: '#4F2683', NE:  '#002244', NO:  '#D3BC8D', NYE: '#125740',
+  NYG: '#0B2265', PHI: '#004C54', PIT: '#FFB612', SEA: '#002244',
+  SF:  '#AA0000', TB:  '#D50A0A', TEN: '#0C2340', WAS: '#5A1414',
+};
 
-const BIG_RUN_CALLS = [
-  (name: string, yds: number) => `${name} BREAKS FREE! ${yds} yards on the carry!`,
-  (name: string, yds: number) => `WHAT A RUN by ${name}! ${yds} yards and still going!`,
-  (name: string, yds: number) => `${name} finds a HUGE hole — ${yds} yards!`,
-  (name: string, yds: number) => `Look at ${name} GO! ${yds}-yard gash right up the middle!`,
-  (name: string, yds: number) => `${name} makes 'em miss! ${yds} yards on the ground!`,
-  (name: string, yds: number) => `He hits the edge and he is GONE! ${name}, ${yds} yards!`,
-];
-
-const BIG_PASS_CALLS = [
-  (qb: string, rec: string, yds: number) => `${qb} LAUNCHES it deep to ${rec}! ${yds} yards through the air!`,
-  (qb: string, rec: string, yds: number) => `WHAT A THROW! ${qb} to ${rec} for ${yds} yards!`,
-  (qb: string, rec: string, yds: number) => `${rec} HAULS IT IN! ${yds}-yard strike from ${qb}!`,
-  (qb: string, rec: string, yds: number) => `${qb} drops it in the BUCKET to ${rec} — ${yds} yards!`,
-  (qb: string, rec: string, yds: number) => `${rec} is WIDE OPEN! ${qb} finds him for ${yds}!`,
-  (qb: string, rec: string, yds: number) => `Beautiful deep ball by ${qb}! ${rec} with the ${yds}-yard grab!`,
-];
-
-const INT_CALLS = [
-  (name: string) => `INTERCEPTED! ${name} jumps the route!`,
-  (name: string) => `PICKED OFF! ${name} reads it all the way!`,
-  (name: string) => `OH NO! That's intercepted by ${name}!`,
-  (name: string) => `TURNOVER! ${name} with the interception!`,
-];
-
-const SACK_CALLS = [
-  (name: string) => `SACKED! ${name} gets to the quarterback!`,
-  (name: string) => `${name} BURIES him! Big sack!`,
-  (name: string) => `He's DOWN! ${name} blows through the line!`,
-];
-
-const FG_CALLS = [
-  "The kick is up... and it's GOOD!",
-  "RIGHT down the middle! Field goal is GOOD!",
-  "He nails it! Three points!",
-];
-
-const FG_MISS_CALLS = [
-  "The kick is up... NO GOOD! It hooks wide!",
-  "He MISSED it! Oh, that's brutal!",
-  "Wide right! No good!",
-];
-
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]!;
+function teamColor(abbr: string): string {
+  return TEAM_COLORS[abbr.toUpperCase()] ?? '#334155';
 }
 
-function generateCommentary(ev: PlayEvent): { text: string; isBig: boolean } {
-  const isRun = ev.type === 'inside_run' || ev.type === 'outside_run';
-  const isPass = ev.type === 'short_pass' || ev.type === 'medium_pass' || ev.type === 'deep_pass';
-  const carrier = ev.ballCarrier ?? 'the runner';
-  const target = ev.target ?? 'the receiver';
+// ── Constants ────────────────────────────────────────────────────────────────
 
-  // Touchdown
-  if (ev.result === 'touchdown') {
-    return { text: pick(TD_CALLS), isBig: true };
-  }
-
-  // Interception
-  if (ev.result === 'turnover' && ev.type === 'interception') {
-    return { text: pick(INT_CALLS)(ev.target ?? 'the defender'), isBig: true };
-  }
-
-  // Sack
-  if (ev.type === 'sack') {
-    return { text: pick(SACK_CALLS)(ev.target ?? 'the defense'), isBig: true };
-  }
-
-  // Field goal
-  if (ev.result === 'field_goal_good') {
-    return { text: pick(FG_CALLS), isBig: false };
-  }
-  if (ev.result === 'field_goal_miss') {
-    return { text: pick(FG_MISS_CALLS), isBig: true };
-  }
-
-  // Big run
-  if (isRun && ev.yards >= BIG_PLAY_THRESHOLD) {
-    return { text: pick(BIG_RUN_CALLS)(carrier, ev.yards), isBig: true };
-  }
-
-  // Big pass
-  if (isPass && ev.yards >= BIG_PLAY_THRESHOLD) {
-    return { text: pick(BIG_PASS_CALLS)(carrier, target, ev.yards), isBig: true };
-  }
-
-  // Normal play — short description
-  if (isRun) {
-    return { text: `${carrier} runs for ${ev.yards} yard${ev.yards !== 1 ? 's' : ''}.`, isBig: false };
-  }
-  if (isPass && ev.result === 'success') {
-    return { text: `${carrier} completes to ${target} for ${ev.yards} yard${ev.yards !== 1 ? 's' : ''}.`, isBig: false };
-  }
-  if (isPass && ev.result === 'fail') {
-    return { text: `${carrier}'s pass to ${target} falls incomplete.`, isBig: false };
-  }
-  if (ev.type === 'scramble') {
-    return { text: `${carrier} scrambles for ${ev.yards} yard${ev.yards !== 1 ? 's' : ''}.`, isBig: ev.yards >= 10 };
-  }
-  if (ev.type === 'fumble') {
-    return { text: `FUMBLE! ${carrier} puts the ball on the ground!`, isBig: true };
-  }
-  if (ev.type === 'punt') {
-    return { text: `Punt away.`, isBig: false };
-  }
-
-  if (ev.type === 'spike') {
-    return { text: 'QB spikes the ball to stop the clock.', isBig: false };
-  }
-
-  return { text: `Play result: ${ev.yards} yards.`, isBig: false };
-}
+const BIG_PLAY_THRESHOLD = 20;
 
 const PENALTY_LABELS: Record<string, string> = {
-  dpi:          'Defensive Pass Interference',
-  def_holding:  'Defensive Holding',
+  dpi:          'Pass Interference',
+  def_holding:  'Def. Holding',
   roughing:     'Roughing the Passer',
   offsides:     'Offsides',
-  off_holding:  'Offensive Holding',
+  off_holding:  'Holding',
   false_start:  'False Start',
 };
+
+function isBigPlay(ev: PlayEvent): boolean {
+  if (ev.result === 'touchdown') return true;
+  if (ev.result === 'turnover') return true;
+  if (ev.type === 'sack') return true;
+  if (Math.abs(ev.yards) >= BIG_PLAY_THRESHOLD) return true;
+  if (ev.result === 'field_goal_miss') return true;
+  return false;
+}
 
 // ── Field Component ─────────────────────────────────────────────────────────
 
@@ -154,16 +57,13 @@ interface FieldViewProps {
   quarter: string;
   playIndex: number;
   totalPlays: number;
-  /** Momentum bar position 0–100 (50 = neutral). Rendered below scoreboard. */
   momentumPct?: number;
-  /** Which team has momentum (for bar color). */
   momentumLeader?: 'home' | 'away' | null;
-  /** Drive summary text, e.g. "6 plays · 43 yds · 2:34" */
   driveText?: string;
 }
 
 export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awayScore, quarter, playIndex, totalPlays, momentumPct = 50, momentumLeader, driveText }: FieldViewProps) {
-  const [commentary, setCommentary] = useState<{ text: string; isBig: boolean } | null>(null);
+  const [commentary, setCommentary] = useState<string | null>(null);
   const [bigPlay, setBigPlay] = useState(false);
   const [flashType, setFlashType] = useState<'td' | 'turnover' | 'big' | null>(null);
   const [scorePulse, setScorePulse] = useState(false);
@@ -175,18 +75,15 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
     if (playIndex === prevIdxRef.current) return;
     prevIdxRef.current = playIndex;
 
-    // Generate commentary (penalty info is now shown separately inline)
-    const c = generateCommentary(event);
-    setCommentary(c);
+    const text = event.commentaryFull ?? `Play result: ${event.yards} yards.`;
+    setCommentary(text);
 
-    // Key play flash type
     let flash: 'td' | 'turnover' | 'big' | null = null;
     if (event.result === 'touchdown') flash = 'td';
     else if (event.result === 'turnover') flash = 'turnover';
-    else if (event.yards >= BIG_PLAY_THRESHOLD) flash = 'big';
+    else if (Math.abs(event.yards) >= BIG_PLAY_THRESHOLD) flash = 'big';
     setFlashType(flash);
 
-    // Score pulse
     const totalScore = homeScore + awayScore;
     if (totalScore !== prevScoreRef.current) {
       setScorePulse(true);
@@ -194,7 +91,8 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
     }
     prevScoreRef.current = totalScore;
 
-    if (c.isBig || flash) {
+    const big = isBigPlay(event);
+    if (big || flash) {
       setBigPlay(true);
       const t = setTimeout(() => { setBigPlay(false); setFlashType(null); }, 2000);
       return () => clearTimeout(t);
@@ -205,34 +103,29 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
 
   if (!event) return null;
 
-  // Convert yardLine (0=own end zone, 100=opp end zone) to field position
-  // The offense always goes left→right. We need to figure out which end zone is which team.
   const offIsHome = event.offenseTeamId === homeId;
-  // On our field: left=away end zone, right=home end zone
-  // If home is on offense, they go left→right: yardLine 0 = left (home EZ), 100 = right (away EZ)
-  // If away is on offense, they go left→right: yardLine 0 = left (away EZ), 100 = right (home EZ)
-  // For display: let's always show home on right, away on left.
-  // Ball position as % from left: if home offense, ball at (100 - yardLine)% because they go toward away EZ (left)
-  // Actually, simpler: let's show the field from the offense's perspective — ball moves left to right.
   const ballPct = Math.max(2, Math.min(98, event.yardLine));
-
   const offAbbr = offIsHome ? homeAbbr : awayAbbr;
   const defAbbr = offIsHome ? awayAbbr : homeAbbr;
 
-  const downDist = event.down > 0 ? `${event.down}${event.down === 1 ? 'st' : event.down === 2 ? 'nd' : event.down === 3 ? 'rd' : 'th'} & ${event.distance}` : '';
+  // Team colors for end zones
+  const defColor = teamColor(defAbbr);
+  const offColor = teamColor(offAbbr);
 
+  const downDist = event.down > 0 ? `${event.down}${event.down === 1 ? 'st' : event.down === 2 ? 'nd' : event.down === 3 ? 'rd' : 'th'} & ${event.distance}` : '';
   const isRedZone = event.yardLine >= 80;
   const isOT = event.quarter > 4;
   const hasPenalty = !!event.penalty;
   const flashCls = flashType ? ` field-flash-${flashType}` : '';
   const otCls = isOT ? ' field-ot' : '';
+  const isBig = bigPlay || (commentary && commentary.length > 0 && isBigPlay(event));
 
   return (
     <div className={`field-wrap${bigPlay ? ' field-big-play' : ''}${flashCls}${otCls}`}>
-      {/* Scoreboard strip with drive stats */}
+      {/* Scoreboard strip */}
       <div className="field-scoreboard">
         <div className="field-sb-team field-sb-away">
-          <TeamLogo abbr={awayAbbr} size={28} />
+          <TeamLogo abbr={awayAbbr} size={32} />
           <span className="field-sb-abbr">{awayAbbr}</span>
           <span className={`field-sb-score${scorePulse ? ' field-score-pulse' : ''}`}>{awayScore}</span>
         </div>
@@ -251,7 +144,7 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
         <div className="field-sb-team field-sb-home">
           <span className={`field-sb-score${scorePulse ? ' field-score-pulse' : ''}`}>{homeScore}</span>
           <span className="field-sb-abbr">{homeAbbr}</span>
-          <TeamLogo abbr={homeAbbr} size={28} />
+          <TeamLogo abbr={homeAbbr} size={32} />
         </div>
       </div>
 
@@ -271,26 +164,30 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
         <span className="field-momentum-label">{homeAbbr}</span>
       </div>
 
-      {/* Football field */}
+      {/* Football field — enlarged with team-colored end zones */}
       <div className={`field-container${isRedZone ? ' field-redzone' : ''}`}>
-        {/* Red zone overlay */}
         {isRedZone && (
           <div className="field-rz-overlay">
             <span className="field-rz-label">RED ZONE</span>
           </div>
         )}
 
-        {/* End zones */}
-        <div className="field-endzone field-endzone-left">
-          <TeamLogo abbr={defAbbr} size={30} className="field-ez-logo" />
+        {/* End zones — team colors applied via inline style */}
+        <div
+          className="field-endzone field-endzone-left"
+          style={{ background: `linear-gradient(135deg, ${defColor}cc, ${defColor}88)` }}
+        >
+          <TeamLogo abbr={defAbbr} size={36} className="field-ez-logo" />
           <span className="field-ez-text">{defAbbr}</span>
         </div>
-        <div className="field-endzone field-endzone-right">
-          <TeamLogo abbr={offAbbr} size={30} className="field-ez-logo" />
+        <div
+          className="field-endzone field-endzone-right"
+          style={{ background: `linear-gradient(135deg, ${offColor}cc, ${offColor}88)` }}
+        >
+          <TeamLogo abbr={offAbbr} size={36} className="field-ez-logo" />
           <span className="field-ez-text">{offAbbr}</span>
         </div>
 
-        {/* Yard lines */}
         <div className="field-grass">
           {[10, 20, 30, 40, 50, 60, 70, 80, 90].map(yl => (
             <div key={yl} className="field-yardline" style={{ left: `${yl}%` }}>
@@ -301,13 +198,11 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
           ))}
         </div>
 
-        {/* Ball marker */}
         <div className="field-ball-marker" style={{ left: `${ballPct}%` }}>
           <div className="field-ball">🏈</div>
           <div className="field-ball-team">{offAbbr}</div>
         </div>
 
-        {/* First down line */}
         {event.down > 0 && event.yardLine + event.distance <= 100 && (
           <div
             className="field-first-down"
@@ -316,7 +211,7 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
         )}
       </div>
 
-      {/* Down & distance */}
+      {/* Down & distance — larger */}
       <div className="field-info-bar">
         <span className="field-down">{downDist}</span>
         <span className="field-possession">{offAbbr} ball</span>
@@ -327,10 +222,10 @@ export function FieldView({ event, homeAbbr, awayAbbr, homeId, homeScore, awaySc
         </span>
       </div>
 
-      {/* Commentary — with inline penalty display */}
+      {/* Commentary */}
       {commentary && (
-        <div className={`field-commentary${commentary.isBig ? ' field-commentary-big' : ''}${hasPenalty ? ' field-commentary-penalty' : ''}`}>
-          <span className="field-commentary-text">{commentary.text}</span>
+        <div className={`field-commentary${isBig ? ' field-commentary-big' : ''}${hasPenalty ? ' field-commentary-penalty' : ''}`}>
+          <span className="field-commentary-text">{commentary}</span>
           {hasPenalty && event.penalty && (
             <div className="field-penalty-inline">
               <span className="field-penalty-flag">🚩</span>

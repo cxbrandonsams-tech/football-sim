@@ -7,6 +7,7 @@ import { type LeagueHistory, type PlayerSeasonStats, type GmCareer, emptyLeagueH
 import { type NewsItem } from './News';
 import { buildDepthChart } from './DepthChart';
 import { type DraftClass } from './Prospect';
+import { type CommentaryStyle } from './PlayEvent';
 
 // ── Draft ─────────────────────────────────────────────────────────────────────
 
@@ -175,6 +176,7 @@ export interface League {
   news:                 NewsItem[];
   /** Milestone deduplication: playerId → array of milestone keys already fired (e.g. "passingYards:1000"). */
   milestonesHit:        Record<string, string[]>;
+  commentaryStyle?:     CommentaryStyle;
   ownerBudget:          number;
   budgetAllocation:     BudgetAllocation;
   aiBudgetAllocations:  Record<string, BudgetAllocation>;

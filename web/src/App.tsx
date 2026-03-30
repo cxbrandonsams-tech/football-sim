@@ -1421,6 +1421,7 @@ function CommissionerView({ league, leagueId, userId, onLeagueUpdated }: {
   const [displayName, setDisplayName] = useState(league.displayName);
   const [maxUsers, setMaxUsers] = useState(String(league.maxUsers ?? ''));
   const [visibility, setVisibility] = useState<'public' | 'private'>(league.visibility);
+  const [commentaryStyle, setCommentaryStyle] = useState<'neutral' | 'hype' | 'analytical'>(league.commentaryStyle ?? 'neutral');
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
@@ -1442,6 +1443,7 @@ function CommissionerView({ league, leagueId, userId, onLeagueUpdated }: {
         displayName: displayName.trim(),
         maxUsers: maxUsers ? Number(maxUsers) : 0,
         visibility,
+        commentaryStyle,
       });
       onLeagueUpdated(updated);
       setSettingsSaved(true);
@@ -1506,6 +1508,20 @@ function CommissionerView({ league, leagueId, userId, onLeagueUpdated }: {
                   onClick={() => setVisibility(v)}
                 >
                   {v === 'public' ? 'Public' : 'Private'}
+                </button>
+              ))}
+            </div>
+          </label>
+          <label>
+            Commentary Style
+            <div className="toggle-group">
+              {(['neutral', 'hype', 'analytical'] as const).map(s => (
+                <button
+                  key={s} type="button"
+                  className={commentaryStyle === s ? 'toggle active' : 'toggle'}
+                  onClick={() => setCommentaryStyle(s)}
+                >
+                  {s === 'neutral' ? 'Neutral' : s === 'hype' ? 'Hype' : 'Analytical'}
                 </button>
               ))}
             </div>
@@ -3789,19 +3805,20 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
                 driveText={driveText}
               />
 
-              {/* Around-the-league toast overlay */}
-              {activeToast && (
-                <div className={`gc-atl-toast gc-atl-toast-${activeToast.kind}`}>
-                  <span className="gc-atl-toast-icon">
-                    {activeToast.kind === 'touchdown' ? '🏈' : activeToast.kind === 'turnover' ? '⚠️' : '📢'}
-                  </span>
-                  <div className="gc-atl-toast-body">
-                    <span className="gc-atl-toast-label">AROUND THE LEAGUE</span>
-                    <span className="gc-atl-toast-text">{activeToast.text}</span>
-                  </div>
-                </div>
-              )}
             </div>
+
+            {/* Around-the-league toast — positioned below the field, not overlapping */}
+            {activeToast && (
+              <div className={`gc-atl-toast gc-atl-toast-${activeToast.kind}`}>
+                <span className="gc-atl-toast-icon">
+                  {activeToast.kind === 'touchdown' ? '🏈' : activeToast.kind === 'turnover' ? '⚠️' : '📢'}
+                </span>
+                <div className="gc-atl-toast-body">
+                  <span className="gc-atl-toast-label">AROUND THE LEAGUE</span>
+                  <span className="gc-atl-toast-text">{activeToast.text}</span>
+                </div>
+              </div>
+            )}
             {showPlayLogic && currentEvent?.explanation && (
               <div className="gc-play-logic">
                 {currentEvent.explanation.map((r, i) => (
@@ -5078,17 +5095,352 @@ function BoxScoreView({ game, onViewPlayer }: { game: Game; onViewPlayer?: (id: 
 
 // ── Game Viewer (Watch mode) ────────────────────────────────────────────────────
 
+function playLogIcon(ev: PlayEvent): string {
+  if (ev.result === 'touchdown') return '🏈';
+  if (ev.type === 'interception' || ev.type === 'fumble') return '🔴';
+  if (ev.type === 'sack') return '💥';
+  if (ev.type === 'field_goal') return ev.result === 'field_goal_good' ? '🟢' : '❌';
+  if (ev.type === 'punt') return '📐';
+  if (ev.penalty?.accepted) return '🚩';
+  if (ev.firstDown) return '▸';
+  if (ev.type === 'scramble') return '🏃';
+  return '·';
+}
+
+function playLogClass(ev: PlayEvent): string {
+  if (ev.result === 'touchdown') return 'log-td';
+  if (ev.result === 'turnover') return 'log-turnover';
+  if (ev.type === 'sack') return 'log-sack';
+  if (ev.result === 'field_goal_good') return 'log-fg';
+  if (ev.firstDown) return 'log-first';
+  return '';
+}
+
+// ── Broadcast Commentary — progressive sentence reveal with keyword highlights ──
+
+/** Timing multipliers by play type for progressive reveal pacing */
+function playPacingMs(ev: PlayEvent): number {
+  switch (ev.type) {
+    case 'inside_run': case 'outside_run': return 280;
+    case 'short_pass': return 350;
+    case 'medium_pass': return 380;
+    case 'deep_pass': return 420;
+    case 'sack': return 450;
+    case 'scramble': return 320;
+    case 'interception': case 'fumble': return 480;
+    case 'field_goal': return 400;
+    case 'punt': case 'spike': return 200;
+    default: return 350;
+  }
+}
+
+/** Extra pause before the final sentence on dramatic plays */
+function dramaticPauseMs(ev: PlayEvent): number {
+  if (ev.result === 'touchdown') return 300;
+  if (ev.result === 'turnover') return 250;
+  if (ev.type === 'sack') return 200;
+  if (Math.abs(ev.yards) >= 20) return 150;
+  return 0;
+}
+
+/** Highlight keywords in commentary text (returns JSX spans) */
+const HIGHLIGHT_PATTERNS: Array<{ re: RegExp; cls: string }> = [
+  { re: /\bTOUCHDOWN!*\b/g, cls: 'kw-td' },
+  { re: /\bINTERCEPTED!*\b/g, cls: 'kw-int' },
+  { re: /\bPICKED OFF!*\b|PICKED!*/g, cls: 'kw-int' },
+  { re: /\bTURNOVER!*\b/g, cls: 'kw-int' },
+  { re: /\bSACKED!*\b/g, cls: 'kw-sack' },
+  { re: /\bFUMBLE!*\b/g, cls: 'kw-int' },
+  { re: /\bFirst down[.!]?/g, cls: 'kw-first' },
+  { re: /\bNO GOOD!*\b/g, cls: 'kw-miss' },
+  { re: /\bGOOD!*\b/g, cls: 'kw-fg' },
+  { re: /\bGONE!*\b/g, cls: 'kw-td' },
+];
+
+function highlightText(text: string): React.ReactNode[] {
+  // Build a combined regex from all patterns
+  const allParts: Array<{ start: number; end: number; cls: string }> = [];
+  for (const { re, cls } of HIGHLIGHT_PATTERNS) {
+    const regex = new RegExp(re.source, re.flags);
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text)) !== null) {
+      allParts.push({ start: m.index, end: m.index + m[0].length, cls });
+    }
+  }
+  // Sort by position, no overlaps
+  allParts.sort((a, b) => a.start - b.start);
+  const deduped: typeof allParts = [];
+  let lastEnd = 0;
+  for (const p of allParts) {
+    if (p.start >= lastEnd) { deduped.push(p); lastEnd = p.end; }
+  }
+
+  if (deduped.length === 0) return [text];
+  const result: React.ReactNode[] = [];
+  let pos = 0;
+  for (let i = 0; i < deduped.length; i++) {
+    const p = deduped[i]!;
+    if (p.start > pos) result.push(text.slice(pos, p.start));
+    result.push(<span key={`kw-${i}`} className={`bc-kw ${p.cls}`}>{text.slice(p.start, p.end)}</span>);
+    pos = p.end;
+  }
+  if (pos < text.length) result.push(text.slice(pos));
+  return result;
+}
+
+/** Split commentary into sentences for progressive reveal */
+function splitSentences(text: string): string[] {
+  // Split on sentence-ending punctuation followed by space or end-of-string
+  const parts = text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g);
+  if (!parts) return [text];
+  return parts.map(s => s.trim()).filter(Boolean);
+}
+
+function BroadcastCommentary({ text, event, animate, onComplete }: {
+  text: string;
+  event: PlayEvent;
+  animate: boolean;
+  onComplete?: () => void;
+}) {
+  const sentences = useMemo(() => splitSentences(text), [text]);
+  const [visibleCount, setVisibleCount] = useState(animate ? 0 : sentences.length);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const completedRef = useRef(false);
+
+  // Reset on new text
+  useEffect(() => {
+    // Clear pending timers
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+    completedRef.current = false;
+
+    if (!animate) {
+      setVisibleCount(sentences.length);
+      return;
+    }
+
+    setVisibleCount(0);
+    const baseDelay = playPacingMs(event);
+    const dramaPause = dramaticPauseMs(event);
+    let elapsed = 100; // initial small delay before first sentence
+
+    for (let i = 0; i < sentences.length; i++) {
+      const isLast = i === sentences.length - 1;
+      // Add dramatic pause before the last sentence on big plays
+      if (isLast && dramaPause > 0 && sentences.length > 1) {
+        elapsed += dramaPause;
+      }
+      const t = setTimeout(() => {
+        setVisibleCount(i + 1);
+        if (isLast && !completedRef.current) {
+          completedRef.current = true;
+          // Small delay after final sentence before signaling completion
+          const postDelay = setTimeout(() => onComplete?.(), 400);
+          timersRef.current.push(postDelay);
+        }
+      }, elapsed);
+      timersRef.current.push(t);
+      elapsed += baseDelay;
+    }
+
+    // Fallback: if only one sentence, fire complete after base delay
+    if (sentences.length <= 1) {
+      const fb = setTimeout(() => {
+        if (!completedRef.current) { completedRef.current = true; onComplete?.(); }
+      }, elapsed + 200);
+      timersRef.current.push(fb);
+    }
+
+    return () => {
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    };
+  }, [text, animate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="bc-sentences">
+      {sentences.map((s, i) => (
+        <span
+          key={`${text.slice(0, 20)}-${i}`}
+          className={`bc-sentence${i < visibleCount ? ' bc-visible' : ' bc-hidden'}`}
+        >
+          {highlightText(s)}{' '}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── Drive detection helpers ──────────────────────────────────────────────────
+
+interface DriveMarker {
+  afterEventIdx: number;   // index in events[] after which this marker appears
+  type: 'drive-end' | 'quarter';
+  label: string;           // e.g. "8 plays, 65 yds — TOUCHDOWN" or "── Q2 ──"
+  cls: string;             // CSS modifier class
+}
+
+function isDriveEndEvent(ev: PlayEvent): boolean {
+  return ev.result === 'touchdown' || ev.result === 'field_goal_good'
+    || ev.result === 'field_goal_miss' || ev.result === 'turnover'
+    || ev.result === 'safety' || ev.type === 'punt';
+}
+
+function driveResultLabel(ev: PlayEvent): string {
+  if (ev.result === 'touchdown') return 'TOUCHDOWN';
+  if (ev.result === 'field_goal_good') return 'FIELD GOAL';
+  if (ev.result === 'field_goal_miss') return 'MISSED FG';
+  if (ev.result === 'turnover') return ev.type === 'interception' ? 'INTERCEPTION' : 'FUMBLE';
+  if (ev.result === 'safety') return 'SAFETY';
+  if (ev.type === 'punt') return 'PUNT';
+  return 'END';
+}
+
+function driveResultCls(ev: PlayEvent): string {
+  if (ev.result === 'touchdown' || ev.result === 'field_goal_good') return 'drive-score';
+  if (ev.result === 'turnover') return 'drive-turnover';
+  return 'drive-neutral';
+}
+
+/** Compute drive markers and quarter headers for all events */
+function computeDriveMarkers(events: PlayEvent[]): DriveMarker[] {
+  const markers: DriveMarker[] = [];
+  let driveTeam = '';
+  let driveStart = 0;
+  let driveYards = 0;
+  let prevQuarter = 0;
+
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i]!;
+
+    // Quarter change header
+    if (ev.quarter !== prevQuarter) {
+      if (prevQuarter > 0) {
+        const qLabel = ev.quarter <= 4 ? `Q${ev.quarter}` : ev.quarter === 5 ? 'OT' : `OT${ev.quarter - 4}`;
+        markers.push({
+          afterEventIdx: i - 1,
+          type: 'quarter',
+          label: qLabel,
+          cls: 'quarter-marker',
+        });
+      }
+      prevQuarter = ev.quarter;
+    }
+
+    // Drive boundary
+    const isNewDrive = ev.offenseTeamId !== driveTeam
+      || (i > 0 && isDriveEndEvent(events[i - 1]!));
+
+    if (isNewDrive) {
+      // Emit drive summary for previous drive (if it existed)
+      if (driveTeam && i > 0) {
+        const prevEv = events[i - 1]!;
+        const playCount = i - driveStart;
+        const result = driveResultLabel(prevEv);
+        const cls = driveResultCls(prevEv);
+        if (playCount >= 1) {
+          markers.push({
+            afterEventIdx: i - 1,
+            type: 'drive-end',
+            label: `${playCount} play${playCount !== 1 ? 's' : ''}, ${driveYards} yds — ${result}`,
+            cls,
+          });
+        }
+      }
+      driveTeam = ev.offenseTeamId;
+      driveStart = i;
+      driveYards = 0;
+    }
+
+    driveYards += ev.yards;
+  }
+  return markers;
+}
+
+/** Post-play pause for dramatic moments (extends the auto-play buffer) */
+function postPlayPauseMs(ev: PlayEvent, isPossessionChange: boolean): number {
+  if (ev.result === 'touchdown') return isPossessionChange ? 900 : 600;
+  if (ev.result === 'turnover') return isPossessionChange ? 700 : 450;
+  if (ev.type === 'punt') return isPossessionChange ? 500 : 300;
+  if (ev.result === 'field_goal_good' || ev.result === 'field_goal_miss') return isPossessionChange ? 600 : 300;
+  if (ev.type === 'sack') return 150;
+  if (Math.abs(ev.yards) >= 20) return 200;
+  return 200;
+}
+
+/** Atmosphere text — ambient one-liners for big moments (probabilistic) */
+const CROWD_TD = [
+  'The crowd erupts!',
+  'The stadium is on its feet!',
+  'Deafening noise from the crowd!',
+  'The fans go absolutely wild!',
+  'Listen to this place!',
+];
+const CROWD_TURNOVER = [
+  'Stunned silence from one side, roaring from the other.',
+  'What a momentum shift.',
+  'The crowd can feel the swing.',
+  'That changes everything.',
+];
+const CROWD_BIG_PLAY = [
+  'The crowd is buzzing after that one.',
+  'Energy in the building right now.',
+  'That woke the crowd up.',
+];
+const CROWD_LATE_GAME = [
+  'The tension is palpable.',
+  'You can feel the stakes.',
+  'This is what football is all about.',
+];
+
+function atmosphereText(ev: PlayEvent): string | null {
+  if (ev.result === 'touchdown' && Math.random() < 0.55) return CROWD_TD[Math.floor(Math.random() * CROWD_TD.length)]!;
+  if (ev.result === 'turnover' && Math.random() < 0.45) return CROWD_TURNOVER[Math.floor(Math.random() * CROWD_TURNOVER.length)]!;
+  if (Math.abs(ev.yards) >= 25 && Math.random() < 0.35) return CROWD_BIG_PLAY[Math.floor(Math.random() * CROWD_BIG_PLAY.length)]!;
+  if (ev.quarter >= 4 && Math.random() < 0.08) return CROWD_LATE_GAME[Math.floor(Math.random() * CROWD_LATE_GAME.length)]!;
+  return null;
+}
+
+/** Possession change label */
+function possessionLabel(prevEv: PlayEvent | undefined, curEv: PlayEvent): string | null {
+  if (!prevEv) return null;
+  if (curEv.offenseTeamId === prevEv.offenseTeamId) return null;
+  // Determine what caused the change
+  if (prevEv.result === 'touchdown') return 'KICKOFF';
+  if (prevEv.result === 'field_goal_good') return 'KICKOFF';
+  if (prevEv.result === 'turnover') return prevEv.type === 'interception' ? 'TURNOVER ON DOWNS' : 'TURNOVER';
+  if (prevEv.type === 'punt') return 'CHANGE OF POSSESSION';
+  if (prevEv.result === 'field_goal_miss') return 'CHANGE OF POSSESSION';
+  return 'NEW POSSESSION';
+}
+
+/** Big play callout text (returns null for routine plays) */
+function bigPlayCallout(ev: PlayEvent): string | null {
+  if (ev.result === 'touchdown') return ev.type === 'inside_run' || ev.type === 'outside_run'
+    ? `RUSHING TD — ${ev.yards} YDS` : `PASSING TD — ${ev.yards} YDS`;
+  if (ev.type === 'interception') return 'INTERCEPTION';
+  if (ev.type === 'fumble') return 'FUMBLE — TURNOVER';
+  if (Math.abs(ev.yards) >= 30) return `BIG PLAY — ${ev.yards} YDS`;
+  return null;
+}
+
 function GameViewer({ game }: { game: Game }) {
   const events = game.events ?? [];
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [showPlayLogic, setShowPlayLogic] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [commentaryDone, setCommentaryDone] = useState(false);
+  const [callout, setCallout] = useState<string | null>(null);
+  const [atmosphere, setAtmosphere] = useState<string | null>(null);
+  const [possChange, setPossChange] = useState<string | null>(null);
+  const logScrollRef = useRef<HTMLDivElement | null>(null);
 
   const homeId = game.homeTeam.id;
+  const homeAbbr = game.homeTeam.abbreviation;
+  const awayAbbr = game.awayTeam.abbreviation;
   const atEnd = events.length === 0 || idx >= events.length - 1;
 
-  // Compute running score up to (and including) current play
+  // Compute running score
   let homeScore = 0, awayScore = 0;
   for (let i = 0; i <= idx && i < events.length; i++) {
     const ev = events[i]!;
@@ -5096,53 +5448,231 @@ function GameViewer({ game }: { game: Game }) {
     if (ev.result === 'field_goal_good') { if (ev.offenseTeamId === homeId) homeScore += 3; else awayScore += 3; }
   }
 
-  useEffect(() => {
-    if (!playing) return;
-    if (atEnd) { setPlaying(false); return; }
-    timerRef.current = setTimeout(() => setIdx(i => i + 1), 800);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [playing, atEnd]);
+  // Pre-compute drive markers for the entire game (memoized)
+  const driveMarkers = useMemo(() => computeDriveMarkers(events), [events]);
 
-  function reset() { setPlaying(false); setIdx(0); }
+  // Build a set of event indices that have markers AFTER them
+  const markersAfter = useMemo(() => {
+    const map = new Map<number, DriveMarker[]>();
+    for (const m of driveMarkers) {
+      const existing = map.get(m.afterEventIdx) ?? [];
+      existing.push(m);
+      map.set(m.afterEventIdx, existing);
+    }
+    return map;
+  }, [driveMarkers]);
 
+  // Auto-play: advance when commentary is done, with play-type-aware pause
   const currentEvent = events[idx];
+  const prevEvent = idx > 0 ? events[idx - 1] : undefined;
+  const nextEvent = idx < events.length - 1 ? events[idx + 1] : undefined;
+  const isPossChange = !!(nextEvent && currentEvent && nextEvent.offenseTeamId !== currentEvent.offenseTeamId);
+
+  useEffect(() => {
+    if (!playing || !commentaryDone) return;
+    if (atEnd) { setPlaying(false); return; }
+    const pause = currentEvent ? postPlayPauseMs(currentEvent, isPossChange) : 200;
+    const t = setTimeout(() => {
+      setCommentaryDone(false);
+      setCallout(null);
+      setAtmosphere(null);
+      setPossChange(null);
+      setIdx(i => i + 1);
+    }, pause);
+    return () => clearTimeout(t);
+  }, [playing, commentaryDone, atEnd, currentEvent, isPossChange]);
+
+  // On play change: reset state, detect possession change, big play, atmosphere
+  useEffect(() => {
+    setCommentaryDone(false);
+    if (currentEvent && playing) {
+      setCallout(bigPlayCallout(currentEvent));
+      setAtmosphere(atmosphereText(currentEvent));
+      setPossChange(possessionLabel(prevEvent, currentEvent));
+    } else {
+      setCallout(null);
+      setAtmosphere(null);
+      setPossChange(prevEvent && currentEvent ? possessionLabel(prevEvent, currentEvent) : null);
+    }
+  }, [idx]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll play history
+  useEffect(() => {
+    if (logScrollRef.current) {
+      logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+    }
+  }, [idx]);
+
+  function reset() { setPlaying(false); setIdx(0); setCallout(null); setAtmosphere(null); setPossChange(null); }
+
   const quarter = currentEvent?.quarter ?? 1;
   const offAbbr = currentEvent
     ? (currentEvent.offenseTeamId === homeId ? game.homeTeam.abbreviation : game.awayTeam.abbreviation)
     : '';
-  const playText = currentEvent ? `[${offAbbr}] ${formatPlay(currentEvent)}` : '';
   const quarterLabel = atEnd && events.length > 0 ? 'Final' : (quarter <= 4 ? `Q${quarter}` : quarter === 5 ? 'OT' : `OT${quarter - 4}`);
+  const isLateGame = quarter >= 4 && Math.abs(homeScore - awayScore) <= 8;
+  const offIsHome = currentEvent?.offenseTeamId === homeId;
+
+  const downLabels = ['1st', '2nd', '3rd', '4th'];
+  const currentDown = currentEvent
+    ? `${downLabels[currentEvent.down - 1] ?? currentEvent.down + 'th'} & ${currentEvent.distance}`
+    : '';
+  const currentFieldPos = currentEvent
+    ? (currentEvent.yardLine <= 50
+        ? `Own ${currentEvent.yardLine}`
+        : `OPP ${100 - currentEvent.yardLine}`)
+    : '';
+
+  // Build log entries: plays + drive markers interspersed
+  const prevStart = Math.max(0, idx - 20);
+  const prevPlays = events.slice(prevStart, idx);
+
+  // Build log items (plays interleaved with markers)
+  type LogItem = { kind: 'play'; ev: PlayEvent; globalIdx: number } | { kind: 'marker'; marker: DriveMarker };
+  const logItems: LogItem[] = [];
+  for (let i = 0; i < prevPlays.length; i++) {
+    const globalIdx = prevStart + i;
+    logItems.push({ kind: 'play', ev: prevPlays[i]!, globalIdx });
+    // Check if there are markers after this event
+    const ms = markersAfter.get(globalIdx);
+    if (ms) {
+      for (const m of ms) logItems.push({ kind: 'marker', marker: m });
+    }
+  }
 
   return (
     <div className="game-viewer">
-      <div className="viewer-score">
-        <span>{game.awayTeam.abbreviation} <strong>{awayScore}</strong></span>
-        <span className="viewer-quarter">{quarterLabel}</span>
-        <span><strong>{homeScore}</strong> {game.homeTeam.abbreviation}</span>
+      {/* Broadcast Score Bug */}
+      <div className={`score-bug${isLateGame ? ' score-bug-urgent' : ''}`}>
+        <div className={`sb-team sb-away${offIsHome === false ? ' sb-possession' : ''}`}>
+          <TeamLogo abbr={awayAbbr} size={20} />
+          <span className="sb-name">{awayAbbr}</span>
+          {offIsHome === false && <span className="sb-poss-dot" />}
+          <span className="sb-num">{awayScore}</span>
+        </div>
+        <div className="sb-center">
+          <span className={`sb-quarter${isLateGame ? ' sb-urgent' : ''}`}>{quarterLabel}</span>
+        </div>
+        <div className={`sb-team sb-home${offIsHome === true ? ' sb-possession' : ''}`}>
+          <span className="sb-num">{homeScore}</span>
+          {offIsHome === true && <span className="sb-poss-dot" />}
+          <span className="sb-name">{homeAbbr}</span>
+          <TeamLogo abbr={homeAbbr} size={20} />
+        </div>
       </div>
 
-      <div className="viewer-play">
-        {events.length === 0
-          ? <p className="muted">No play data available for this game.</p>
-          : <PbpLine line={playText} game={game} explanation={showPlayLogic ? currentEvent?.explanation : undefined} />}
+      {/* Possession change label */}
+      {possChange && (
+        <div className={`viewer-poss-change${
+          possChange.includes('TURNOVER') ? ' poss-turnover' :
+          possChange === 'KICKOFF' ? ' poss-kickoff' : ' poss-neutral'
+        }`}>
+          {possChange}
+        </div>
+      )}
+
+      {/* Big play callout banner */}
+      {callout && (
+        <div className={`viewer-callout${
+          currentEvent?.result === 'touchdown' ? ' callout-td' :
+          currentEvent?.result === 'turnover' ? ' callout-turnover' : ' callout-big'
+        }`}>
+          {callout}
+        </div>
+      )}
+
+      {/* Current play — broadcast commentary with progressive reveal */}
+      <div className="viewer-current">
+        {events.length === 0 ? (
+          <p className="muted">No play data available for this game.</p>
+        ) : currentEvent ? (
+          <>
+            <div className="viewer-situation">
+              <span className="viewer-team-badge">{offAbbr}</span>
+              <span className="viewer-down">{currentDown}</span>
+              <span className="viewer-field-pos">{currentFieldPos}</span>
+              <span className="viewer-play-num">Play {idx + 1}/{events.length}</span>
+            </div>
+            <div className={`viewer-commentary${
+              currentEvent.result === 'touchdown' ? ' viewer-commentary-td' :
+              currentEvent.result === 'turnover' ? ' viewer-commentary-turnover' :
+              (currentEvent.type === 'sack' || Math.abs(currentEvent.yards) >= 20) ? ' viewer-commentary-big' : ''
+            }`}>
+              <BroadcastCommentary
+                text={currentEvent.commentaryFull ?? `Play result: ${currentEvent.yards} yards.`}
+                event={currentEvent}
+                animate={playing}
+                onComplete={() => setCommentaryDone(true)}
+              />
+            </div>
+            {showPlayLogic && currentEvent.explanation && (
+              <div className="pbp-explanation">
+                {currentEvent.explanation.map((r, j) => (
+                  <span key={j} className="pbp-reason">{r}</span>
+                ))}
+              </div>
+            )}
+            {/* Atmosphere text — ambient broadcast color */}
+            {atmosphere && (
+              <div className="viewer-atmosphere">{atmosphere}</div>
+            )}
+          </>
+        ) : null}
       </div>
 
-      {events.length > 0 && (
-        <div className="viewer-progress">
-          Play {idx + 1} / {events.length}{atEnd ? ' — Final' : ''}
+      {/* Play history log with drive markers */}
+      {idx > 0 && (
+        <div className="viewer-log" ref={logScrollRef}>
+          <div className="viewer-log-header">Play History</div>
+          {logItems.map((item) => {
+            if (item.kind === 'marker') {
+              const m = item.marker;
+              return m.type === 'quarter' ? (
+                <div key={`qm-${m.afterEventIdx}`} className="log-quarter-marker">
+                  {m.label}
+                </div>
+              ) : (
+                <div key={`dm-${m.afterEventIdx}`} className={`log-drive-summary ${m.cls}`}>
+                  {m.label}
+                </div>
+              );
+            }
+            const ev = item.ev;
+            const evOffAbbr = ev.offenseTeamId === homeId
+              ? game.homeTeam.abbreviation
+              : game.awayTeam.abbreviation;
+            const dn = downLabels[ev.down - 1] ?? ev.down + 'th';
+            const fp = ev.yardLine <= 50 ? `Own ${ev.yardLine}` : `OPP ${100 - ev.yardLine}`;
+            const logText = ev.commentaryLog ?? formatPlay(ev);
+            return (
+              <div
+                key={`pl-${item.globalIdx}`}
+                className={`viewer-log-line ${playLogClass(ev)}`}
+                onClick={() => { setPlaying(false); setCallout(null); setAtmosphere(null); setPossChange(null); setIdx(item.globalIdx); }}
+              >
+                <span className="log-icon">{playLogIcon(ev)}</span>
+                <span className="log-situation">{dn}&{ev.distance} {fp}</span>
+                <span className="log-team">{evOffAbbr}</span>
+                <span className="log-text">{logText}</span>
+                {ev.penalty?.accepted && (
+                  <span className="log-penalty">FLAG</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
       <div className="viewer-controls">
         <button onClick={reset} disabled={idx === 0 && !playing}>Reset</button>
-        <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={playing || idx === 0}>◀ Prev</button>
+        <button onClick={() => { setPlaying(false); setCallout(null); setAtmosphere(null); setPossChange(null); setIdx(i => Math.max(0, i - 1)); }} disabled={playing || idx === 0}>◀ Prev</button>
         <button
           onClick={() => setPlaying(v => !v)}
           disabled={events.length === 0 || (atEnd && !playing)}
         >
           {playing ? '⏸ Pause' : '▶ Play'}
         </button>
-        <button onClick={() => setIdx(i => Math.min(events.length - 1, i + 1))} disabled={playing || atEnd}>Next ▶</button>
+        <button onClick={() => { setPlaying(false); setCallout(null); setAtmosphere(null); setPossChange(null); setIdx(i => Math.min(events.length - 1, i + 1)); }} disabled={playing || atEnd}>Next ▶</button>
         <button
           className={`btn-logic-toggle${showPlayLogic ? ' active' : ''}`}
           onClick={() => setShowPlayLogic(v => !v)}
@@ -5429,7 +5959,9 @@ function formatGameLog(game: Game): string[] {
       lines.push(`── ${qLabel} ──`);
     }
     const offAbbr = ev.offenseTeamId === homeId ? game.homeTeam.abbreviation : game.awayTeam.abbreviation;
-    lines.push(`[${offAbbr}] ${formatPlay(ev)}`);
+    // Use engine-generated compact log line when available, fallback to old formatPlay
+    const playLine = ev.commentaryLog ?? formatPlay(ev);
+    lines.push(`[${offAbbr}] ${playLine}`);
     if (ev.result === 'touchdown')       { if (ev.offenseTeamId === homeId) homeScore += 7; else awayScore += 7; }
     if (ev.result === 'field_goal_good') { if (ev.offenseTeamId === homeId) homeScore += 3; else awayScore += 3; }
   }

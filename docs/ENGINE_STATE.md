@@ -143,3 +143,16 @@ Activated when trailing with <2 minutes in a half. Timeout management (3 per hal
 
 ### Impact on Core Metrics
 These additions increased combined PPG from ~42 to ~44-46 (closer to NFL 44.7 average). The original locked play-resolution stats (completion%, YPC, sack rate, etc.) remain unchanged — the PPG increase comes entirely from penalty drive extensions, return TDs, and conversion mechanics.
+
+### Commentary System (2026-03-30)
+Phase-based natural language generation from structured `CommentaryMeta` captured during play resolution. Each `PlayEvent` carries metadata (pressureLevel, windowState, throwQuality, defPlayerName, drivePlayNum, driveYards, scoreDiff, streaks, etc.) and two generated strings:
+- `commentaryFull` — rich broadcast paragraph assembled from per-phase phrase pools (protection → throw → coverage → catch → YAC → outcome)
+- `commentaryLog` — compact one-liner for historical play log
+
+**Multi-style system** (`neutral`/`hype`/`analytical`) stored in `League.commentaryStyle`, threaded through `simulateGame` options → `generateFullCommentary`. Style-specific phrase overrides for ~17 high-impact pools (TDs, sacks, INTs, pressure, throw quality, contested catches).
+
+**Narrative layer** fires probabilistically with priority tiers: game-critical (two-minute drill, deficit) > drive narrative (stalled, rolling, long drive) > streaks (consecutive completions, runs, negative plays) > light context (first play of drive, after sack). Defender names used in sacks, INTs, breakups, TFLs, and tackles via `pickTacklerName()`, `pickBreakupName()`, and existing `pickSackCredit()`/`pickIntCredit()` functions.
+
+**Frontend presentation**: `BroadcastCommentary` component with progressive sentence-by-sentence reveal, play-type-based pacing (280ms for runs, 480ms for INTs), dramatic pauses before final sentences on big plays, keyword highlighting (TOUCHDOWN gold, INTERCEPTION red, SACK orange). Completion-driven auto-play (no fixed timer — next play advances only when commentary finishes revealing). Drive summary banners and quarter headers in play history log. Broadcast score bug with team logos, possession dot, and late-game urgency pulse. Atmosphere text (~30-55% fire rate on big moments). Around-the-league toasts positioned below field.
+
+This system operates as a presentation layer above the locked play-resolution engine — no simulation outcomes are changed.
