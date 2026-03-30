@@ -1,0 +1,241 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   SHARED UI COMPONENTS — Design System Level 2
+   Built on the token system in App.css (:root variables)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Section Header ───────────────────────────────────────────────────────── */
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-bright);
+  line-height: 1.1;
+}
+.section-subtitle {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin-top: var(--sp-1);
+}
+.section-header-actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+/* ── Card ─────────────────────────────────────────────────────────────────── */
+.ui-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.ui-card--compact { border-radius: var(--radius-md); }
+.ui-card--primary { border-left: 3px solid var(--primary); }
+.ui-card--success { border-left: 3px solid var(--success); }
+.ui-card--danger  { border-left: 3px solid var(--danger); }
+.ui-card--warning { border-left: 3px solid var(--warning); }
+.ui-card--info    { border-left: 3px solid var(--info); }
+
+.ui-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
+.ui-card-title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+.ui-card-subtitle {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.ui-card-actions {
+  display: flex;
+  gap: var(--sp-2);
+}
+.ui-card-body {
+  padding: var(--sp-4);
+}
+.ui-card--compact .ui-card-body {
+  padding: var(--sp-3);
+}
+
+/* ── Empty State ──────────────────────────────────────────────────────────── */
+.ui-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-8) var(--sp-4);
+  text-align: center;
+}
+.ui-empty-state--compact {
+  padding: var(--sp-4) var(--sp-3);
+}
+.ui-empty-state-icon {
+  font-size: 2rem;
+  opacity: 0.5;
+}
+.ui-empty-state-title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.ui-empty-state-msg {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  max-width: 320px;
+  line-height: 1.5;
+}
+.ui-empty-state-action {
+  margin-top: var(--sp-2);
+}
+
+/* ── Loading State ────────────────────────────────────────────────────────── */
+.ui-loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-8);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.ui-loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Stat Block ───────────────────────────────────────────────────────────── */
+.ui-stat-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ui-stat-block--accent .ui-stat-value {
+  color: var(--primary);
+}
+.ui-stat-label {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.ui-stat-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-bright);
+  font-variant-numeric: tabular-nums;
+}
+.ui-stat-sublabel {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+/* ── Key-Value Row ────────────────────────────────────────────────────────── */
+.ui-kv-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--text-sm);
+}
+.ui-kv-row:last-child { border-bottom: none; }
+.ui-kv-row--muted .ui-kv-value { color: var(--text-muted); }
+.ui-kv-label {
+  color: var(--text-secondary);
+}
+.ui-kv-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Tab Bar ──────────────────────────────────────────────────────────────── */
+.ui-tab-bar {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 3px;
+}
+.ui-tab-bar--sm { border-radius: var(--radius-md); }
+.ui-tab {
+  padding: var(--sp-2) var(--sp-4);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.ui-tab-bar--sm .ui-tab {
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--text-xs);
+}
+.ui-tab:hover:not(.ui-tab--active):not(.ui-tab--disabled) {
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+}
+.ui-tab--active {
+  background: var(--bg-elevated);
+  color: var(--text-bright);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+.ui-tab--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ui-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  min-width: 1.2em;
+  height: 1.2em;
+  padding: 0 0.25rem;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: #fff;
+  margin-left: var(--sp-1);
+}

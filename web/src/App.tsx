@@ -753,20 +753,26 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           </div>
 
           <nav className="top-nav-tabs">
-            <button className={inGmSection     ? 'active' : ''} onClick={() => setTab('team')}>GM</button>
+            {/* ── Team Management ──────────────────────── */}
             <button className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>Dashboard</button>
+            <button className={inGmSection     ? 'active' : ''} onClick={() => setTab('team')}>GM</button>
             <button className={inRosterSection  ? 'active' : ''} onClick={() => setTab('roster')}>Roster</button>
+
+            <span className="nav-sep" />
+
+            {/* ── League ───────────────────────────────── */}
             <button className={tab === 'standings' ? 'active' : ''} onClick={() => setTab('standings')}>Standings</button>
             <button className={tab === 'leaders'   ? 'active' : ''} onClick={() => setTab('leaders')}>Leaders</button>
-            <button className={tab === 'awards'    ? 'active' : ''} onClick={() => setTab('awards')}>Awards</button>
-            <button className={tab === 'history'   ? 'active' : ''} onClick={() => setTab('history')}>History</button>
-            <button className={tab === 'hof'       ? 'active' : ''} onClick={() => setTab('hof')}>Hall of Fame</button>
+            <button className={tab === 'news' ? 'active' : ''} onClick={() => setTab('news')}>News</button>
             {hasPlayoffs && (
               <button className={tab === 'playoffs' ? 'active' : ''} onClick={() => setTab('playoffs')}>
                 {league.phase === 'postseason' ? 'Playoffs' : 'Offseason'}
               </button>
             )}
-            <button className={tab === 'news' ? 'active' : ''} onClick={() => setTab('news')}>News</button>
+
+            <span className="nav-sep" />
+
+            {/* ── Scouting & Draft ─────────────────────── */}
             {(league.phase === 'draft' || league.draft) && (
               <button className={tab === 'draft' ? 'active' : ''} onClick={() => setTab('draft')}>
                 Draft{league.draft && !league.draft.complete && <span className="badge">!</span>}
@@ -779,10 +785,22 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
               <button className={tab === 'scouting' ? 'active' : ''} onClick={() => setTab('scouting')}>Scouting</button>
             )}
             {league.draftClass && (
-              <button className={tab === 'draft-board' ? 'active' : ''} onClick={() => setTab('draft-board')}>Draft Board</button>
+              <button className={tab === 'draft-board' ? 'active' : ''} onClick={() => setTab('draft-board')}>Board</button>
             )}
+
+            <span className="nav-sep" />
+
+            {/* ── History & Legacy ─────────────────────── */}
+            <button className={tab === 'awards'    ? 'active' : ''} onClick={() => setTab('awards')}>Awards</button>
+            <button className={tab === 'history'   ? 'active' : ''} onClick={() => setTab('history')}>History</button>
+            <button className={tab === 'hof'       ? 'active' : ''} onClick={() => setTab('hof')}>Hall of Fame</button>
+
+            {/* ── Admin ────────────────────────────────── */}
             {isCommissioner && (
-              <button className={tab === 'commissioner' ? 'active' : ''} onClick={() => setTab('commissioner')}>Commissioner</button>
+              <>
+                <span className="nav-sep" />
+                <button className={tab === 'commissioner' ? 'active' : ''} onClick={() => setTab('commissioner')}>Commissioner</button>
+              </>
             )}
           </nav>
 
