@@ -31,6 +31,25 @@ export interface ScoutingReport {
   notes:          string;
 }
 
+// ── Audit entry for scouting actions ─────────────────────────────────────────
+
+export interface ScoutingAuditEntry {
+  /** ISO timestamp */
+  timestamp:   string;
+  /** User ID who performed the action */
+  userId:      string;
+  /** What happened */
+  action:      'scout_pass' | 'draft_board_change';
+  /** Points spent (for scout_pass) */
+  pointsSpent?: number;
+  /** Scout level reached (for scout_pass) */
+  newLevel?:   number;
+  /** Prospect ID (for scout_pass) */
+  prospectId?: string;
+  /** Brief description */
+  detail?:     string;
+}
+
 // ── Per-team scouting state for a single prospect ─────────────────────────────
 
 export interface ProspectScoutingState {
@@ -40,6 +59,8 @@ export interface ProspectScoutingState {
   pointsSpent: number;
   /** null until the first scouting pass is done */
   report:      ScoutingReport | null;
+  /** Audit trail: who scouted this prospect and when */
+  audit?:      ScoutingAuditEntry[];
 }
 
 // ── Prospect ──────────────────────────────────────────────────────────────────

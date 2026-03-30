@@ -22,7 +22,7 @@ import { createTradeProposal, applyTrade, shouldAIAcceptTrade, runAITrades, desc
 import { newsForGame, newsForTrade, newsForSigning, newsForDraftPick, addNewsItems } from './engine/news';
 import { getUserTeam } from './models/League';
 import { type DepthChart } from './models/DepthChart';
-import { type GameplanSettings, DEFAULT_GAMEPLAN, derivePlaycalling, type TeamTendencies, DEFAULT_TENDENCIES, clampTendencies } from './models/Team';
+import { type Team, type GameplanSettings, DEFAULT_GAMEPLAN, derivePlaycalling, type TeamTendencies, DEFAULT_TENDENCIES, clampTendencies } from './models/Team';
 import { type OffensiveSlot } from './models/Formation';
 import { type OffensivePlay, type Playbook, type OffensivePlan, type RouteTag } from './models/Playbook';
 import { OFFENSIVE_FORMATIONS } from './models/Formation';
@@ -74,21 +74,42 @@ function addNotification(league: League, teamId: string, message: string): Leagu
 }
 
 /**
- * Strip hidden prospect fields (trueOverall, trueRatings, truePotential, trueRound)
- * from draftClass before sending League to the client.
+ * Strip hidden prospect fields and scope scouting data to the requesting user's team.
+ * Other teams' scoutingData, scoutingAudit, and draftBoard are stripped so rivals can't spy.
+ * @param userId — the authenticated user's ID (used to determine which team's scouting to preserve)
  */
-function sanitizeLeagueForClient(league: League): League {
-  if (!league.draftClass || !Array.isArray(league.draftClass.prospects)) return league;
-  const sanitizedProspects = league.draftClass.prospects.map(
-    ({ trueOverall: _1, trueRatings: _2, truePotential: _3, trueRound: _4, ...safe }) =>
-      safe as Prospect,
-  );
-  return { ...league, draftClass: { ...league.draftClass, prospects: sanitizedProspects } };
+function sanitizeLeagueForClient(league: League, userId?: string): League {
+  let sanitized = league;
+
+  // Strip hidden prospect fields
+  if (sanitized.draftClass && Array.isArray(sanitized.draftClass.prospects)) {
+    const sanitizedProspects = sanitized.draftClass.prospects.map(
+      ({ trueOverall: _1, trueRatings: _2, truePotential: _3, trueRound: _4, ...safe }) =>
+        safe as Prospect,
+    );
+    sanitized = { ...sanitized, draftClass: { ...sanitized.draftClass, prospects: sanitizedProspects } };
+  }
+
+  // Scope scouting data: strip other teams' scouting intel
+  if (userId) {
+    sanitized = {
+      ...sanitized,
+      teams: sanitized.teams.map(t => {
+        if (t.ownerId === userId || t.id === sanitized.userTeamId) return t; // user's own team — keep everything
+        // Strip scouting data from rival teams
+        const { scoutingData: _, scoutingAudit: _a, draftBoard: _b, ...safeTeam } = t;
+        return safeTeam as Team;
+      }),
+    };
+  }
+
+  return sanitized;
 }
 
-/** Send a League response with hidden prospect fields stripped. */
-function sendLeague(res: Response, league: League): void {
-  res.json(sanitizeLeagueForClient(league));
+/** Send a League response with hidden fields stripped and scouting scoped to the requesting user. */
+function sendLeague(res: Response, league: League, req?: Request): void {
+  const userId = req ? (req as AuthRequest).user?.userId : undefined;
+  res.json(sanitizeLeagueForClient(league, userId));
 }
 
 /**
@@ -103,6 +124,7 @@ function initDraftCycle(league: League): League {
     scoutingPoints: budgetToPoints(t.scoutingBudget ?? TUNING.scouting.defaultBudgetTier),
     scoutingData:   {} as Record<string, ProspectScoutingState>,
     draftBoard:     [] as string[],
+    scoutingAudit:  [] as import('./models/Prospect').ScoutingAuditEntry[], // reset audit for new cycle
   }));
   generateAllCombineResults(draftClass.prospects);
   const collegeData = generateCollegeData(draftYear, draftClass.prospects);
@@ -413,7 +435,7 @@ app.post('/league/join', (req: Request, res: Response) => {
     }
   }
 
-  sendLeague(res, league);
+  sendLeague(res, league, req);
 });
 
 // GET /league/:id — return league state.
@@ -430,7 +452,7 @@ app.get('/league/:id', (req: Request, res: Response) => {
     }
     const membership = userId !== '(unauthenticated)' ? getMembership(id, userId) : null;
     console.log(`[league] Membership: ${membership ? `teamId=${membership.teamId}` : 'none'}`);
-    sendLeague(res, league);
+    sendLeague(res, league, req);
   } catch (err) {
     console.error(`[league] GET /league/${id} crashed:`, err);
     res.status(500).json({ error: 'Failed to load league.' });
@@ -493,7 +515,7 @@ app.post('/league/:id/claim-team', requireAuth, (req: Request, res: Response) =>
   dbSaveLeague(updated);
   addMembership(id, userId, teamId, team.name);
 
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/propose-trade — user proposes a multi-asset trade; AI responds immediately.
@@ -560,7 +582,7 @@ app.post('/league/:id/propose-trade', requireAuth, (req: Request, res: Response)
       )]);
     }
     dbSaveLeague(final);
-    sendLeague(res, final);
+    sendLeague(res, final, req);
     return;
   }
 
@@ -570,7 +592,7 @@ app.post('/league/:id/propose-trade', requireAuth, (req: Request, res: Response)
     `Trade offer from ${fromTeam.name}: send ${toDesc}, receive ${fromDesc}`
   );
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/respond-trade — human GM accepts or rejects an incoming proposal.
@@ -635,7 +657,7 @@ app.post('/league/:id/respond-trade', requireAuth, (req: Request, res: Response)
     : `${toTeam.name} rejected your trade offer`
   );
   dbSaveLeague(final);
-  sendLeague(res, final);
+  sendLeague(res, final, req);
 });
 
 // POST /league/:id/shop-player — generate CPU trade offers for one of the user's players.
@@ -678,7 +700,7 @@ app.post('/league/:id/mark-notifications-read', requireAuth, (req: Request, res:
     ),
   };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/advance-week — advance the league (commissioner only).
@@ -701,7 +723,7 @@ app.post('/league/:id/advance-week', requireAuth, (req: Request, res: Response) 
     // Purge prior-season play logs after the new season is safely saved.
     if (isSeasonRollover) purgeSeasonGameLogs(league.id, oldSeasonYear);
 
-    sendLeague(res, updated);
+    sendLeague(res, updated, req);
   } catch (e) {
     res.status(400).json({ error: errMsg(e) });
   }
@@ -716,7 +738,7 @@ app.post('/league/:id/extend-player', requireAuth, (req: Request, res: Response)
   const { league: updated, error } = extendPlayer(league, playerId);
   if (error) { res.status(400).json({ error }); return; }
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/release-player — user releases a player to free agency.
@@ -728,7 +750,7 @@ app.post('/league/:id/release-player', requireAuth, (req: Request, res: Response
   const { league: updated, error } = releasePlayer(league, playerId);
   if (error) { res.status(400).json({ error }); return; }
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/fire-coach — user fires a coach from their staff.
@@ -745,7 +767,7 @@ app.post('/league/:id/fire-coach', requireAuth, (req: Request, res: Response) =>
   const userTeam = getUserTeam(league);
   const { league: updated } = fireCoach(league, userTeam.id, role as 'OC' | 'DC');
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/hire-coach — user hires a coach from the unemployed pool.
@@ -761,7 +783,7 @@ app.post('/league/:id/hire-coach', requireAuth, (req: Request, res: Response) =>
   const { league: updated, error } = hireCoachFromPool(league, userTeam.id, role as 'HC' | 'OC' | 'DC', coachId);
   if (error) { res.status(400).json({ error }); return; }
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/promote-within — user promotes an internal coordinator candidate.
@@ -775,7 +797,7 @@ app.post('/league/:id/promote-within', requireAuth, (req: Request, res: Response
   const userTeam = getUserTeam(league);
   const { league: updated } = promoteWithin(league, userTeam.id, role as 'OC' | 'DC');
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/sign-free-agent — user signs a player from free agency.
@@ -799,7 +821,7 @@ app.post('/league/:id/sign-free-agent', requireAuth, (req: Request, res: Respons
     }
   }
   dbSaveLeague(final);
-  sendLeague(res, final);
+  sendLeague(res, final, req);
 });
 
 // POST /league/:id/offer-contract — user offers a contract to a free agent.
@@ -851,7 +873,7 @@ app.post('/league/:id/draft-pick', requireAuth, (req: Request, res: Response) =>
     )]);
   }
   dbSaveLeague(withActivity);
-  sendLeague(res, withActivity);
+  sendLeague(res, withActivity, req);
 });
 
 // POST /league/:id/sim-draft — AI picks for all remaining slots (including user's).
@@ -875,7 +897,7 @@ app.post('/league/:id/sim-draft', requireAuth, (req: Request, res: Response) => 
     withActivity = addNewsItems(withActivity, draftNews);
   }
   dbSaveLeague(withActivity);
-  sendLeague(res, withActivity);
+  sendLeague(res, withActivity, req);
 });
 
 // POST /league/:id/set-depth-chart — reorder a position slot in the user's depth chart.
@@ -890,7 +912,7 @@ app.post('/league/:id/set-depth-chart', requireAuth, (req: Request, res: Respons
   const updatedTeam = { ...userTeam, depthChart: newChart };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/set-gameplan — update the user's team gameplan and derived playcalling.
@@ -912,7 +934,7 @@ app.post('/league/:id/set-gameplan', requireAuth, (req: Request, res: Response) 
   const updatedTeam = { ...userTeam, gameplan, playcalling: derivePlaycalling(gameplan) };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/set-tendencies — update the user's team tendencies.
@@ -928,7 +950,7 @@ app.post('/league/:id/set-tendencies', requireAuth, (req: Request, res: Response
   const updatedTeam = { ...userTeam, tendencies };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/settings — update league settings (commissioner only).
@@ -969,7 +991,7 @@ app.post('/league/:id/settings', requireAuth, async (req: Request, res: Response
   }
 
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/advance-draft-pick — advance exactly one CPU pick.
@@ -994,7 +1016,7 @@ app.post('/league/:id/advance-draft-pick', requireAuth, (req: Request, res: Resp
     )]);
   }
   dbSaveLeague(withActivity);
-  sendLeague(res, withActivity);
+  sendLeague(res, withActivity, req);
 });
 
 // POST /league/:id/advance-to-user-pick — advance all CPU picks until the user's next turn.
@@ -1007,18 +1029,21 @@ app.post('/league/:id/advance-to-user-pick', requireAuth, (req: Request, res: Re
   const slot = league.draft.slots[league.draft.currentSlotIdx];
   if (slot?.teamId === league.userTeamId) {
     // Already at user's pick — no-op (avoid spurious activity log)
-    sendLeague(res, league); return;
+    sendLeague(res, league, req); return;
   }
   const updated = advanceToUserPick(league);
   const withActivity = addActivity(updated, "CPU picks complete — your turn.");
   dbSaveLeague(withActivity);
-  sendLeague(res, withActivity);
+  sendLeague(res, withActivity, req);
 });
 
 // POST /league/:id/scout-prospect — spend scouting points to generate/upgrade a prospect report.
+// Scouting data is team-scoped (franchise property): if a GM is replaced, the new GM inherits all scouting.
+// Audit entries track which user spent points and when (visible to commissioner).
 app.post('/league/:id/scout-prospect', requireAuth, (req: Request, res: Response) => {
   const league = getLeagueOrFail(req, res);
   if (!league) return;
+  const userId = (req as AuthRequest).user!.userId;
   const { prospectId } = req.body as { prospectId?: string };
   if (!prospectId) { res.status(400).json({ error: 'prospectId is required.' }); return; }
 
@@ -1027,7 +1052,11 @@ app.post('/league/:id/scout-prospect', requireAuth, (req: Request, res: Response
   const prospect = league.draftClass.prospects.find(p => p.id === prospectId);
   if (!prospect) { res.status(404).json({ error: `Prospect '${prospectId}' not found.` }); return; }
 
-  const userTeam = getUserTeam(league);
+  // Resolve user's team via ownerId (multiplayer-safe)
+  let userTeam: Team;
+  try { userTeam = getUserTeam(league, (req as AuthRequest).user?.userId); }
+  catch { res.status(403).json({ error: 'You do not own a team in this league.' }); return; }
+
   const scoutingData: Record<string, ProspectScoutingState> = userTeam.scoutingData ?? {};
   const existing: ProspectScoutingState = scoutingData[prospectId] ?? {
     prospectId, scoutLevel: 0, pointsSpent: 0, report: null,
@@ -1048,41 +1077,73 @@ app.post('/league/:id/scout-prospect', requireAuth, (req: Request, res: Response
   const scoutOverall = userTeam.scout?.overall ?? 60;
   const report = generateScoutingReport(prospect, newLevel, scoutOverall);
 
+  // Audit entry for this scouting pass
+  const auditEntry: import('./models/Prospect').ScoutingAuditEntry = {
+    timestamp:   new Date().toISOString(),
+    userId,
+    action:      'scout_pass',
+    pointsSpent: cost,
+    newLevel,
+    prospectId,
+    detail:      `Scouted ${prospect.name} to level ${newLevel} (${cost} pts)`,
+  };
+
   const newState: ProspectScoutingState = {
     prospectId,
     scoutLevel:  newLevel,
     pointsSpent: existing.pointsSpent + cost,
     report,
+    audit:       [...(existing.audit ?? []), auditEntry],
   };
+
+  const teamAudit = [...(userTeam.scoutingAudit ?? []), auditEntry];
 
   const updatedTeam = {
     ...userTeam,
     scoutingPoints: available - cost,
     scoutingData:   { ...scoutingData, [prospectId]: newState },
+    scoutingAudit:  teamAudit,
   };
   const updated: League = {
     ...league,
     teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t),
   };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/draft-board — persist the user's ordered draft board.
+// Draft board is team property — inherited by replacement GM.
 app.post('/league/:id/draft-board', requireAuth, (req: Request, res: Response) => {
   const league = getLeagueOrFail(req, res);
   if (!league) return;
+  const userId = (req as AuthRequest).user!.userId;
   const { board } = req.body as { board?: string[] };
   if (!Array.isArray(board)) { res.status(400).json({ error: 'board must be an array of prospect IDs.' }); return; }
 
-  const userTeam = getUserTeam(league);
-  const updatedTeam = { ...userTeam, draftBoard: board };
+  let userTeam: Team;
+  try { userTeam = getUserTeam(league, (req as AuthRequest).user?.userId); }
+  catch { res.status(403).json({ error: 'You do not own a team in this league.' }); return; }
+
+  // Audit entry for draft board change
+  const auditEntry: import('./models/Prospect').ScoutingAuditEntry = {
+    timestamp: new Date().toISOString(),
+    userId,
+    action:    'draft_board_change',
+    detail:    `Updated draft board (${board.length} prospects)`,
+  };
+
+  const updatedTeam = {
+    ...userTeam,
+    draftBoard:    board,
+    scoutingAudit: [...(userTeam.scoutingAudit ?? []), auditEntry],
+  };
   const updated: League = {
     ...league,
     teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t),
   };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // GET /league/:id/members — list all members (auth required).
@@ -1223,7 +1284,7 @@ app.post('/league/:id/set-formation-slot', requireAuth, (req: Request, res: Resp
   const updatedTeam = { ...userTeam, formationDepthCharts: updatedCharts };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/set-offensive-plan — update bucket → playbook mappings.
@@ -1249,7 +1310,7 @@ app.post('/league/:id/set-offensive-plan', requireAuth, (req: Request, res: Resp
   const updatedTeam = { ...userTeam, offensivePlan: newPlan };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/set-package-slot — assign a player to a defensive package slot.
@@ -1279,7 +1340,7 @@ app.post('/league/:id/set-package-slot', requireAuth, (req: Request, res: Respon
   const updatedTeam = { ...userTeam, packageDepthCharts: updatedCharts };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/set-defensive-plan — update bucket → defensive playbook mappings.
@@ -1306,7 +1367,7 @@ app.post('/league/:id/set-defensive-plan', requireAuth, (req: Request, res: Resp
   const updatedTeam = { ...userTeam, defensivePlan: newPlan };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/save-offense-playbook — upsert a custom offensive playbook.
@@ -1363,7 +1424,7 @@ app.post('/league/:id/save-offense-playbook', requireAuth, (req: Request, res: R
   const updatedTeam = { ...userTeam, customOffensivePlaybooks: newList };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/delete-offense-playbook — delete a custom offensive playbook.
@@ -1386,7 +1447,7 @@ app.post('/league/:id/delete-offense-playbook', requireAuth, (req: Request, res:
   const updatedTeam = { ...userTeam, customOffensivePlaybooks: newList };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/save-custom-play — create or update a custom offensive play.
@@ -1496,7 +1557,7 @@ app.post('/league/:id/save-custom-play', requireAuth, (req: Request, res: Respon
   const updatedTeam = { ...userTeam, customOffensivePlays: newList };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/delete-custom-play — delete a custom offensive play.
@@ -1522,7 +1583,7 @@ app.post('/league/:id/delete-custom-play', requireAuth, (req: Request, res: Resp
   const updatedTeam = { ...userTeam, customOffensivePlays: newList };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/save-custom-defense-play — create or update a custom defensive play.
@@ -1597,7 +1658,7 @@ app.post('/league/:id/save-custom-defense-play', requireAuth, (req: Request, res
   const updatedTeam = { ...userTeam, customDefensivePlays: newList };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/delete-custom-defense-play — delete a custom defensive play.
@@ -1622,7 +1683,7 @@ app.post('/league/:id/delete-custom-defense-play', requireAuth, (req: Request, r
   const updatedTeam = { ...userTeam, customDefensivePlays: newList };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/save-defense-playbook — upsert a custom defensive playbook.
@@ -1678,7 +1739,7 @@ app.post('/league/:id/save-defense-playbook', requireAuth, (req: Request, res: R
   const updatedTeam = { ...userTeam, customDefensivePlaybooks: newList };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // POST /league/:id/delete-defense-playbook — delete a custom defensive playbook.
@@ -1700,7 +1761,7 @@ app.post('/league/:id/delete-defense-playbook', requireAuth, (req: Request, res:
   const updatedTeam = { ...userTeam, customDefensivePlaybooks: newList };
   const updated = { ...league, teams: league.teams.map(t => t.id === userTeam.id ? updatedTeam : t) };
   dbSaveLeague(updated);
-  sendLeague(res, updated);
+  sendLeague(res, updated, req);
 });
 
 // GET /formations — return the full formation + playbook library (offensive + defensive) for UI.

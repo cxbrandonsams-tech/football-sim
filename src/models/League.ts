@@ -254,7 +254,16 @@ export function createLeague(
   };
 }
 
-export function getUserTeam(league: League): Team {
+/**
+ * Resolve the user's team within a league.
+ * In multiplayer: pass userId to find team by ownerId.
+ * Falls back to league.userTeamId for single-player / CLI usage.
+ */
+export function getUserTeam(league: League, userId?: string): Team {
+  if (userId) {
+    const owned = league.teams.find(t => t.ownerId === userId);
+    if (owned) return owned;
+  }
   const team = league.teams.find(t => t.id === league.userTeamId);
   if (!team) throw new Error(`User team ${league.userTeamId} not found in league`);
   return team;

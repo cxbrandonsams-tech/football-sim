@@ -236,11 +236,22 @@ export interface ScoutingReport {
   notes:          string;
 }
 
+export interface ScoutingAuditEntry {
+  timestamp:    string;
+  userId:       string;
+  action:       'scout_pass' | 'draft_board_change';
+  pointsSpent?: number;
+  newLevel?:    number;
+  prospectId?:  string;
+  detail?:      string;
+}
+
 export interface ProspectScoutingState {
   prospectId:  string;
   scoutLevel:  0 | 1 | 2 | 3;
   pointsSpent: number;
   report:      ScoutingReport | null;
+  audit?:      ScoutingAuditEntry[];
 }
 
 /** Prospect as received from the server — hidden fields (trueOverall etc.) are stripped. */
@@ -522,6 +533,7 @@ export interface Team {
   scoutingPoints?: number;
   scoutingData?:  Record<string, ProspectScoutingState>;
   draftBoard?:    string[];
+  scoutingAudit?: ScoutingAuditEntry[];
   /** Persistent front-office building philosophy. */
   frontOffice?:   FrontOfficePersonality;
 }

@@ -578,4 +578,42 @@ GameCenterView upgraded from 3-column to "4-zone" layout: existing 3-column grid
 
 ---
 
+## 2026-03-29 — Scouting Ownership Refactor (Team+Season Scoped)
+
+**What:** Refactored scouting data ownership from implicit single-user to explicit team-scoped with audit logging and multiplayer privacy.
+
+### Key Changes
+
+1. **`getUserTeam(league, userId?)` now multiplayer-safe** — accepts optional `userId` to find team by `ownerId`. Falls back to `league.userTeamId` for single-player/CLI. All 17 callsites remain backward-compatible.
+
+2. **Audit logging** — new `ScoutingAuditEntry` type records every scouting action:
+   - `timestamp`, `userId`, `action` ('scout_pass' | 'draft_board_change'), `pointsSpent`, `newLevel`, `prospectId`, `detail`
+   - Stored on `ProspectScoutingState.audit[]` (per-prospect) and `Team.scoutingAudit[]` (team-wide)
+   - Commissioner can see who spent points and when
+
+3. **Scouting privacy** — `sanitizeLeagueForClient(league, userId)` now strips `scoutingData`, `scoutingAudit`, and `draftBoard` from teams that don't belong to the requesting user. All 37 `sendLeague()` calls now pass `req` for user identification.
+
+4. **Season rollover reset** — `initDraftCycle()` now also resets `scoutingAudit` to `[]` alongside `scoutingData`, `scoutingPoints`, and `draftBoard`.
+
+5. **GM replacement works automatically** — because scouting data lives on the Team object, a new GM inherits everything when they claim the team via `/claim-team`.
+
+### Files Changed
+- `src/models/Prospect.ts` — added `ScoutingAuditEntry` interface, `audit?` field on `ProspectScoutingState`
+- `src/models/Team.ts` — added `scoutingAudit?` field, imported `ScoutingAuditEntry`
+- `src/models/League.ts` — `getUserTeam()` now accepts optional `userId` parameter
+- `src/server.ts` — audit logging in scout-prospect & draft-board endpoints, `sanitizeLeagueForClient` now strips rival scouting data, all `sendLeague()` calls pass `req`, imported `Team` type
+- `web/src/types.ts` — added `ScoutingAuditEntry`, `audit?` on ProspectScoutingState, `scoutingAudit?` on Team
+
+### Migration
+No migration needed — new fields are optional (`audit?`, `scoutingAudit?`). Existing leagues work without changes. Audit trail starts accumulating from first scouting action after this deploy.
+
+### Follow-up Items
+- Pass `userId` to `getUserTeam()` calls in non-scouting endpoints (currently uses fallback — functional but less precise)
+- Add commissioner UI to view scouting audit trail
+- Consider adding personal notes system (user-scoped, not team-scoped) as a separate feature
+
+**TypeScript compiles clean. No engine changes. No test failures.**
+
+---
+
 _Add new entries above this line, newest first._

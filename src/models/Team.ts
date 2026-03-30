@@ -3,7 +3,7 @@ import { type Coach, type CoachingStaff } from './Coach';
 import { type DepthChart, buildDepthChart, getStarters } from './DepthChart';
 import { type PlaycallingWeights, DEFAULT_PLAYCALLING, clampWeights } from './Playcalling';
 import { type HeadScout } from './Scout';
-import { type ProspectScoutingState } from './Prospect';
+import { type ProspectScoutingState, type ScoutingAuditEntry } from './Prospect';
 import { type FormationDepthCharts } from './Formation';
 import { type OffensivePlay, type Playbook, type OffensivePlan } from './Playbook';
 import { type PackageDepthCharts } from './DefensivePackage';
@@ -193,6 +193,8 @@ export interface Team {
   scoutingData?:     Record<string, ProspectScoutingState>;
   /** Ordered list of prospect IDs this team wants to target */
   draftBoard?:       string[];
+  /** Audit trail for all scouting actions — visible to commissioner */
+  scoutingAudit?:    ScoutingAuditEntry[];
   /** Persistent front-office building philosophy (CPU teams only). */
   frontOffice?:      FrontOfficePersonality;
 
