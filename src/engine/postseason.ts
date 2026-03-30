@@ -48,8 +48,8 @@ function simulateMatchup(m: PlayoffMatchup, teamMap: Map<string, Team>): Playoff
   // TODO: assumes both IDs exist in teamMap; a corrupt bracket will crash inside simulateGame
   const home = teamMap.get(m.topSeedId)!;
   const away = teamMap.get(m.bottomSeedId)!;
-  const { game } = simulateGame(createGame(`playoff-${m.id}`, 0, home, away));
-  // Ties go to the higher seed (top/home team) — no OT in this engine yet.
+  const { game } = simulateGame(createGame(`playoff-${m.id}`, 0, home, away), undefined, { isPlayoff: true });
+  // Playoff games use NFL OT rules — no ties possible.
   const topWon     = game.homeScore >= game.awayScore;
   const winnerId   = topWon ? m.topSeedId   : m.bottomSeedId;
   const winnerSeed = topWon ? m.topSeed      : m.bottomSeed;

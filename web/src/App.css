@@ -6621,6 +6621,10 @@ details[open] summary .muted { color: var(--text-secondary); }
   align-items: start;
   min-height: 500px;
 }
+.game-center-4zone {
+  grid-template-columns: 200px 1fr 260px;
+  grid-template-rows: auto auto auto auto;
+}
 
 /* ── Left: Around the League ─────────────────────────────────────────────── */
 
@@ -9395,3 +9399,422 @@ details[open] summary .muted { color: var(--text-secondary); }
   background: var(--bg-card);
   border-top: 1px solid var(--border-subtle);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   PLAY-BY-PLAY ENHANCEMENTS — 2026-03-29
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Momentum Tug-of-War Bar ─────────────────────────────────────────────── */
+.field-momentum {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+}
+.field-momentum-label {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  min-width: 28px;
+  text-align: center;
+}
+.field-momentum-track {
+  flex: 1;
+  height: 5px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  position: relative;
+  overflow: visible;
+}
+.field-momentum-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--border-default);
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.field-momentum-fill.field-momentum-home {
+  background: linear-gradient(90deg, var(--bg-elevated), var(--info));
+}
+.field-momentum-fill.field-momentum-away {
+  background: linear-gradient(90deg, var(--danger), var(--bg-elevated));
+}
+.field-momentum-dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  border: 2px solid var(--bg-surface);
+  transform: translate(-50%, -50%);
+  transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s;
+}
+.field-momentum-dot-home {
+  background: var(--info);
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+}
+.field-momentum-dot-away {
+  background: var(--danger);
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.5);
+}
+.field-momentum-ot .field-momentum-track {
+  background: rgba(251, 191, 36, 0.1);
+}
+
+/* ── Drive Summary in Scoreboard ─────────────────────────────────────────── */
+.field-sb-drive {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+/* ── Score Pulse Animation ───────────────────────────────────────────────── */
+@keyframes scorePulse {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.25); color: var(--warning); }
+  100% { transform: scale(1); }
+}
+.field-score-pulse {
+  animation: scorePulse 0.6s ease;
+}
+
+/* ── Key Play Flash ──────────────────────────────────────────────────────── */
+@keyframes fieldFlashTD {
+  0%   { border-color: transparent; box-shadow: none; }
+  20%  { border-color: var(--warning); box-shadow: 0 0 20px rgba(251, 191, 36, 0.3); }
+  100% { border-color: transparent; box-shadow: none; }
+}
+@keyframes fieldFlashTurnover {
+  0%   { border-color: transparent; box-shadow: none; }
+  20%  { border-color: var(--danger); box-shadow: 0 0 20px rgba(248, 113, 113, 0.3); }
+  100% { border-color: transparent; box-shadow: none; }
+}
+@keyframes fieldFlashBig {
+  0%   { border-color: transparent; box-shadow: none; }
+  20%  { border-color: var(--primary); box-shadow: 0 0 20px rgba(249, 115, 22, 0.3); }
+  100% { border-color: transparent; box-shadow: none; }
+}
+.field-flash-td .field-container {
+  animation: fieldFlashTD 1.8s ease forwards;
+  border: 2px solid transparent;
+}
+.field-flash-turnover .field-container {
+  animation: fieldFlashTurnover 1.8s ease forwards;
+  border: 2px solid transparent;
+}
+.field-flash-big .field-container {
+  animation: fieldFlashBig 1.8s ease forwards;
+  border: 2px solid transparent;
+}
+
+/* ── Red Zone Overlay ────────────────────────────────────────────────────── */
+.field-rz-overlay {
+  position: absolute;
+  right: 8%;
+  top: 0;
+  bottom: 0;
+  width: 20%;
+  background: rgba(185, 28, 28, 0.12);
+  z-index: 1;
+  pointer-events: none;
+  animation: fadeIn 0.3s ease;
+}
+.field-rz-label {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(239, 68, 68, 0.45);
+  font-weight: 700;
+}
+
+/* ── OT Drama ────────────────────────────────────────────────────────────── */
+@keyframes otPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.6; text-shadow: 0 0 8px rgba(251, 191, 36, 0.5); }
+}
+.field-sb-ot {
+  color: var(--warning) !important;
+  animation: otPulse 2s ease-in-out infinite;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em;
+}
+.field-ot .field-container {
+  box-shadow: inset 0 0 12px rgba(251, 191, 36, 0.06);
+}
+
+/* ── Penalty Inline Display ──────────────────────────────────────────────── */
+.field-commentary-penalty {
+  border-left: 3px solid var(--primary);
+  background:
+    linear-gradient(135deg, rgba(249, 115, 22, 0.06), transparent 60%),
+    var(--bg-surface) !important;
+}
+.field-penalty-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(249, 115, 22, 0.2);
+  font-size: var(--text-xs);
+  flex-wrap: wrap;
+}
+.field-penalty-flag {
+  font-size: 0.9rem;
+}
+.field-penalty-name {
+  color: var(--warning);
+  font-weight: 700;
+  font-family: var(--font-display);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.field-penalty-decision {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--text-xs);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.field-penalty-inline:has(.field-penalty-decision:first-of-type) .field-penalty-decision {
+  /* Fallback color — overridden by accepted/declined below */
+}
+.field-commentary-penalty .field-penalty-decision {
+  color: var(--text-bright);
+  background: rgba(249, 115, 22, 0.2);
+}
+.field-penalty-reason {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+/* ── Field Zone Wrapper (for toast positioning) ──────────────────────────── */
+.gc-field-zone {
+  position: relative;
+}
+
+/* ── Around-the-League Toast ─────────────────────────────────────────────── */
+@keyframes toastSlideIn {
+  0%   { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes toastSlideOut {
+  0%   { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+.gc-atl-toast {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(13, 24, 36, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 0.5rem 0.85rem;
+  min-width: 280px;
+  max-width: 420px;
+  animation: toastSlideIn 0.35s ease;
+}
+.gc-atl-toast-touchdown { border-color: var(--warning); }
+.gc-atl-toast-turnover  { border-color: var(--danger); }
+.gc-atl-toast-close     { border-color: var(--primary); }
+.gc-atl-toast-final     { border-color: var(--success); }
+
+.gc-atl-toast-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.gc-atl-toast-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.gc-atl-toast-label {
+  font-family: var(--font-display);
+  font-size: 0.55rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  font-weight: 700;
+}
+.gc-atl-toast-text {
+  font-size: var(--text-sm);
+  color: var(--text-bright);
+  font-weight: 500;
+}
+
+/* ── Bottom Ticker ───────────────────────────────────────────────────────── */
+.gc-bottom-ticker {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.35rem 0.75rem;
+  overflow: hidden;
+}
+.gc-ticker-label {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.gc-ticker-item {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.gc-ticker-item::after {
+  content: '·';
+  margin-left: 1rem;
+  color: var(--border-strong);
+}
+.gc-ticker-item:last-child::after {
+  display: none;
+}
+
+/* ── Points by Quarter Table ─────────────────────────────────────────────── */
+.gc-qtr-scores {
+  grid-column: 1 / -1;
+  padding: 0 0.5rem;
+}
+.gc-qtr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.gc-qtr-table th {
+  color: var(--text-muted);
+  font-weight: 400;
+  padding: 2px 6px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.gc-qtr-table td {
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 2px 6px;
+}
+.gc-qtr-team {
+  color: var(--text-primary) !important;
+  font-weight: 600;
+  text-align: left !important;
+}
+.gc-qtr-total {
+  color: var(--text-bright) !important;
+  font-weight: 700;
+}
+
+/* ── H2H Rivalry ─────────────────────────────────────────────────────────── */
+.gc-rivalry {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.gc-rivalry-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  font-weight: 700;
+  margin-bottom: var(--sp-1);
+}
+.gc-rivalry-record {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.gc-rivalry-last {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Highlights Reel ─────────────────────────────────────────────────────── */
+.gc-highlights {
+  grid-column: 1 / -1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-3);
+}
+.gc-highlights-title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  font-weight: 700;
+  margin-bottom: var(--sp-2);
+}
+.gc-highlight-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.65rem;
+  margin-bottom: 0.3rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: left;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+}
+.gc-highlight-item:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+.gc-highlight-rank {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 800;
+  color: var(--text-muted);
+  min-width: 28px;
+}
+.gc-highlight-desc {
+  flex: 1;
+  color: var(--text-primary);
+}
+.gc-highlight-q {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.gc-highlight-swing {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--warning);
+  font-weight: 700;
+  min-width: 28px;
+  text-align: right;
+}
+.gc-highlight-touchdown { border-left: 3px solid var(--warning); }
+.gc-highlight-turnover  { border-left: 3px solid var(--danger); }
+.gc-highlight-field_goal { border-left: 3px solid var(--success); }
+.gc-highlight-safety    { border-left: 3px solid var(--info); }
+.gc-highlight-big_play  { border-left: 3px solid var(--primary); }

@@ -497,4 +497,85 @@ Logs ~5% of defensive snaps: bucket → playbook → play → package → slot a
 
 ---
 
+## 2026-03-29 — Penalty Accept/Decline, NFL Overtime, Safety Fix
+
+**What:** Three engine enhancements in one session:
+
+### 1. Penalty Accept/Decline System
+- Penalties are no longer automatically applied. The opposing team now evaluates whether to accept or decline.
+- **Defensive penalties**: Offense decides — declines if the play result gained more yards or achieved a first down.
+- **Offensive penalties**: Defense decides — declines if the play was already bad for the offense (TFL, sack, incomplete).
+- `PenaltyInfo` extended: `accepted: boolean`, `declinedPlayYards?: number`.
+- Play-by-play shows "ACCEPTED" or "DECLINED" with flag emoji on every penalty.
+- Validated: ~25% of penalties are declined (realistic — big plays through defensive holding, etc.).
+
+### 2. NFL Overtime Rules
+- **Regular season**: One 10-minute OT period, modified sudden death. First-possession TD ends game immediately. First-possession FG gives other team a chance. After both teams have possessed, sudden death applies. Can still end in tie.
+- **Postseason**: Unlimited OT periods until a winner (no ties ever).
+- `simulateGame()` now accepts `options?: { isPlayoff?: boolean }`.
+- `postseason.ts` passes `{ isPlayoff: true }` — playoff ties no longer possible.
+- OT uses full play selection pipeline (playbooks, formations, penalties, fatigue, injuries).
+- Added `TUNING.overtime`: `secondsPerPeriod: 600`, `maxPlaysPerPeriod: 40`.
+- Quarter 5 = OT, Quarter 6 = OT2, etc. Play-by-play formats as "OT", "OT2".
+- Validated: ~4.5% of games go to OT (NFL ~5%), playoff ties = 0.
+
+### 3. Safety Threshold Fix
+- `safety.yardLineThreshold: 5 → 1` — safeties only trigger when TFL/sack pushes ball behind the 1-yard line.
+- Previous 5-yard threshold was too broad — routine TFLs at the 4 shouldn't be safeties.
+
+**Files changed:**
+- `src/engine/config.ts` — safety threshold, OT config section
+- `src/engine/simulateGame.ts` — penalty accept/decline logic, OT loop, `isPlayoff` option
+- `src/engine/postseason.ts` — passes `{ isPlayoff: true }` to simulateGame
+- `src/models/PlayEvent.ts` — `PenaltyInfo.accepted`, `PenaltyInfo.declinedPlayYards`
+- `src/engine/playByPlay.ts` — penalty accept/decline display, OT quarter labels
+
+**All docs updated. TypeScript compiles clean. Bench + 200-game validation pass.**
+
+---
+
+## 2026-03-29 — Play-by-Play Broadcast Experience (10 Features)
+
+**What:** Major enhancement to the GameCenterView, transforming the play-by-play experience from a basic viewer into a broadcast-like presentation with live data overlays.
+
+### Features Implemented
+
+1. **Drive Summary Strip** — shows current drive plays/yards/time in the scoreboard. `driveTracker.ts` walks backward from current play to find drive start.
+
+2. **Momentum Tug-of-War Bar** — 6px bar with glowing dot between team labels. Rolling 8-play window scores events (TD=+3, turnover=-3, first down=+1, sack=-1). Clamped to [-5,+5], mapped to 0-100% position. `momentum.ts`.
+
+3. **Key Play Flash** — field border flashes gold (TD), red (turnover), or orange (big play) via CSS keyframes. 1.8s duration, smooth ease. New `flashType` state in FieldView.
+
+4. **Red Zone Overlay** — translucent red (12% opacity) overlay on last 20% of field when `yardLine >= 80`. "RED ZONE" micro-label. CSS fade transition.
+
+5. **Penalty Inline Display** — penalty info now embedded inside commentary box below the play text. Orange divider, flag emoji, penalty name, ACCEPTED/DECLINED badge, and yards comparison reason. Replaced the old appended-text approach.
+
+6. **OT Drama** — pulsing amber "OVERTIME" badge replaces quarter label when `quarter > 4`. Field gets amber inset glow. Momentum bar track tints amber.
+
+7. **Around-the-League Toasts** — `leagueAlerts.ts` scans other week games for lead-changing TDs, late turnovers, and close finishes. Maps events to 0-100% game progress. Toasts pop up as overlay at bottom of field area, auto-dismiss after 3.5s. Styled by kind (touchdown/turnover/close/final).
+
+8. **Bottom Score Ticker** — full-width bar spanning all 3 columns. Shows all other final scores in the week. Mono font, separated by dots.
+
+9. **H2H Rivalry Stats** — when opponent team has an `ownerId` (human player), shows series record and last result in left panel. Scans current season completed games.
+
+10. **Post-Game Highlights Reel** — `highlights.ts` ranks plays by absolute score differential swing. Top 5 shown with rank, description, quarter, and swing value. Each is a clickable button that jumps the replay to that play index.
+
+### Layout Change
+GameCenterView upgraded from 3-column to "4-zone" layout: existing 3-column grid + bottom elements (ticker, quarter scores, highlights) spanning full width via `grid-column: 1 / -1`.
+
+### New Files Created
+- `web/src/momentum.ts` — momentum calculation
+- `web/src/driveTracker.ts` — drive summary computation
+- `web/src/highlights.ts` — score-swing highlights generation
+- `web/src/leagueAlerts.ts` — around-the-league alert generation + timing
+
+### Files Modified
+- `web/src/FieldView.tsx` — new props (momentumPct, momentumLeader, driveText), red zone overlay, flash types, OT treatment, penalty inline JSX, score pulse
+- `web/src/App.tsx` — imports, GameCenterView: momentum/drive/alerts/highlights computation, H2H rivalry, toast overlay, bottom ticker, points-by-quarter table, highlights reel
+- `web/src/App.css` — ~350 lines of new styles for all 10 features
+
+**Frontend-only. No backend changes. TypeScript compiles clean. Build succeeds.**
+
+---
+
 _Add new entries above this line, newest first._

@@ -492,10 +492,11 @@ export const TUNING = {
 
   // ── Safety ────────────────────────────────────────────────────────────────
   safety: {
-    // Safety occurs when offense is inside own 5 and gets sacked or TFL
-    yardLineThreshold:   5,     // must be at own 5 or closer
-    sackSafetyChance:    0.40,  // 40% of sacks inside own 5 = safety
-    runSafetyChance:     0.25,  // 25% of TFL runs inside own 5 = safety
+    // Safety occurs when offense is inside own 1 and gets sacked or TFL
+    // Only triggers if TFL/sack pushes ball behind the 1-yard line (near end zone)
+    yardLineThreshold:   1,     // must be at own 1 or closer (was 5 — too broad)
+    sackSafetyChance:    0.40,  // 40% of sacks inside threshold = safety
+    runSafetyChance:     0.25,  // 25% of TFL runs inside threshold = safety
   },
 
   // ── Penalties ─────────────────────────────────────────────────────────────
@@ -621,6 +622,17 @@ export const TUNING = {
     passBoost:          0.20,   // +20% more passes in 2-min drill
     /** Completion bonus in hurry-up (defense is on heels) */
     hurryUpCompBonus:   0.03,   // +3% completion rate in hurry-up
+  },
+
+  // ── Overtime (NFL rules) ──────────────────────────────────────────────────
+  // Regular season: one 10-min OT period; can end in tie.
+  // Postseason: unlimited OT periods until a winner; no ties.
+  // First possession determined by coin flip. If first team scores TD, game over.
+  // If first team scores FG, second team gets one possession.
+  // After both teams have had a possession, sudden death applies.
+  overtime: {
+    secondsPerPeriod:    600,    // 10 minutes per OT period
+    maxPlaysPerPeriod:   40,     // safety cap per OT period
   },
 
   // ── Clock model ───────────────────────────────────────────────────────────

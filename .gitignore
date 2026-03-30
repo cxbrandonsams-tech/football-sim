@@ -4,3 +4,4 @@ dist/
 .env
 save.json
 .claude/
+.superpowers/

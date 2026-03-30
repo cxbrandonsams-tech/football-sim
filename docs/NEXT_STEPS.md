@@ -34,13 +34,13 @@ The project has completed:
 | Draft room UI with feedback & tension | COMPLETE |
 | Draft pick trading (during draft) | COMPLETE |
 | College-Scouting integration | COMPLETE |
-| Penalty system (6 types, discipline rating) | COMPLETE |
+| Penalty system (6 types, accept/decline, discipline rating) | COMPLETE |
 | PAT / 2-point conversion system | COMPLETE |
 | Talent gap compression | COMPLETE |
 | Trailing team boost (prevent defense) | COMPLETE |
 | Special teams scoring (return TDs, blocked kicks) | COMPLETE |
 | Pick-six and fumble return TDs | COMPLETE |
-| Safety detection | COMPLETE |
+| Safety detection (1-yard threshold) | COMPLETE |
 | Clock model (real 15-min quarters) | COMPLETE |
 | Two-minute drill with timeouts and spikes | COMPLETE |
 | Full UI overhaul with design system | COMPLETE |
@@ -49,6 +49,8 @@ The project has completed:
 | Hall of Fame (era-relative scoring) | COMPLETE |
 | Ring of Honor (team-specific legacy) | COMPLETE |
 | Auth hardening (stale token handling) | COMPLETE |
+| NFL overtime rules (regular season + postseason) | COMPLETE |
+| Play-by-play broadcast experience (10 features) | COMPLETE |
 
 ---
 
@@ -133,7 +135,7 @@ These are not planned for near-term development. Do not build without explicit r
 - Audibles (changing the play at the line)
 - Hot routes (per-play route adjustments)
 - Full college simulation (currently cosmetic only)
-- Overtime rules (currently ties go to higher seed)
+- ~~Overtime rules~~ — DONE (NFL modified sudden death, regular + postseason)
 - Player holdouts / contract disputes
 - Fan/media narrative system
 - Coaching hiring/firing consequences (reputation is tracked but has no gameplay effect yet)

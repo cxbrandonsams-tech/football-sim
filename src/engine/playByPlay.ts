@@ -72,7 +72,25 @@ function formatPlay(ev: PlayEvent): string {
   }
 
   const fd = ev.firstDown ? ' ↑' : '';
-  return `${sit} | ${action}${fd}`;
+
+  // Penalty annotation
+  let penStr = '';
+  if (ev.penalty) {
+    const p = ev.penalty;
+    const penName = p.type === 'dpi' ? 'Pass Interference' :
+                    p.type === 'def_holding' ? 'Defensive Holding' :
+                    p.type === 'roughing' ? 'Roughing the Passer' :
+                    p.type === 'offsides' ? 'Offsides' :
+                    p.type === 'off_holding' ? 'Holding' :
+                    'False Start';
+    if (p.accepted) {
+      penStr = ` 🚩 ${penName} (${Math.abs(p.yards)} yds) — ACCEPTED`;
+    } else {
+      penStr = ` 🚩 ${penName} — DECLINED`;
+    }
+  }
+
+  return `${sit} | ${action}${fd}${penStr}`;
 }
 
 // ── Game log ──────────────────────────────────────────────────────────────────
@@ -92,7 +110,8 @@ export function formatGameLog(game: Game): string[] {
         lines.push('');
       }
       currentQuarter = ev.quarter;
-      lines.push(`  ── Q${currentQuarter} ──`);
+      const qLabel = currentQuarter <= 4 ? `Q${currentQuarter}` : currentQuarter === 5 ? 'OT' : `OT${currentQuarter - 4}`;
+      lines.push(`  ── ${qLabel} ──`);
     }
 
     const offAbbr = ev.offenseTeamId === homeId ? game.homeTeam.abbreviation : game.awayTeam.abbreviation;

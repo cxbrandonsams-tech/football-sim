@@ -23,6 +23,8 @@ export interface PenaltyInfo {
   onOffense:  boolean;     // true = offensive penalty, false = defensive
   yards:      number;      // yards gained/lost from the penalty
   autoFirst:  boolean;     // does this penalty award an automatic first down?
+  accepted:   boolean;     // was the penalty accepted or declined?
+  declinedPlayYards?: number; // if declined, the original play yards (for display)
 }
 
 export interface PlayEvent {

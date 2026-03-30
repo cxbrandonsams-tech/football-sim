@@ -141,7 +141,7 @@ Strong, realistic simulation engine and clean UI. Build vertical slices (complet
 ### Active systems (previously shelved, now implemented)
 - **Playbook system** — fully implemented. Route-based plays, 13 down/distance buckets, weighted selection, custom play creator, formation depth charts. See `PLAYBOOKS_AND_FORMATIONS.md`.
 - **Tendencies / Gameplan** — 7-slider system with 8 coach archetype presets, recommendations, weekly prep. See `docs/FRANCHISE_SOURCE_OF_TRUTH.md` Section 7.
-- **Penalty system** — 6 penalty types (DPI, def holding, roughing, offsides, off holding, false start). `discipline` rating modulates frequency.
+- **Penalty system** — 6 penalty types (DPI, def holding, roughing, offsides, off holding, false start). `discipline` rating modulates frequency. **Accept/decline logic**: opposing team decides whether to accept or decline each penalty based on comparing penalty outcome vs play result (~25% decline rate).
 - **PAT / 2PT** — after every TD. XP 94% base, 2PT 48% base. AI decision logic for going for 2.
 - **Talent compression** — rating gaps compressed by 0.80x. Prevents shutouts.
 - **Trailing boost** — +0.10 success at 21+ deficit, +0.08 at 14+ late Q4 (prevent defense).
@@ -151,6 +151,8 @@ Strong, realistic simulation engine and clean UI. Build vertical slices (complet
 - **Hall of Fame** — era-relative scoring using seasonal league rankings. 150-point threshold. See `docs/HALL_OF_FAME_AND_RING_OF_HONOR.md`.
 - **Ring of Honor** — team-specific legacy with loyalty bonus. 55-point threshold, 100 for jersey retirement.
 - **Team logos** — 32 PNG logos at `web/public/assets/teams/team_{abbr}.png`. `TeamLogo` component with fallback.
+- **Overtime** — NFL modified sudden death rules. Regular season: one 10-min OT period (can still tie). Postseason: unlimited OT (no ties). First-possession TD wins; FG gives other team a chance. `simulateGame()` accepts `{ isPlayoff: true }` option.
+- **Play-by-play enhancements** — 10-feature broadcast experience: drive summary strip, momentum tug-of-war bar, key play flash (gold/red/orange), red zone overlay, penalty accept/decline inline display, OT drama (pulsing badge + amber glow), around-the-league toast alerts, bottom score ticker, H2H rivalry stats, post-game highlights reel (top 5 by score swing, clickable). Utility modules: `momentum.ts`, `driveTracker.ts`, `highlights.ts`, `leagueAlerts.ts`.
 
 ### Live game experience (implemented)
 The in-game experience feels like a broadcast:

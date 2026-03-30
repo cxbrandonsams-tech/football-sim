@@ -1344,7 +1344,8 @@ function shouldGoForIt(
   return Math.random() < clamp(base * mult, 0.02, 0.95);
 }
 
-export function simulateGame(game: Game, metaProfile?: import('../models/League').MetaProfile): GameResult {
+export function simulateGame(game: Game, metaProfile?: import('../models/League').MetaProfile, options?: { isPlayoff?: boolean }): GameResult {
+  const isPlayoff = options?.isPlayoff ?? false;
   const home = game.homeTeam;
   const away = game.awayTeam;
   const events:   PlayEvent[]  = [];
@@ -1373,8 +1374,8 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
   let down     = 1;
   let distance = 10;
   // Timeout tracking: each team gets 3 per half, reset at halftime
-  let homeTimeouts = cfg.twoMinuteDrill.timeoutsPerHalf;
-  let awayTimeouts = cfg.twoMinuteDrill.timeoutsPerHalf;
+  let homeTimeouts: number = cfg.twoMinuteDrill.timeoutsPerHalf;
+  let awayTimeouts: number = cfg.twoMinuteDrill.timeoutsPerHalf;
   const kickoffResult = resolveKickoffStart(possession === 'home' ? home : away);
   let yardLine = kickoffResult.yardLine;
   let homeScore = 0;
@@ -1690,60 +1691,107 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
       checkInjury(offPrimary, offRaw.id, offInjured);
       checkInjury(defPrimary, defRaw.id, defInjured);
 
-      // ── Penalty system ──────────────────────────────────────────────────
+      // ── Penalty system (with accept/decline) ─────────────────────────
       // Penalties fire probabilistically after the play resolves.
-      // Offensive penalties negate the play; defensive penalties give free yards.
+      // The opposing team decides whether to accept or decline based on
+      // which outcome is more favorable:
+      //   - Defensive penalties: OFFENSE decides (accept if penalty > play result)
+      //   - Offensive penalties: DEFENSE decides (accept if it hurts offense more)
       // Only one penalty per play (first match wins).
       const pen = cfg.penalties;
       const olDisc = ol(off)?.discipline ?? 50;
       const cbDisc = cb(def)?.discipline ?? 50;
       let penaltyApplied = false;
 
+      // Save pre-penalty state for accept/decline comparison
+      const prePenYardLine = yardLine;
+      const prePenDown = down;
+      const prePenDistance = distance;
+      const playYards = ev.yards;
+      const playResult = ev.result;
+
       // Skip penalties on special teams (punts, FGs, kickoffs)
       if (ev.type !== 'punt' && ev.type !== 'field_goal') {
-        // 1. Offensive penalties — negate the play, push offense back
+        // 1. Offensive penalties — defense decides accept/decline
         const holdingProb = pen.holdingChance + Math.max(0, (50 - olDisc) * pen.holdingDisciplineScale);
         const falseStartProb = pen.falseStartChance + Math.max(0, (50 - olDisc) * pen.falseStartDisciplineScale);
 
         if (ev.result !== 'touchdown' && Math.random() < falseStartProb) {
-          yardLine = Math.max(1, yardLine - pen.falseStartYards);
-          distance += pen.falseStartYards;
-          penaltyApplied = true;
-          ev.penalty = { type: 'false_start', onOffense: true, yards: -pen.falseStartYards, autoFirst: false };
+          // Defense decides: accept penalty (push offense back) or decline (keep play result)?
+          // Accept if the play gained positive yards for the offense; decline if play was bad for offense
+          const playBenefitsOffense = playYards > 0 || playResult === 'success';
+          const accepted = playBenefitsOffense; // defense accepts to negate a good play
+          if (accepted) {
+            yardLine = Math.max(1, yardLine - pen.falseStartYards);
+            distance += pen.falseStartYards;
+            penaltyApplied = true;
+          }
+          ev.penalty = { type: 'false_start', onOffense: true, yards: -pen.falseStartYards, autoFirst: false, accepted, ...(accepted ? {} : { declinedPlayYards: playYards }) };
         } else if (ev.result !== 'touchdown' && Math.random() < holdingProb) {
-          yardLine = Math.max(1, yardLine - pen.holdingYards);
-          distance += pen.holdingYards;
-          penaltyApplied = true;
-          ev.penalty = { type: 'off_holding', onOffense: true, yards: -pen.holdingYards, autoFirst: false };
+          const playBenefitsOffense = playYards > 0 || playResult === 'success';
+          const accepted = playBenefitsOffense;
+          if (accepted) {
+            yardLine = Math.max(1, yardLine - pen.holdingYards);
+            distance += pen.holdingYards;
+            penaltyApplied = true;
+          }
+          ev.penalty = { type: 'off_holding', onOffense: true, yards: -pen.holdingYards, autoFirst: false, accepted, ...(accepted ? {} : { declinedPlayYards: playYards }) };
         }
 
-        // 2. Defensive penalties — give offense free yards (often auto 1st down)
-        // Only checked if no offensive penalty AND the play wasn't already a TD
+        // 2. Defensive penalties — offense decides accept/decline
+        // Only checked if no accepted offensive penalty AND the play wasn't a TD
         if (!penaltyApplied && ev.result !== 'touchdown') {
           const isPenaltyPass = type === 'short_pass' || type === 'medium_pass' || type === 'deep_pass';
+
+          // Helper: offense should accept defensive penalty if penalty outcome > play outcome
+          const shouldAcceptDefPenalty = (penYards: number, autoFirst: boolean): boolean => {
+            // Always accept if play was a turnover (penalty negates it)
+            if (playResult === 'turnover') return true;
+            // Always accept if play lost yards and penalty gains yards
+            if (playYards <= 0 && penYards > 0) return true;
+            // Accept if penalty yards > play yards
+            if (penYards > playYards) return true;
+            // Accept if penalty gives auto first down and play didn't get one
+            if (autoFirst && playYards < prePenDistance) return true;
+            // Otherwise decline — the play was better
+            return false;
+          };
+
           if (isPenaltyPass && Math.random() < (pen.dpiChance + Math.max(0, (50 - cbDisc) * pen.dpiDisciplineScale))) {
             const dpiYards = randInt(pen.dpiYardsMin, pen.dpiYardsMax);
-            yardLine = Math.min(99, yardLine + dpiYards);
-            down = 1; distance = 10;
-            penaltyApplied = true;
-            ev.penalty = { type: 'dpi', onOffense: false, yards: dpiYards, autoFirst: true };
-            if (ev.result === 'turnover') ev.result = 'fail' as PlayResult;
+            const accepted = shouldAcceptDefPenalty(dpiYards, true);
+            if (accepted) {
+              yardLine = Math.min(99, yardLine + dpiYards);
+              down = 1; distance = 10;
+              penaltyApplied = true;
+              if (ev.result === 'turnover') ev.result = 'fail' as PlayResult;
+            }
+            ev.penalty = { type: 'dpi', onOffense: false, yards: dpiYards, autoFirst: true, accepted, ...(!accepted ? { declinedPlayYards: playYards } : {}) };
           } else if (isPenaltyPass && Math.random() < pen.defHoldingChance) {
-            yardLine = Math.min(99, yardLine + pen.defHoldingYards);
-            down = 1; distance = 10;
-            penaltyApplied = true;
-            ev.penalty = { type: 'def_holding', onOffense: false, yards: pen.defHoldingYards, autoFirst: true };
+            const accepted = shouldAcceptDefPenalty(pen.defHoldingYards, true);
+            if (accepted) {
+              yardLine = Math.min(99, yardLine + pen.defHoldingYards);
+              down = 1; distance = 10;
+              penaltyApplied = true;
+            }
+            ev.penalty = { type: 'def_holding', onOffense: false, yards: pen.defHoldingYards, autoFirst: true, accepted, ...(!accepted ? { declinedPlayYards: playYards } : {}) };
           } else if (isPenaltyPass && Math.random() < pen.roughingChance) {
-            yardLine = Math.min(99, yardLine + pen.roughingYards);
-            down = 1; distance = 10;
-            penaltyApplied = true;
-            ev.penalty = { type: 'roughing', onOffense: false, yards: pen.roughingYards, autoFirst: true };
+            const accepted = shouldAcceptDefPenalty(pen.roughingYards, true);
+            if (accepted) {
+              yardLine = Math.min(99, yardLine + pen.roughingYards);
+              down = 1; distance = 10;
+              penaltyApplied = true;
+            }
+            ev.penalty = { type: 'roughing', onOffense: false, yards: pen.roughingYards, autoFirst: true, accepted, ...(!accepted ? { declinedPlayYards: playYards } : {}) };
           } else if (Math.random() < pen.offsidesChance) {
             const autoFirst = pen.offsidesYards >= distance;
-            yardLine = Math.min(99, yardLine + pen.offsidesYards);
-            if (autoFirst) { down = 1; distance = 10; }
-            penaltyApplied = true;
-            ev.penalty = { type: 'offsides', onOffense: false, yards: pen.offsidesYards, autoFirst };
+            const accepted = shouldAcceptDefPenalty(pen.offsidesYards, autoFirst);
+            if (accepted) {
+              yardLine = Math.min(99, yardLine + pen.offsidesYards);
+              if (autoFirst) { down = 1; distance = 10; }
+              penaltyApplied = true;
+            }
+            ev.penalty = { type: 'offsides', onOffense: false, yards: pen.offsidesYards, autoFirst, accepted, ...(!accepted ? { declinedPlayYards: playYards } : {}) };
           }
         }
       }
@@ -1862,6 +1910,279 @@ export function simulateGame(game: Game, metaProfile?: import('../models/League'
         changePoss(); // halftime flip
         yardLine = handleKickoff();
       }
+    }
+  }
+
+  // ── Overtime (NFL rules) ─────────────────────────────────────────────────
+  // Only enters OT if tied at end of regulation.
+  // Regular season: one OT period, can still end in tie.
+  // Postseason: unlimited OT periods until a winner.
+  if (homeScore === awayScore) {
+    let otPeriod = 0;
+    const maxOTPeriods = isPlayoff ? 99 : 1; // regular season: 1 period max
+
+    otLoop: while (true) {
+      otPeriod++;
+      if (otPeriod > maxOTPeriods) break; // regular season: only one OT period
+
+      let otClock = cfg.overtime.secondsPerPeriod;
+      let otPlays = 0;
+
+      // OT coin toss — new possession
+      possession = Math.random() < 0.5 ? 'home' : 'away';
+      homeTimeouts = 2;
+      awayTimeouts = 2;
+      yardLine = handleKickoff();
+      down = 1; distance = 10;
+      quarter = 4 + otPeriod; // quarter 5, 6, etc. for display
+
+      // Track OT possession state for modified sudden death
+      let firstPossTeam: 'home' | 'away' = possession;
+      let firstPossComplete = false;
+      let firstPossResult: 'td' | 'fg' | 'none' = 'none';
+      let suddenDeath = false;
+
+      /** Mark the first drive as complete (used by turnover/punt/downs). */
+      const endFirstPoss = () => {
+        if (possession === firstPossTeam && !firstPossComplete) {
+          firstPossComplete = true;
+          firstPossResult = 'none';
+        }
+      };
+
+      /** After a scoring play, determine if OT is over or continues. Returns true to break otLoop. */
+      const checkOTEnd = (scoringType: 'td' | 'fg'): boolean => {
+        if (possession === firstPossTeam && !firstPossComplete) {
+          firstPossComplete = true;
+          firstPossResult = scoringType;
+          if (scoringType === 'td') return true; // first-possession TD always ends it
+          // FG: other team gets a possession
+          changePoss();
+          yardLine = handleKickoff();
+          return false;
+        }
+        if (suddenDeath) return true; // any score in sudden death ends it
+        if (scoringType === 'td') return true; // second team TD always wins
+        // Second team FG when first team scored FG — enter sudden death
+        if (firstPossResult === 'fg' && scoringType === 'fg') {
+          suddenDeath = true;
+          changePoss();
+          yardLine = handleKickoff();
+          return false;
+        }
+        // Second team FG when first team scored nothing — second team wins
+        return true;
+      };
+
+      while (otClock > 0 && otPlays < cfg.overtime.maxPlaysPerPeriod) {
+        const offRaw     = possession === 'home' ? home : away;
+        const defRaw     = possession === 'home' ? away : home;
+        const offInjured = possession === 'home' ? homeInjured : awayInjured;
+        const defInjured = possession === 'home' ? awayInjured : homeInjured;
+        const off        = withInGameInjuries(offRaw, offInjured);
+        const def        = withInGameInjuries(defRaw, defInjured);
+        const offScore   = possession === 'home' ? homeScore : awayScore;
+        const defScore   = possession === 'home' ? awayScore : homeScore;
+
+        const sit: GameSituation = {
+          down, distance, yardLine, quarter,
+          clockSeconds: otClock,
+          scoreDiff: offScore - defScore,
+        };
+
+        // 4th down decisions
+        if (down === 4) {
+          const fgRange = yardLine >= cfg.fieldGoal.attemptYardLine;
+          if (fgRange) {
+            // Attempt FG
+            const ev = simulatePlay(off, def, 'field_goal', quarter, down, distance, yardLine);
+            events.push(ev);
+            otPlays++;
+
+            if (ev.result === 'field_goal_good') {
+              score(3);
+              if (checkOTEnd('fg')) break otLoop;
+            } else {
+              endFirstPoss();
+              yardLine = Math.max(5, Math.min(95, 100 - yardLine));
+              changePoss();
+            }
+
+            otClock -= randInt(cfg.clock.runoff.fgMin, cfg.clock.runoff.fgMax);
+            continue;
+          } else if (distance > 3) {
+            // Punt
+            const puntYards = randInt(cfg.punt.minYards, cfg.punt.maxYards);
+            const netYardLine = yardLine + puntYards;
+            events.push({
+              type: 'punt' as PlayType, offenseTeamId: offRaw.id, defenseTeamId: defRaw.id,
+              result: 'success' as PlayResult, yards: puntYards, quarter, down, distance, yardLine,
+            });
+            otPlays++;
+            endFirstPoss();
+
+            if (netYardLine >= 100) {
+              yardLine = cfg.punt.touchbackYardLine;
+            } else {
+              yardLine = 100 - netYardLine;
+            }
+            changePoss();
+
+            otClock -= randInt(cfg.clock.runoff.puntMin, cfg.clock.runoff.puntMax);
+            continue;
+          }
+          // else: go for it
+        }
+
+        // Normal play selection and simulation
+        const resolved   = resolvePlay(off, sit, playHistory, metaProfile);
+        const type       = resolved?.engineType ?? selectPlayType(off, sit);
+        const offForPlay = resolved ? applyFormationToTeam(off, resolved.play) : off;
+        const defResolved = resolveDefensivePlay(def, sit, off, halftimeProfiles.get(def.id));
+        const defForPlay  = defResolved ? applyPackageToTeam(def, defResolved.play) : def;
+        const isRun       = type === 'inside_run' || type === 'outside_run';
+
+        const offPrimary = isRun ? firstHealthy(offForPlay, 'RB') : firstHealthy(offForPlay, 'QB');
+        const defPrimary = isRun ? firstHealthy(defForPlay, 'LB') : firstHealthy(defForPlay, 'CB');
+        const offFatigue = fatigueMap.get(offPrimary?.id ?? '') ?? 0;
+        const defFatigue = fatigueMap.get(defPrimary?.id ?? '') ?? 0;
+        let playAdj = (defFatigue - offFatigue) * cfg.fatigue.effectivenessPenalty;
+
+        const ev = simulatePlay(offForPlay, defForPlay, type, quarter, down, distance, yardLine, playAdj, sit);
+        if (resolved?.explanation) ev.explanation = resolved.explanation;
+        events.push(ev);
+        otPlays++;
+
+        // Fatigue & injury
+        buildFatigue(offPrimary);
+        buildFatigue(defPrimary);
+        checkInjury(offPrimary, offRaw.id, offInjured);
+        checkInjury(defPrimary, defRaw.id, defInjured);
+
+        // ── OT Penalty system (same as regulation, with accept/decline) ──
+        const pen = cfg.penalties;
+        const otOlDisc = ol(off)?.discipline ?? 50;
+        const otCbDisc = cb(def)?.discipline ?? 50;
+        let penaltyApplied = false;
+
+        const playYards = ev.yards;
+        const playResult = ev.result;
+        const prePenDistance = distance;
+
+        if (ev.type !== 'punt' && ev.type !== 'field_goal') {
+          const holdingProb = pen.holdingChance + Math.max(0, (50 - otOlDisc) * pen.holdingDisciplineScale);
+          const falseStartProb = pen.falseStartChance + Math.max(0, (50 - otOlDisc) * pen.falseStartDisciplineScale);
+
+          if (ev.result !== 'touchdown' && Math.random() < falseStartProb) {
+            const accepted = playYards > 0 || playResult === 'success';
+            if (accepted) { yardLine = Math.max(1, yardLine - pen.falseStartYards); distance += pen.falseStartYards; penaltyApplied = true; }
+            ev.penalty = { type: 'false_start', onOffense: true, yards: -pen.falseStartYards, autoFirst: false, accepted, ...(accepted ? {} : { declinedPlayYards: playYards }) };
+          } else if (ev.result !== 'touchdown' && Math.random() < holdingProb) {
+            const accepted = playYards > 0 || playResult === 'success';
+            if (accepted) { yardLine = Math.max(1, yardLine - pen.holdingYards); distance += pen.holdingYards; penaltyApplied = true; }
+            ev.penalty = { type: 'off_holding', onOffense: true, yards: -pen.holdingYards, autoFirst: false, accepted, ...(accepted ? {} : { declinedPlayYards: playYards }) };
+          }
+
+          if (!penaltyApplied && ev.result !== 'touchdown') {
+            const isPenaltyPass = type === 'short_pass' || type === 'medium_pass' || type === 'deep_pass';
+            const shouldAccept = (penYards: number, autoFirst: boolean): boolean => {
+              if (playResult === 'turnover') return true;
+              if (playYards <= 0 && penYards > 0) return true;
+              if (penYards > playYards) return true;
+              if (autoFirst && playYards < prePenDistance) return true;
+              return false;
+            };
+
+            if (isPenaltyPass && Math.random() < (pen.dpiChance + Math.max(0, (50 - otCbDisc) * pen.dpiDisciplineScale))) {
+              const dpiYards = randInt(pen.dpiYardsMin, pen.dpiYardsMax);
+              const accepted = shouldAccept(dpiYards, true);
+              if (accepted) { yardLine = Math.min(99, yardLine + dpiYards); down = 1; distance = 10; penaltyApplied = true; if (ev.result === 'turnover') ev.result = 'fail' as PlayResult; }
+              ev.penalty = { type: 'dpi', onOffense: false, yards: dpiYards, autoFirst: true, accepted, ...(!accepted ? { declinedPlayYards: playYards } : {}) };
+            } else if (isPenaltyPass && Math.random() < pen.defHoldingChance) {
+              const accepted = shouldAccept(pen.defHoldingYards, true);
+              if (accepted) { yardLine = Math.min(99, yardLine + pen.defHoldingYards); down = 1; distance = 10; penaltyApplied = true; }
+              ev.penalty = { type: 'def_holding', onOffense: false, yards: pen.defHoldingYards, autoFirst: true, accepted, ...(!accepted ? { declinedPlayYards: playYards } : {}) };
+            } else if (isPenaltyPass && Math.random() < pen.roughingChance) {
+              const accepted = shouldAccept(pen.roughingYards, true);
+              if (accepted) { yardLine = Math.min(99, yardLine + pen.roughingYards); down = 1; distance = 10; penaltyApplied = true; }
+              ev.penalty = { type: 'roughing', onOffense: false, yards: pen.roughingYards, autoFirst: true, accepted, ...(!accepted ? { declinedPlayYards: playYards } : {}) };
+            } else if (Math.random() < pen.offsidesChance) {
+              const autoFirst = pen.offsidesYards >= distance;
+              const accepted = shouldAccept(pen.offsidesYards, autoFirst);
+              if (accepted) { yardLine = Math.min(99, yardLine + pen.offsidesYards); if (autoFirst) { down = 1; distance = 10; } penaltyApplied = true; }
+              ev.penalty = { type: 'offsides', onOffense: false, yards: pen.offsidesYards, autoFirst, accepted, ...(!accepted ? { declinedPlayYards: playYards } : {}) };
+            }
+          }
+        }
+
+        // ── OT Play resolution ───────────────────────────────────────────
+        if (!penaltyApplied) {
+          if (ev.result === 'touchdown') {
+            score(6 + resolveConversion());
+            if (checkOTEnd('td')) break otLoop;
+          } else if (ev.result === 'turnover') {
+            const isINT = ev.type === 'interception';
+            const returnTDChance = isINT ? cfg.turnoverReturn.pickSixChance : cfg.turnoverReturn.fumbleReturnTDChance;
+            if (Math.random() < returnTDChance) {
+              changePoss();
+              score(6 + resolveConversion());
+              break otLoop; // Turnover return TD always ends OT
+            } else {
+              endFirstPoss();
+              yardLine = Math.max(5, Math.min(95, 100 - yardLine));
+              changePoss();
+            }
+          } else {
+            const newYL = yardLine + ev.yards;
+
+            if (newYL <= 0) {
+              if (possession === 'home') awayScore += 2; else homeScore += 2;
+              if (suddenDeath || firstPossComplete) break otLoop;
+              firstPossComplete = true;
+              firstPossResult = 'none';
+              changePoss();
+              yardLine = 25; down = 1; distance = 10;
+            } else if (newYL <= cfg.safety.yardLineThreshold && ev.yards < 0) {
+              const isSack = ev.type === 'sack';
+              const safetyChance = isSack ? cfg.safety.sackSafetyChance : cfg.safety.runSafetyChance;
+              if (Math.random() < safetyChance) {
+                if (possession === 'home') awayScore += 2; else homeScore += 2;
+                if (suddenDeath || firstPossComplete) break otLoop;
+                firstPossComplete = true; firstPossResult = 'none';
+                changePoss();
+                yardLine = 25; down = 1; distance = 10;
+              } else {
+                yardLine = Math.max(1, newYL);
+                down++; distance -= ev.yards;
+                if (down > 4) { endFirstPoss(); changePoss(); }
+              }
+            } else {
+              yardLine = Math.min(99, newYL);
+              if (ev.yards >= distance) {
+                down = 1; distance = 10;
+              } else {
+                down++; distance -= ev.yards;
+                if (down > 4) { endFirstPoss(); changePoss(); }
+              }
+            }
+          }
+        } else if (ev.result === 'touchdown') {
+          score(6 + resolveConversion());
+          if (checkOTEnd('td')) break otLoop;
+        }
+
+        if (penaltyApplied && yardLine >= 100) { yardLine = 99; down = 1; distance = 1; }
+
+        // OT clock
+        otClock -= computeClockRunoff(events[events.length - 1]!, offRaw, quarter, otClock, offScore - defScore);
+
+        // Track when second team's possession completes → enter sudden death
+        if (firstPossComplete && !suddenDeath && possession === firstPossTeam) {
+          suddenDeath = true;
+        }
+      }
+      // OT period expired — if regular season, it's a tie; if playoff, next period
+      if (homeScore !== awayScore) break; // someone scored, game over
     }
   }
 

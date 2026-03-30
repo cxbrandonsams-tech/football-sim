@@ -170,3 +170,53 @@ After the core engine lock, new NFL mechanics were layered on top of the locked 
 - Created `TeamLogo` component integrated across all views
 - Fixed 500 error on claim-team when user no longer exists in wiped DB
 - `requireAuth` now verifies user exists in DB; frontend auto-clears on 401
+
+---
+
+## 2026-03-29 — Penalty Accept/Decline, Overtime, Safety Fix
+
+### Phase S — Penalty Accept/Decline
+- Penalties are no longer auto-applied. Opposing team now decides accept or decline.
+- **Defensive penalties**: Offense decides. Declines if play gained more yards than penalty would give.
+- **Offensive penalties**: Defense decides. Declines if play result was already bad for offense (sack, TFL, incomplete).
+- `PenaltyInfo` type extended with `accepted: boolean` and `declinedPlayYards?: number`.
+- Play-by-play shows "ACCEPTED" or "DECLINED" on every flag.
+- Decline rate: ~25% (validated over 200 games).
+
+### Phase T — NFL Overtime Rules
+- Added `TUNING.overtime` config: `secondsPerPeriod: 600`, `maxPlaysPerPeriod: 40`.
+- **Regular season**: One 10-minute OT period. Modified sudden death (first-possession TD wins; FG gives other team a chance). Can still end in tie.
+- **Postseason**: Unlimited OT periods — game continues until a winner.
+- `simulateGame()` now accepts `options?: { isPlayoff?: boolean }`.
+- `postseason.ts` passes `{ isPlayoff: true }` so playoff games never tie.
+- OT coin toss determines first possession. 2 timeouts per team in OT.
+- OT rate: ~4.5% of games (NFL is ~5%). Tie rate dropped significantly.
+- Quarter numbers: 5 = OT1, 6 = OT2, etc. Play-by-play labels "OT", "OT2", etc.
+
+### Phase U — Safety Threshold Fix
+- `safety.yardLineThreshold: 5 → 1` — safeties only trigger if TFL/sack pushes ball behind the 1-yard line.
+- Previous threshold of 5 was too broad; routine short-yardage TFLs at the 4 or 5 were triggering safeties unrealistically.
+- Automatic safety (pushed past own goal line, `newYL <= 0`) unchanged.
+
+---
+
+## 2026-03-29 — Play-by-Play Enhancements (10 Features)
+
+### Phase V — Broadcast Experience Overhaul
+Frontend-only changes enhancing the GameCenterView with 10 new features:
+
+1. **Drive Summary Strip** — embedded in scoreboard, shows plays/yards/time for current drive
+2. **Momentum Tug-of-War Bar** — 6px bar with glowing dot, shifts based on rolling 8-play window
+3. **Key Play Flash** — field border flashes gold (TD), red (turnover), or orange (big play) for 1.8s
+4. **Red Zone Overlay** — translucent red tint on last 20% of field when inside the 20
+5. **Penalty Inline Display** — flag+penalty name+decision embedded in commentary box with orange styling
+6. **OT Drama** — pulsing "OVERTIME" badge, amber field glow, heightened commentary
+7. **Around-the-League Toasts** — overlay toasts pop up during replay for key moments from other games
+8. **Bottom Score Ticker** — full-width bar showing all week's final scores
+9. **H2H Rivalry Stats** — series record shown in left panel when facing another human's team
+10. **Post-Game Highlights Reel** — top 5 plays ranked by score swing, clickable to jump to play
+
+**New utility modules:** `momentum.ts`, `driveTracker.ts`, `highlights.ts`, `leagueAlerts.ts`
+**Files changed:** `FieldView.tsx`, `App.tsx`, `App.css`
+**Layout:** Expanded 4-zone (3-column grid + bottom ticker spanning full width)
+**No backend changes.**

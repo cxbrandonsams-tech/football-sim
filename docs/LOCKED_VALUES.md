@@ -293,9 +293,23 @@ fumbleReturnTDChance:  0.08    // ~8% of fumble recoveries returned
 ```typescript
 // src/engine/config.ts — TUNING.safety
 
-yardLineThreshold:   5       // must be at own 5 or closer
-sackSafetyChance:    0.40    // 40% of sacks inside own 5
-runSafetyChance:     0.25    // 25% of TFL runs inside own 5
+yardLineThreshold:   1       // CHANGED 2026-03-29: was 5 — only behind 1-yard line triggers safety
+sackSafetyChance:    0.40    // 40% of sacks inside threshold
+runSafetyChance:     0.25    // 25% of TFL runs inside threshold
+```
+
+---
+
+## Overtime
+
+```typescript
+// src/engine/config.ts — TUNING.overtime — ADDED 2026-03-29
+
+secondsPerPeriod:    600     // 10 minutes per OT period
+maxPlaysPerPeriod:   40      // safety cap per OT period
+// Regular season: 1 OT period max (can still tie)
+// Postseason: unlimited OT periods (no ties)
+// NFL modified sudden death rules apply
 ```
 
 ---
@@ -304,15 +318,17 @@ runSafetyChance:     0.25    // 25% of TFL runs inside own 5
 
 ```typescript
 // src/engine/config.ts — TUNING.penalties
+// Accept/decline system added 2026-03-29: opposing team decides
+// whether to accept or decline based on play result comparison.
 
 // Defensive penalties (help offense)
 dpiChance:              0.045   // pass interference
 dpiYardsMin:            12
 dpiYardsMax:            35
 dpiDisciplineScale:     0.0005
-defHoldingChance:       0.030
+defHoldingChance:       0.035
 defHoldingYards:        5
-roughingChance:         0.008
+roughingChance:         0.012
 roughingYards:          15
 offsidesChance:         0.020
 offsidesYards:          5

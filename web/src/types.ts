@@ -549,6 +549,8 @@ export interface PenaltyInfo {
   onOffense:  boolean;
   yards:      number;
   autoFirst:  boolean;
+  accepted:   boolean;
+  declinedPlayYards?: number;
 }
 
 export interface PlayEvent {

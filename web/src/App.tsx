@@ -8,6 +8,10 @@ import { DashboardSchedule } from './DashboardSchedule';
 import { PlaybooksView } from './views/PlaybooksView';
 import { FieldView } from './FieldView';
 import { TeamLogo } from './TeamLogo';
+import { computeMomentum } from './momentum';
+import { computeDriveStats, formatDriveTime } from './driveTracker';
+import { generateHighlights } from './highlights';
+import { generateLeagueAlerts, getActiveAlerts, type LeagueAlert } from './leagueAlerts';
 import {
   listLeagues, createLeague, joinLeague, fetchLeague, advanceWeek,
   claimTeam as claimTeamApi, proposeTrade as proposeTradeApi, respondTrade as respondTradeApi,
@@ -3490,7 +3494,7 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
 
   const currentEvent = events[idx];
   const quarter = currentEvent?.quarter ?? 1;
-  const quarterLabel = atEnd && events.length > 0 ? 'Final' : `Q${Math.min(quarter, 4)}`;
+  const quarterLabel = atEnd && events.length > 0 ? 'Final' : (quarter <= 4 ? `Q${quarter}` : quarter === 5 ? 'OT' : `OT${quarter - 4}`);
 
   // Live box score up to idx
   const liveGame = { ...focusGame, events: events.slice(0, idx + 1) };
@@ -3521,8 +3525,89 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
 
   const isMyGame = focusGame.homeTeam.id === myTeamId || focusGame.awayTeam.id === myTeamId;
 
+  // ── New: Momentum ───────────────────────────────────────────────────────────
+  const momentum = useMemo(() => computeMomentum(events, idx, homeId), [events, idx, homeId]);
+
+  // ── New: Drive stats ────────────────────────────────────────────────────────
+  const drive = useMemo(() => computeDriveStats(events, idx), [events, idx]);
+  const driveText = drive ? `${drive.plays} plays · ${drive.yards} yds · ${formatDriveTime(drive.elapsed)}` : undefined;
+
+  // ── New: Around-the-league alerts ───────────────────────────────────────────
+  const leagueAlerts = useMemo(
+    () => generateLeagueAlerts(weekGames, focusGame.id),
+    [weekGames, focusGame.id],
+  );
+  const [shownAlertIds] = useState(() => new Set<number>());
+  const [activeToast, setActiveToast] = useState<LeagueAlert | null>(null);
+
+  // Fire alerts as user progresses through the game
+  useEffect(() => {
+    if (events.length === 0) return;
+    const pct = idx / events.length;
+    const firing = getActiveAlerts(leagueAlerts, pct, shownAlertIds);
+    if (firing.length > 0) {
+      const last = firing[firing.length - 1]!;
+      firing.forEach(f => shownAlertIds.add(f.index));
+      setActiveToast(last.alert);
+      const t = setTimeout(() => setActiveToast(null), 3500);
+      return () => clearTimeout(t);
+    }
+  }, [idx, events.length, leagueAlerts, shownAlertIds]);
+
+  // ── New: Highlights (post-game) ─────────────────────────────────────────────
+  const highlights = useMemo(
+    () => (atEnd && events.length > 0) ? generateHighlights(events, homeId) : [],
+    [atEnd, events, homeId],
+  );
+
+  // ── New: H2H rivalry stats ──────────────────────────────────────────────────
+  const rivalryStats = useMemo(() => {
+    const oppTeam = focusGame.homeTeam.id === myTeamId ? focusGame.awayTeam : focusGame.homeTeam;
+    // Check if opponent is owned by a human
+    if (!(oppTeam as any).ownerId) return null;
+    // Scan completed games between these two teams (current season only — history doesn't store game objects)
+    const matchups = league.currentSeason.games.filter(g =>
+      g.status === 'final' &&
+      ((g.homeTeam.id === myTeamId && g.awayTeam.id === oppTeam.id) ||
+       (g.awayTeam.id === myTeamId && g.homeTeam.id === oppTeam.id))
+    );
+    if (matchups.length === 0) return null;
+    let myWins = 0, oppWins = 0;
+    let lastResult = '';
+    for (const g of matchups) {
+      const myIsHome = (g as any).homeTeam?.id === myTeamId;
+      const myScore = myIsHome ? g.homeScore : g.awayScore;
+      const theirScore = myIsHome ? g.awayScore : g.homeScore;
+      if (myScore > theirScore) myWins++;
+      else if (theirScore > myScore) oppWins++;
+      lastResult = `${(g as any).awayTeam?.abbreviation ?? '?'} ${g.awayScore}, ${(g as any).homeTeam?.abbreviation ?? '?'} ${g.homeScore}`;
+    }
+    return { myWins, oppWins, total: matchups.length, oppAbbr: oppTeam.abbreviation, lastResult };
+  }, [focusGame, myTeamId, league]);
+
+  // ── New: Points by quarter ──────────────────────────────────────────────────
+  const pointsByQuarter = useMemo(() => {
+    const home: Record<number, number> = {};
+    const away: Record<number, number> = {};
+    for (let i = 0; i <= idx && i < events.length; i++) {
+      const ev = events[i]!;
+      const q = ev.quarter;
+      if (ev.result === 'touchdown') {
+        if (ev.offenseTeamId === homeId) home[q] = (home[q] ?? 0) + 7;
+        else away[q] = (away[q] ?? 0) + 7;
+      } else if (ev.result === 'field_goal_good') {
+        if (ev.offenseTeamId === homeId) home[q] = (home[q] ?? 0) + 3;
+        else away[q] = (away[q] ?? 0) + 3;
+      }
+    }
+    const maxQ = Math.max(4, ...Object.keys(home).map(Number), ...Object.keys(away).map(Number));
+    const quarters: number[] = [];
+    for (let q = 1; q <= maxQ; q++) quarters.push(q);
+    return { home, away, quarters };
+  }, [events, idx, homeId]);
+
   return (
-    <div className="game-center">
+    <div className="game-center game-center-4zone">
 
       {/* Left: Around the League */}
       <div className="gc-left">
@@ -3548,6 +3633,23 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
             </div>
           );
         })}
+
+        {/* H2H Rivalry Stats */}
+        {rivalryStats && (
+          <div className="gc-rivalry">
+            <div className="gc-rivalry-title">RIVALRY</div>
+            <div className="gc-rivalry-record">
+              {rivalryStats.myWins > rivalryStats.oppWins
+                ? `You lead ${rivalryStats.myWins}-${rivalryStats.oppWins}`
+                : rivalryStats.oppWins > rivalryStats.myWins
+                  ? `${rivalryStats.oppAbbr} leads ${rivalryStats.oppWins}-${rivalryStats.myWins}`
+                  : `Tied ${rivalryStats.myWins}-${rivalryStats.oppWins}`}
+            </div>
+            {rivalryStats.lastResult && (
+              <div className="gc-rivalry-last">Last: {rivalryStats.lastResult}</div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Center: Scoreboard + Viewer */}
@@ -3619,17 +3721,35 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
           </>
         ) : (
           <>
-            <FieldView
-              event={currentEvent ?? null}
-              homeAbbr={focusGame.homeTeam.abbreviation}
-              awayAbbr={focusGame.awayTeam.abbreviation}
-              homeId={homeId}
-              homeScore={homeScore}
-              awayScore={awayScore}
-              quarter={quarterLabel}
-              playIndex={idx}
-              totalPlays={events.length}
-            />
+            <div className="gc-field-zone">
+              <FieldView
+                event={currentEvent ?? null}
+                homeAbbr={focusGame.homeTeam.abbreviation}
+                awayAbbr={focusGame.awayTeam.abbreviation}
+                homeId={homeId}
+                homeScore={homeScore}
+                awayScore={awayScore}
+                quarter={quarterLabel}
+                playIndex={idx}
+                totalPlays={events.length}
+                momentumPct={momentum.pct}
+                momentumLeader={momentum.leader}
+                driveText={driveText}
+              />
+
+              {/* Around-the-league toast overlay */}
+              {activeToast && (
+                <div className={`gc-atl-toast gc-atl-toast-${activeToast.kind}`}>
+                  <span className="gc-atl-toast-icon">
+                    {activeToast.kind === 'touchdown' ? '🏈' : activeToast.kind === 'turnover' ? '⚠️' : '📢'}
+                  </span>
+                  <div className="gc-atl-toast-body">
+                    <span className="gc-atl-toast-label">AROUND THE LEAGUE</span>
+                    <span className="gc-atl-toast-text">{activeToast.text}</span>
+                  </div>
+                </div>
+              )}
+            </div>
             {showPlayLogic && currentEvent?.explanation && (
               <div className="gc-play-logic">
                 {currentEvent.explanation.map((r, i) => (
@@ -3746,6 +3866,72 @@ function GameCenterView({ league, myTeamId, watchedGameId, onBack, onViewPlayer 
           <p className="muted gc-bs-empty">No stats yet.</p>
         )}
       </div>
+
+      {/* Bottom Ticker: Around-the-League */}
+      {events.length > 0 && leagueAlerts.length > 0 && (
+        <div className="gc-bottom-ticker">
+          <span className="gc-ticker-label">SCORES</span>
+          {weekGames.filter(g => g.id !== focusGame.id && g.status === 'final').map(g => (
+            <span key={g.id} className="gc-ticker-item">
+              {g.awayTeam.abbreviation} {g.awayScore} – {g.homeTeam.abbreviation} {g.homeScore}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Points by Quarter row */}
+      {events.length > 0 && (
+        <div className="gc-qtr-scores">
+          <table className="gc-qtr-table">
+            <thead>
+              <tr>
+                <th></th>
+                {pointsByQuarter.quarters.map(q => (
+                  <th key={q}>{q <= 4 ? `Q${q}` : q === 5 ? 'OT' : `OT${q-4}`}</th>
+                ))}
+                <th>T</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="gc-qtr-team">{focusGame.awayTeam.abbreviation}</td>
+                {pointsByQuarter.quarters.map(q => (
+                  <td key={q}>{pointsByQuarter.away[q] ?? 0}</td>
+                ))}
+                <td className="gc-qtr-total">{awayScore}</td>
+              </tr>
+              <tr>
+                <td className="gc-qtr-team">{focusGame.homeTeam.abbreviation}</td>
+                {pointsByQuarter.quarters.map(q => (
+                  <td key={q}>{pointsByQuarter.home[q] ?? 0}</td>
+                ))}
+                <td className="gc-qtr-total">{homeScore}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Postgame Highlights Reel — shown when game is final */}
+      {highlights.length > 0 && (
+        <div className="gc-highlights">
+          <div className="gc-highlights-title">TOP PLAYS</div>
+          {highlights.map((h, rank) => (
+            <button
+              key={h.idx}
+              className={`gc-highlight-item gc-highlight-${h.kind}`}
+              onClick={() => { setPlaying(false); setIdx(h.idx); }}
+            >
+              <span className="gc-highlight-rank">#{rank + 1}</span>
+              <span className="gc-highlight-desc">{h.description}</span>
+              <span className="gc-highlight-q">Q{h.event.quarter}</span>
+              <span className="gc-highlight-swing">
+                {h.swing > 0 ? `±${h.swing}` : '—'}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Postgame Recap — shown when game is final and viewer reached the end */}
       {focusGame.status === 'final' && focusGame.boxScore && atEnd && events.length > 0 && (
@@ -4873,7 +5059,7 @@ function GameViewer({ game }: { game: Game }) {
     ? (currentEvent.offenseTeamId === homeId ? game.homeTeam.abbreviation : game.awayTeam.abbreviation)
     : '';
   const playText = currentEvent ? `[${offAbbr}] ${formatPlay(currentEvent)}` : '';
-  const quarterLabel = atEnd && events.length > 0 ? 'Final' : `Q${Math.min(quarter, 4)}`;
+  const quarterLabel = atEnd && events.length > 0 ? 'Final' : (quarter <= 4 ? `Q${quarter}` : quarter === 5 ? 'OT' : `OT${quarter - 4}`);
 
   return (
     <div className="game-viewer">
@@ -5187,7 +5373,8 @@ function formatGameLog(game: Game): string[] {
     if (ev.quarter !== q) {
       if (q > 0) { lines.push(`  Score: ${game.awayTeam.abbreviation} ${awayScore} — ${game.homeTeam.abbreviation} ${homeScore}`); lines.push(''); }
       q = ev.quarter;
-      lines.push(`── Q${q} ──`);
+      const qLabel = q <= 4 ? `Q${q}` : q === 5 ? 'OT' : `OT${q - 4}`;
+      lines.push(`── ${qLabel} ──`);
     }
     const offAbbr = ev.offenseTeamId === homeId ? game.homeTeam.abbreviation : game.awayTeam.abbreviation;
     lines.push(`[${offAbbr}] ${formatPlay(ev)}`);
