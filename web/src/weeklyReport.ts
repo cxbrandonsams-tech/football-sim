@@ -28,6 +28,7 @@ export interface StandoutTeam {
 }
 
 export interface StandoutPlayerLine {
+  playerId?: string;
   name:   string;
   teamAbbr: string;
   line:   string;  // e.g. "342 yds, 3 TD passing"
@@ -200,7 +201,7 @@ export function generateWeeklyReport(
     const { p, game } = passers[0];
     const abbr = teamAbbr(game, p.teamId);
     standoutPlayers.push({
-      name: p.name, teamAbbr: abbr,
+      playerId: p.playerId, name: p.name, teamAbbr: abbr,
       line: `${p.completions}/${p.attempts}, ${p.passingYards} yds, ${p.passingTDs} TD${p.interceptions > 0 ? `, ${p.interceptions} INT` : ''}`,
     });
     if (p.passingYards >= 300 && headlines.length < 6) {
@@ -215,7 +216,7 @@ export function generateWeeklyReport(
   if (rushers[0] && rushers[0].p.rushingYards >= 50) {
     const { p, game } = rushers[0];
     standoutPlayers.push({
-      name: p.name, teamAbbr: teamAbbr(game, p.teamId),
+      playerId: p.playerId, name: p.name, teamAbbr: teamAbbr(game, p.teamId),
       line: `${p.carries} car, ${p.rushingYards} yds${p.rushingTDs > 0 ? `, ${p.rushingTDs} TD` : ''}`,
     });
   }
@@ -227,7 +228,7 @@ export function generateWeeklyReport(
   if (receivers[0] && receivers[0].p.receivingYards >= 60) {
     const { p, game } = receivers[0];
     standoutPlayers.push({
-      name: p.name, teamAbbr: teamAbbr(game, p.teamId),
+      playerId: p.playerId, name: p.name, teamAbbr: teamAbbr(game, p.teamId),
       line: `${p.receptions} rec, ${p.receivingYards} yds${p.receivingTDs > 0 ? `, ${p.receivingTDs} TD` : ''}`,
     });
   }

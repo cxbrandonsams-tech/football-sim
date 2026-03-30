@@ -29,6 +29,7 @@ import {
   type LeagueSummary, type CreateLeagueParams, type AuthResult, type MyLeagueSummary, type LeagueMember,
 } from './api';
 import { computeStandings, CAP_LIMIT, getVisibleRatings, type League, type Standing, type Game, type Player, type PlayEvent, type TradeProposal, type TradeAsset, type Activity, type PlayoffBracket, type SeasonRecord, type Division, type DraftSlot, type NewsItem, type ClientProspect, type ScoutingReport, type LeagueHistory, type AwardRecord, type PlayerSeasonHistoryLine, type RetiredPlayerRecord, type PlayerSeasonStats, type HallOfFameEntry, type LegacyTier, type Coach, type CoachPersonality, type CoachTrait, type RingOfHonorEntry, type GmCareer, type FrontOfficePersonality } from './types';
+import { EmptyState, LoadingState, TabBar } from './components/ui';
 import './App.css';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -153,7 +154,7 @@ export default function App() {
   if (screen === 'loading') return (
     <div className="form-screen">
       <div className="form-card">
-        <p className="muted">Restoring session…</p>
+        <LoadingState message="Restoring session…" />
       </div>
     </div>
   );
@@ -284,8 +285,8 @@ function MyLeaguesScreen({ username, onNav, onEnterLeague }: {
           <span className="muted">Welcome, {username}</span>
         </div>
         {error && <div className="form-error">{error}</div>}
-        {summaries === null && <p className="muted">Loading…</p>}
-        {summaries?.length === 0 && <p className="muted">No leagues yet.</p>}
+        {summaries === null && <LoadingState />}
+        {summaries?.length === 0 && <EmptyState message="No leagues yet. Create or join one to get started." compact />}
         {summaries && summaries.length > 0 && (
           <table>
             <thead><tr><th>League</th><th>Season</th><th>Phase</th><th>Your Team</th><th></th></tr></thead>
@@ -482,8 +483,8 @@ function BrowseLeagues({ onBack, onEnter }: {
         <button className="back-btn" onClick={onBack}>← Back</button>
         <h2>Public Leagues</h2>
         {error && <div className="form-error">{error}</div>}
-        {leagues === null && !error && <p className="muted">Loading…</p>}
-        {leagues?.length === 0 && <p className="muted">No public leagues yet. Create one!</p>}
+        {leagues === null && !error && <LoadingState />}
+        {leagues?.length === 0 && <EmptyState message="No public leagues yet. Create one!" compact />}
         {leagues && leagues.length > 0 && (
           <table>
             <thead>
@@ -972,7 +973,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
         <AwardsView history={league.history} myTeamId={myTeamId} onViewPlayer={handleViewPlayer} />
       )}
       {tab === 'history' && (
-        <HistoryView history={league.history} teams={league.teams} myTeamId={myTeamId} />
+        <HistoryView history={league.history} teams={league.teams} myTeamId={myTeamId} onViewPlayer={handleViewPlayer} />
       )}
       {tab === 'hof' && (
         <HallOfFameView history={league.history} teams={league.teams} onViewPlayer={handleViewPlayer} />
@@ -997,10 +998,11 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           team={league.teams.find(t => t.id === myTeamId)!}
           busy={busy}
           onReorder={handleSetDepthChart}
+          onViewPlayer={handleViewPlayer}
         />
       )}
       {tab === 'injuries' && (
-        <InjuryReportView teams={league.teams} userTeamId={myTeamId} />
+        <InjuryReportView teams={league.teams} userTeamId={myTeamId} onViewPlayer={handleViewPlayer} />
       )}
       {tab === 'free-agents' && (
         <FreeAgentsView
@@ -1008,6 +1010,7 @@ function LeagueApp({ leagueId, league, setLeague, myTeamId, userId, username, on
           myTeamId={myTeamId}
           busy={busy}
           onOffer={handleOfferContract}
+          onViewPlayer={handleViewPlayer}
         />
       )}
       {tab === 'team' && (
@@ -1187,7 +1190,7 @@ function CoachCard({
         {showPool && (
           <div className="staff-pool">
             {candidates.length === 0
-              ? <div className="ui-empty ui-empty--compact">No candidates available.</div>
+              ? <EmptyState message="No candidates available." compact />
               : candidates.map(c => (
                   <div key={c.id} className="staff-pool-row">
                     <span className="staff-pool-name">{c.name}</span>
@@ -1537,7 +1540,7 @@ function CommissionerView({ league, leagueId, userId, onLeagueUpdated }: {
         <h3>Members</h3>
         {membersError && <div className="form-error">{membersError}</div>}
         {kickError && <div className="form-error">{kickError}</div>}
-        {members === null && !membersError && <p className="muted">Loading…</p>}
+        {members === null && !membersError && <LoadingState />}
         {members && members.length === 0 && <p className="muted">No members yet.</p>}
         {members && members.length > 0 && (
           <table>
@@ -1756,7 +1759,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
 
       {mode === 'season' && (
         gamesPlayed === 0
-          ? <p className="muted" style={{ padding: '1rem 0' }}>No games have been played yet.</p>
+          ? <EmptyState message="No games have been played yet." />
           : <div className="leaders-grid">
 
             {/* Passing */}
@@ -1769,7 +1772,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                 </tr></thead>
                 <tbody>
                   {passers.length === 0
-                    ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
+                    ? <tr><td colSpan={7}><EmptyState message="No data" compact /></td></tr>
                     : passers.map((p, i) => (
                       <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
@@ -1795,7 +1798,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                 </tr></thead>
                 <tbody>
                   {rushers.length === 0
-                    ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
+                    ? <tr><td colSpan={7}><EmptyState message="No data" compact /></td></tr>
                     : rushers.map((p, i) => (
                       <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
@@ -1821,7 +1824,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                 </tr></thead>
                 <tbody>
                   {receivers.length === 0
-                    ? <tr><td colSpan={7} className="lc-empty">No data</td></tr>
+                    ? <tr><td colSpan={7}><EmptyState message="No data" compact /></td></tr>
                     : receivers.map((p, i) => (
                       <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
@@ -1847,7 +1850,7 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
                 </tr></thead>
                 <tbody>
                   {tdLeaders.length === 0
-                    ? <tr><td colSpan={7} className="lc-empty">No touchdowns yet</td></tr>
+                    ? <tr><td colSpan={7}><EmptyState message="No touchdowns yet" compact /></td></tr>
                     : tdLeaders.map((p, i) => (
                       <tr key={p.playerId} className={i === 0 ? 'lc-top' : ''}>
                         <td className="col-rank">{i + 1}</td>
@@ -1938,13 +1941,13 @@ function LeadersView({ games, teams, history, freeAgents, currentSeasonStats, on
       {mode === 'career' && (
         hasCareerData
           ? <CareerLeadersGrid leaders={careerLeaders} onViewPlayer={handleClick} />
-          : <p className="muted" style={{ padding: '1rem 0' }}>No historical data yet — complete a season first.</p>
+          : <EmptyState message="No historical data yet — complete a season first." />
       )}
 
       {mode === 'records' && (
         hasCareerData
           ? <SingleSeasonRecordsView records={seasonRecords} onViewPlayer={handleClick} />
-          : <p className="muted" style={{ padding: '1rem 0' }}>No records yet — complete a season first.</p>
+          : <EmptyState message="No records yet — complete a season first." />
       )}
 
     </section>
@@ -1967,7 +1970,7 @@ function CareerLeadersGrid({ leaders, onViewPlayer }: {
       : <span>{l.name}</span>;
   }
 
-  if (leaders.length === 0) return <p className="muted" style={{ padding: '1rem 0' }}>No career data yet.</p>;
+  if (leaders.length === 0) return <EmptyState message="No career data yet." />;
 
   return (
     <div className="leaders-grid">
@@ -2288,11 +2291,24 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
     return { rohScore, rohTier, rohLabel, rohThreshold, jerseyThreshold, teamName };
   })();
 
+  // Group ratings into categories for better visual organization
+  const ratingGroups = useMemo(() => {
+    if (!visibleRatings) return null;
+    const entries = Object.entries(visibleRatings);
+    if (entries.length <= 4) return { 'Ratings': entries };
+    // Split into two roughly equal columns
+    const mid = Math.ceil(entries.length / 2);
+    return {
+      'Primary': entries.slice(0, mid),
+      'Secondary': entries.slice(mid),
+    };
+  }, [visibleRatings]);
+
   return (
     <div className="pd-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="pd-modal">
 
-        {/* ── Header: face placeholder + identity + accolades ── */}
+        {/* ── Header: identity + key info ── */}
         <div className="pd-header">
           <div className="pd-header-left">
             <div className="pd-face-placeholder" title="Player photo">
@@ -2301,35 +2317,49 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
             <div className="pd-identity">
               <div className="pd-name-row">
                 <span className="pd-name">{player.name}</span>
-                <span className="pd-team">{player.teamAbbreviation}</span>
+                {hofEntry && <span className="pd-hof-star" title={`Hall of Fame — ${hofEntry.inductionYear}`}>★</span>}
               </div>
               <div className="pd-meta-row">
+                <span className="pd-badge pd-badge-pos">{rosterPlayer?.position ?? position}</span>
+                <span className="pd-badge">{player.teamAbbreviation}</span>
                 {rosterPlayer && (
                   <>
-                    <span className="pd-badge">{rosterPlayer.position}</span>
-                    <span className="pd-badge">Age {rosterPlayer.age}</span>
-                    <span className="pd-badge">OVR {rosterPlayer.scoutedOverall}</span>
-                    {rosterPlayer.yearsPro !== undefined && (
-                      <span className="pd-badge">{rosterPlayer.yearsPro === 0 ? 'Rookie' : `Yr ${rosterPlayer.yearsPro}`}</span>
-                    )}
-                    {devBadge && (
-                      <span className={`pd-badge dev-trait-badge dev-trait-${rosterPlayer.devTrait}`} title={devBadge.label}>{devBadge.short}</span>
-                    )}
+                    <span className="pd-meta-sep">·</span>
+                    <span className="pd-meta-text">Age {rosterPlayer.age}</span>
+                    <span className="pd-meta-sep">·</span>
+                    <span className="pd-meta-text">{rosterPlayer.yearsPro === 0 ? 'Rookie' : `Yr ${rosterPlayer.yearsPro}`}</span>
                   </>
                 )}
-                {hofEntry && <span className="pd-badge hof-badge" title={`Hall of Fame — ${hofEntry.inductionYear}`}>★ HoF</span>}
+                {devBadge && (
+                  <span className={`pd-badge dev-trait-badge dev-trait-${rosterPlayer!.devTrait}`} title={devBadge.label}>{devBadge.short}</span>
+                )}
               </div>
-              {/* Contract */}
-              {rosterPlayer && (
-                <div className="pd-contract-inline">
-                  ${rosterPlayer.salary.toFixed(1)}M · {rosterPlayer.yearsRemaining}yr
-                  {rosterPlayer.contractDemand && <span className="pd-contract-demand"> · Wants ${rosterPlayer.contractDemand.salary}M/{rosterPlayer.contractDemand.years}yr</span>}
-                </div>
-              )}
             </div>
+          </div>
+          {/* Key numbers strip */}
+          <div className="pd-header-nums">
+            {rosterPlayer && (
+              <>
+                <div className="pd-header-num">
+                  <span className="pd-header-num-val">{rosterPlayer.scoutedOverall}</span>
+                  <span className="pd-header-num-lbl">OVR</span>
+                </div>
+                <div className="pd-header-num">
+                  <span className="pd-header-num-val">${rosterPlayer.salary.toFixed(1)}M</span>
+                  <span className="pd-header-num-lbl">{rosterPlayer.yearsRemaining}yr</span>
+                </div>
+              </>
+            )}
           </div>
           <button className="pd-close" onClick={onClose}>✕</button>
         </div>
+
+        {/* ── Contract demand (if applicable) ── */}
+        {rosterPlayer?.contractDemand && (
+          <div className="pd-contract-alert">
+            Wants ${rosterPlayer.contractDemand.salary}M / {rosterPlayer.contractDemand.years}yr
+          </div>
+        )}
 
         {/* ── Accolades row ── */}
         {(playerAwards.length > 0 || championships > 0) && (
@@ -2341,7 +2371,6 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
               </div>
             )}
             {(() => {
-              // Group awards by type and count
               const counts = new Map<string, number>();
               for (const a of playerAwards) counts.set(a.type, (counts.get(a.type) ?? 0) + 1);
               return [...counts.entries()]
@@ -2375,21 +2404,25 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
           </div>
         )}
 
-        {/* ── Ratings as horizontal bars ── */}
-        {visibleRatings && (
-          <div className="pd-ratings-bars">
+        {/* ── Ratings — two-column grouped bars ── */}
+        {ratingGroups && (
+          <div className="pd-ratings-section">
             <div className="pd-section-label">Player Ratings</div>
-            <div className="pd-ratings-grid">
-              {Object.entries(visibleRatings).map(([label, val]) => (
-                <div key={label} className="pd-rating-bar-row">
-                  <span className="pd-rating-bar-label">{label}</span>
-                  <div className="pd-rating-bar-track">
-                    <div
-                      className={`pd-rating-bar-fill ${val >= 80 ? 'pd-bar-elite' : val >= 65 ? 'pd-bar-avg' : 'pd-bar-low'}`}
-                      style={{ width: `${val}%` }}
-                    />
-                  </div>
-                  <span className={`pd-rating-bar-val ${val >= 80 ? 'pd-rating-elite' : val >= 65 ? 'pd-rating-avg' : 'pd-rating-low'}`}>{val}</span>
+            <div className="pd-ratings-columns">
+              {Object.entries(ratingGroups).map(([groupLabel, entries]) => (
+                <div key={groupLabel} className="pd-ratings-col">
+                  {entries.map(([label, val]: [string, number]) => (
+                    <div key={label} className="pd-rating-bar-row">
+                      <span className="pd-rating-bar-label">{label}</span>
+                      <div className="pd-rating-bar-track">
+                        <div
+                          className={`pd-rating-bar-fill ${val >= 80 ? 'pd-bar-elite' : val >= 65 ? 'pd-bar-avg' : 'pd-bar-low'}`}
+                          style={{ width: `${val}%` }}
+                        />
+                      </div>
+                      <span className={`pd-rating-bar-val ${val >= 80 ? 'pd-rating-elite' : val >= 65 ? 'pd-rating-avg' : 'pd-rating-low'}`}>{val}</span>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -2398,7 +2431,7 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
 
         {/* ── Game Log (this season) ── */}
         {gameLog.length > 0 && (
-          <>
+          <div className="pd-gamelog-section">
             <div className="pd-section-label">This Season — Game Log</div>
             <div className="pd-table-wrap">
               <table className="pd-table">
@@ -2426,10 +2459,10 @@ function PlayerDetail({ player, games, allTeams, history, onClose }: {
                 </tbody>
               </table>
             </div>
-          </>
+          </div>
         )}
 
-        {/* ── Career Stats (PFR-style season-by-season table) ── */}
+        {/* ── Career Stats ── */}
         {seasonHistory.length > 0 && (
           <PlayerCareerView seasons={seasonHistory} awards={playerAwards} />
         )}
@@ -2566,7 +2599,7 @@ function AwardsView({ history, myTeamId, onViewPlayer }: {
     return (
       <section className="roster-page">
         <div className="roster-header"><div className="roster-header-left"><h2 className="roster-title">Awards</h2></div></div>
-        <div className="ui-empty">No awards yet — complete a season to see awards here.</div>
+        <EmptyState icon="🏆" message="No awards yet — complete a season to see awards here." />
       </section>
     );
   }
@@ -2692,10 +2725,11 @@ function AwardCard({ award: a, myTeamId, onViewPlayer }: { award: AwardRecord; m
 
 // ── History view ───────────────────────────────────────────────────────────────
 
-function HistoryView({ history, teams, myTeamId }: {
+function HistoryView({ history, teams, myTeamId, onViewPlayer }: {
   history: LeagueHistory;
   teams: League['teams'];
   myTeamId: string;
+  onViewPlayer?: (id: string) => void;
 }) {
   const [selectedTeamId, setSelectedTeamId] = useState(myTeamId);
   const teamHistory    = history.teamHistory[selectedTeamId] ?? [];
@@ -2788,7 +2822,7 @@ function HistoryView({ history, teams, myTeamId }: {
             <tbody>
               {[...history.retiredPlayers].reverse().slice(0, 25).map(p => (
                 <tr key={p.playerId}>
-                  <td>{p.name}</td>
+                  <td>{onViewPlayer ? <button className="entity-link" onClick={() => onViewPlayer(p.playerId)}>{p.name}</button> : p.name}</td>
                   <td className="roster-pos-cell">{p.position}</td>
                   <td className="num text-mono">{p.retirementYear}</td>
                   <td className="num">{p.finalAge}</td>
@@ -3054,7 +3088,7 @@ function DashboardView({ league, myTeamId, standings, busy, isCommissioner, onNa
                 <div className="wr-performers">
                   {weeklyReport.standoutPlayers.map((p, i) => (
                     <div key={i} className="wr-performer">
-                      <span className="wr-performer-name">{p.name}</span>
+                      {p.playerId && onViewPlayer ? <button className="entity-link wr-performer-name" onClick={() => onViewPlayer(p.playerId!)}>{p.name}</button> : <span className="wr-performer-name">{p.name}</span>}
                       <span className="wr-performer-team">{p.teamAbbr}</span>
                       <span className="wr-performer-line">{p.line}</span>
                     </div>
@@ -4480,7 +4514,7 @@ function PlayoffView({ playoff, teams, seasonHistory, history, league: leagueObj
 
       {mode === 'bracket' && (
         <>
-          {!playoff && <div className="ui-empty">Playoffs have not started yet.</div>}
+          {!playoff && <EmptyState message="Playoffs have not started yet." />}
 
           {playoff && (() => {
             const icRounds = ROUND_ORDER.slice(0, 3).map(r => ({
@@ -5808,7 +5842,7 @@ function HallOfFameView({ history, teams, onViewPlayer }: {
           </div>
 
           {filtered.length === 0 ? (
-            <p className="muted hof-empty">No inductees yet. Players are evaluated for the Hall of Fame after retirement.</p>
+            <EmptyState icon="★" message="No inductees yet. Players are evaluated for the Hall of Fame after retirement." />
           ) : (
             byYear.map(([year, entries]) => (
               <div key={year} className="hof-class">
@@ -5825,7 +5859,7 @@ function HallOfFameView({ history, teams, onViewPlayer }: {
       ) : (
         <div className="hof-watch-list">
           {watchList.length === 0 ? (
-            <p className="muted hof-empty">No retired players with enough legacy score to track.</p>
+            <EmptyState message="No retired players with enough legacy score to track." compact />
           ) : (
             watchList.map(r => (
               <div key={r.playerId} className="hof-watch-row">
@@ -6226,22 +6260,16 @@ function NewsView({ news, myTeamId, onViewPlayer }: {
       </div>
 
       {/* ── Filters ────────────────────────────────────────────── */}
-      <div className="contracts-tabs">
-        {filters.map(f => (
-          <button
-            key={f.id}
-            className={filter === f.id ? 'active' : ''}
-            onClick={() => setFilter(f.id)}
-          >
-            {f.label}
-            {f.count != null && f.count > 0 && <span className="ui-count">{f.count}</span>}
-          </button>
-        ))}
-      </div>
+      <TabBar
+        tabs={filters.map(f => ({ id: f.id, label: f.label, badge: f.count && f.count > 0 ? f.count : undefined }))}
+        activeId={filter}
+        onSelect={(id) => setFilter(id as NewsFilter)}
+        size="sm"
+      />
 
       {/* ── Feed ───────────────────────────────────────────────── */}
       {filtered.length === 0
-        ? <div className="ui-empty">{news.length === 0 ? 'No news yet — advance the week to generate stories.' : 'No news in this category.'}</div>
+        ? <EmptyState message={news.length === 0 ? 'No news yet — advance the week to generate stories.' : 'No news in this category.'} />
         : <div className="news-feed">
             {filtered.map(n => (
               <NewsCard
@@ -6501,7 +6529,7 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
             </div>
           );
         })}
-        {roster.length === 0 && picks.length === 0 && <div className="ui-empty ui-empty--compact">No assets available.</div>}
+        {roster.length === 0 && picks.length === 0 && <EmptyState message="No assets available." compact />}
       </div>
     );
   }
@@ -6644,7 +6672,7 @@ function TradesView({ league, myTeamId, busy: globalBusy, onPropose, onRespond, 
               </div>
             </>
           )}
-          {!targetTeam && <div className="ui-empty ui-empty--compact">Select a trade partner above to begin building a proposal.</div>}
+          {!targetTeam && <EmptyState message="Select a trade partner above to begin building a proposal." compact />}
         </div>
       </div>
 
@@ -6784,7 +6812,7 @@ function RosterView({ teams, selectedId, userTeamId, onSelect, team, isOffseason
       </div>
 
       {isMyTeam && !isOffseason && (demands > 0 || injured > 0) && (
-        <div className="ui-empty ui-empty--compact">Roster moves (cut, extend) available during the offseason.</div>
+        <EmptyState message="Roster moves (cut, extend) available during the offseason." compact />
       )}
 
       {/* Position groups */}
@@ -6899,10 +6927,11 @@ const SLOT_POSITIONS: Record<string, string[]> = {
   K: ['K'], P: ['P'],
 };
 
-function DepthChartView({ team, busy, onReorder }: {
+function DepthChartView({ team, busy, onReorder, onViewPlayer }: {
   team: League['teams'][0];
   busy: boolean;
   onReorder: (slot: string, playerIds: string[]) => void;
+  onViewPlayer?: (id: string) => void;
 }) {
   const [dragState, setDragState] = useState<{ slot: string; idx: number } | null>(null);
 
@@ -6988,7 +7017,7 @@ function DepthChartView({ team, busy, onReorder }: {
                 >
                   <span className="depth-drag-handle" title="Drag to reorder">⠿</span>
                   <span className="depth-rank">{i + 1}</span>
-                  <span className="depth-name">{p.name}</span>
+                  {onViewPlayer ? <button className="entity-link depth-name" onClick={() => onViewPlayer(p.id)}>{p.name}</button> : <span className="depth-name">{p.name}</span>}
                   <span className="depth-ovr">{p.scoutedOverall}</span>
                   <div className="depth-arrows">
                     <button className="depth-arrow" disabled={busy || i === 0} onClick={() => moveUp(slot, i, players)}>▲</button>
@@ -7012,7 +7041,7 @@ function DepthChartView({ team, busy, onReorder }: {
 
 // ── Injury Report ──────────────────────────────────────────────────────────────
 
-function InjuryReportView({ teams, userTeamId }: { teams: League['teams']; userTeamId: string }) {
+function InjuryReportView({ teams, userTeamId, onViewPlayer }: { teams: League['teams']; userTeamId: string; onViewPlayer?: (id: string) => void }) {
   const allInjured = teams.flatMap(t =>
     t.roster.filter(p => p.injuryWeeksRemaining > 0).map(p => ({ ...p, teamName: t.name, teamId: t.id }))
   ).sort((a, b) => b.injuryWeeksRemaining - a.injuryWeeksRemaining);
@@ -7028,7 +7057,7 @@ function InjuryReportView({ teams, userTeamId }: { teams: League['teams']; userT
         <tbody>
           {players.map(p => (
             <tr key={p.id}>
-              <td>{p.name}</td>
+              <td>{onViewPlayer ? <button className="entity-link" onClick={() => onViewPlayer(p.id)}>{p.name}</button> : p.name}</td>
               <td>{p.position}</td>
               <td>{p.teamName}</td>
               <td>{p.scoutedOverall}</td>
@@ -7065,11 +7094,12 @@ function calcFAAskingPrice(player: Player): { salary: number; years: number } {
   return { salary, years };
 }
 
-function FreeAgentsView({ league, myTeamId, busy, onOffer }: {
+function FreeAgentsView({ league, myTeamId, busy, onOffer, onViewPlayer }: {
   league:    League;
   myTeamId:  string;
   busy:      boolean;
   onOffer:   (playerId: string, salary: number, years: number) => void;
+  onViewPlayer?: (id: string) => void;
 }) {
   const isOffseason  = league.phase === 'offseason';
   const myTeam       = league.teams.find(t => t.id === myTeamId)!;
@@ -7125,7 +7155,7 @@ function FreeAgentsView({ league, myTeamId, busy, onOffer }: {
         </div>
       </div>
 
-      {!isOffseason && <div className="ui-empty ui-empty--compact">Signing available during offseason only. Browse the market to plan ahead.</div>}
+      {!isOffseason && <EmptyState message="Signing available during offseason only. Browse the market to plan ahead." compact />}
 
       {/* ── Position groups ────────────────────────────────────── */}
       <div className="roster-groups">
@@ -7164,7 +7194,7 @@ function FreeAgentsView({ league, myTeamId, busy, onOffer }: {
                       return (
                         <tr key={p.id} className={injured ? 'roster-row-injured' : ''}>
                           <td className="roster-name-cell">
-                            <span>{p.name}</span>
+                            {onViewPlayer ? <button className="entity-link" onClick={() => onViewPlayer(p.id)}>{p.name}</button> : <span>{p.name}</span>}
                             {p.isRookie && <span className="rookie-badge">R</span>}
                             {injured && <span className="ui-badge ui-badge--danger">IR</span>}
                           </td>
@@ -7249,7 +7279,7 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
     .filter(g => g.status === 'final' && (g.homeTeam.id === myTeamId || g.awayTeam.id === myTeamId))
     .slice(-5).reverse();
 
-  // Roster breakdown by position group (matches actual player position values)
+  // Roster breakdown by position group
   const posGroups = [
     { label: 'QB', positions: ['QB'] },
     { label: 'RB', positions: ['RB'] },
@@ -7273,17 +7303,49 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
   // Team-wide average OVR
   const avgOvr = team.roster.length > 0 ? Math.round(team.roster.reduce((s, p) => s + p.scoutedOverall, 0) / team.roster.length) : 0;
 
+  // Division / conference context
+  const teamDiv = league.divisions?.find(d => d.teamIds.includes(myTeamId));
+  const conf = teamDiv?.conference ?? '';
+  const div = teamDiv?.division ?? '';
+  const diff = pf - pa;
+
+  // Streak
+  const streakGames = [...recentGames];
+  let streakType = '';
+  let streakCount = 0;
+  if (streakGames.length > 0) {
+    const firstResult = (() => {
+      const g = streakGames[0]!;
+      const isH = g.homeTeam.id === myTeamId;
+      const ms = isH ? g.homeScore : g.awayScore;
+      const os = isH ? g.awayScore : g.homeScore;
+      return ms > os ? 'W' : ms < os ? 'L' : 'T';
+    })();
+    streakType = firstResult;
+    for (const g of streakGames) {
+      const isH = g.homeTeam.id === myTeamId;
+      const ms = isH ? g.homeScore : g.awayScore;
+      const os = isH ? g.awayScore : g.homeScore;
+      const r = ms > os ? 'W' : ms < os ? 'L' : 'T';
+      if (r === firstResult) streakCount++;
+      else break;
+    }
+  }
+
   return (
     <section className="ov-page">
 
       {/* ── Team header ────────────────────────────────────────── */}
       <div className="ov-header">
         <div className="ov-header-identity">
-          <div className="ov-header-logo">{team.abbreviation}</div>
+          <div className="ov-header-logo-wrap">
+            <TeamLogo abbr={team.abbreviation} size={56} />
+          </div>
           <div>
             <h2 className="ov-header-name">{team.name}</h2>
             <div className="ov-header-meta">
               <span className="ov-header-record">{w}–{l}{ties > 0 ? `–${ties}` : ''}</span>
+              {conf && div && <span className="ov-header-division">{conf} {div}</span>}
               {team.frontOffice && <FoPersonalityBadge personality={team.frontOffice} size="sm" />}
             </div>
           </div>
@@ -7292,92 +7354,139 @@ function TeamOverviewView({ league, myTeamId }: { league: League; myTeamId: stri
           <div className="ov-header-stat"><span className="ov-header-stat-val">{ppg}</span><span className="ov-header-stat-lbl">PPG</span></div>
           <div className="ov-header-stat"><span className="ov-header-stat-val">{oppPpg}</span><span className="ov-header-stat-lbl">OPP PPG</span></div>
           <div className="ov-header-stat">
-            <span className={`ov-header-stat-val ${pf - pa >= 0 ? 'pos' : 'neg'}`}>{pf - pa >= 0 ? '+' : ''}{pf - pa}</span>
+            <span className={`ov-header-stat-val ${diff >= 0 ? 'pos' : 'neg'}`}>{diff >= 0 ? '+' : ''}{diff}</span>
             <span className="ov-header-stat-lbl">DIFF</span>
           </div>
           <div className="ov-header-stat"><span className="ov-header-stat-val">{avgOvr}</span><span className="ov-header-stat-lbl">AVG OVR</span></div>
-        </div>
-      </div>
-
-      {/* ── Top cards ──────────────────────────────────────────── */}
-      <div className="ov-top-cards">
-        <div className="ov-card">
-          <div className="ov-card-title">Cap Space</div>
-          <div className={`ov-stat ${capSpace < 5 ? 'neg' : ''}`}>${capSpace.toFixed(1)}M</div>
-          <div className="muted">${payroll.toFixed(1)}M / ${CAP_LIMIT}M used</div>
-        </div>
-        <div className="ov-card">
-          <div className="ov-card-title">Roster</div>
-          <div className="ov-stat">{team.roster.length}</div>
-          {injured > 0
-            ? <div className="neg">{injured} injured</div>
-            : <div className="muted">All healthy</div>}
-        </div>
-        <div className="ov-card">
-          <div className="ov-card-title">Coaching Staff</div>
-          <div className="ov-coach"><span className="muted">HC</span> {team.coaches.hc.name} <span className="muted">({team.coaches.hc.overall})</span></div>
-          <div className="ov-coach"><span className="muted">OC</span> {team.coaches.oc ? <>{team.coaches.oc.name} <span className="muted">({team.coaches.oc.overall})</span></> : <span className="neg">Vacant</span>}</div>
-          <div className="ov-coach"><span className="muted">DC</span> {team.coaches.dc ? <>{team.coaches.dc.name} <span className="muted">({team.coaches.dc.overall})</span></> : <span className="neg">Vacant</span>}</div>
-        </div>
-        <div className="ov-card">
-          <div className="ov-card-title">Next Game</div>
-          {nextGame
-            ? (
-              <>
-                <div className="ov-stat">Wk {nextGame.week}</div>
-                <div className="muted">
-                  {nextGame.homeTeam.id === myTeamId
-                    ? `vs ${nextGame.awayTeam.name}`
-                    : `@ ${nextGame.homeTeam.name}`}
-                </div>
-              </>
-            )
-            : <div className="muted">{league.phase === 'offseason' ? 'Offseason' : 'No upcoming games'}</div>}
-        </div>
-      </div>
-
-      {/* ── Roster breakdown ───────────────────────────────────── */}
-      <div className="ov-section">
-        <div className="ov-section-title">Roster Breakdown</div>
-        <div className="ov-roster-grid">
-          {rosterByGroup.filter(g => g.count > 0).map(g => (
-            <div key={g.label} className="ov-roster-cell">
-              <span className="ov-roster-pos">{g.label}</span>
-              <span className="ov-roster-count">{g.count}</span>
-              <span className={`ov-roster-ovr ${g.avgOvr >= 75 ? 'pos' : g.avgOvr < 60 ? 'neg' : ''}`}>{g.avgOvr}</span>
+          {streakCount > 0 && (
+            <div className="ov-header-stat">
+              <span className={`ov-header-stat-val ${streakType === 'W' ? 'pos' : streakType === 'L' ? 'neg' : ''}`}>{streakType}{streakCount}</span>
+              <span className="ov-header-stat-lbl">STREAK</span>
             </div>
-          ))}
+          )}
         </div>
       </div>
 
-      {/* ── Recent results ─────────────────────────────────────── */}
-      {recentGames.length > 0 && (
-        <div className="ov-section">
-          <div className="ov-section-title">Recent Results</div>
-          <table className="ui-table">
-            <thead><tr><th>Wk</th><th>Opponent</th><th>H/A</th><th className="num">Result</th></tr></thead>
-            <tbody>
-              {recentGames.map(g => {
-                const isHome = g.homeTeam.id === myTeamId;
-                const myScore  = isHome ? g.homeScore : g.awayScore;
-                const oppScore = isHome ? g.awayScore : g.homeScore;
-                const opp = isHome ? g.awayTeam : g.homeTeam;
-                const result = myScore > oppScore ? 'W' : myScore < oppScore ? 'L' : 'T';
-                return (
-                  <tr key={g.id}>
-                    <td>{g.week}</td>
-                    <td>{opp.name}</td>
-                    <td>{isHome ? 'H' : 'A'}</td>
-                    <td className={`num ${result === 'W' ? 'val-pos' : result === 'L' ? 'val-neg' : ''}`}>
-                      {result} {myScore}–{oppScore}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* ── Two-column main content ────────────────────────────── */}
+      <div className="ov-columns">
+
+        {/* LEFT — Primary content */}
+        <div className="ov-col-primary">
+
+          {/* Roster Breakdown */}
+          <div className="ov-section">
+            <div className="ov-section-title">Roster Breakdown</div>
+            <div className="ov-roster-grid">
+              {rosterByGroup.filter(g => g.count > 0).map(g => (
+                <div key={g.label} className="ov-roster-cell">
+                  <span className="ov-roster-pos">{g.label}</span>
+                  <span className="ov-roster-count">{g.count}</span>
+                  <span className={`ov-roster-ovr ${g.avgOvr >= 75 ? 'pos' : g.avgOvr < 60 ? 'neg' : ''}`}>{g.avgOvr} OVR</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent Results */}
+          {recentGames.length > 0 && (
+            <div className="ov-section">
+              <div className="ov-section-title">Recent Results</div>
+              <div className="ov-results-list">
+                {recentGames.map(g => {
+                  const isHome = g.homeTeam.id === myTeamId;
+                  const myScore  = isHome ? g.homeScore : g.awayScore;
+                  const oppScore = isHome ? g.awayScore : g.homeScore;
+                  const opp = isHome ? g.awayTeam : g.homeTeam;
+                  const result = myScore > oppScore ? 'W' : myScore < oppScore ? 'L' : 'T';
+                  return (
+                    <div key={g.id} className={`ov-result-row ov-result-${result.toLowerCase()}`}>
+                      <span className="ov-result-week">WK {g.week}</span>
+                      <span className="ov-result-opponent">
+                        <TeamLogo abbr={opp.abbreviation} size={20} />
+                        <span>{isHome ? 'vs' : '@'} {opp.name}</span>
+                      </span>
+                      <span className={`ov-result-outcome ov-result-${result.toLowerCase()}`}>
+                        <span className="ov-result-letter">{result}</span>
+                        <span className="ov-result-score">{myScore}–{oppScore}</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* RIGHT — Sidebar */}
+        <div className="ov-col-sidebar">
+
+          {/* Cap Space */}
+          <div className="ov-sidebar-card">
+            <div className="ov-sidebar-card-title">Cap Space</div>
+            <div className={`ov-sidebar-big-num ${capSpace < 5 ? 'neg' : capSpace > 30 ? 'pos' : ''}`}>${capSpace.toFixed(1)}M</div>
+            <div className="ov-cap-bar-track">
+              <div className="ov-cap-bar-fill" style={{ width: `${Math.min(100, (payroll / CAP_LIMIT) * 100)}%` }} />
+            </div>
+            <div className="ov-cap-bar-labels">
+              <span>${payroll.toFixed(1)}M used</span>
+              <span>${CAP_LIMIT}M cap</span>
+            </div>
+          </div>
+
+          {/* Roster Status */}
+          <div className="ov-sidebar-card">
+            <div className="ov-sidebar-card-title">Roster</div>
+            <div className="ov-sidebar-kv">
+              <div className="ov-kv"><span>Players</span><span className="ov-kv-val">{team.roster.length}</span></div>
+              <div className="ov-kv"><span>Injured</span><span className={`ov-kv-val ${injured > 0 ? 'neg' : ''}`}>{injured > 0 ? injured : 'None'}</span></div>
+              <div className="ov-kv"><span>Avg Age</span><span className="ov-kv-val">{team.roster.length > 0 ? (team.roster.reduce((s, p) => s + p.age, 0) / team.roster.length).toFixed(1) : '—'}</span></div>
+            </div>
+          </div>
+
+          {/* Coaching Staff */}
+          <div className="ov-sidebar-card">
+            <div className="ov-sidebar-card-title">Coaching Staff</div>
+            <div className="ov-coaches-list">
+              <div className="ov-coach-row">
+                <span className="ov-coach-role">HC</span>
+                <span className="ov-coach-name">{team.coaches.hc.name}</span>
+                <span className="ov-coach-ovr">{team.coaches.hc.overall}</span>
+              </div>
+              <div className="ov-coach-row">
+                <span className="ov-coach-role">OC</span>
+                {team.coaches.oc
+                  ? <><span className="ov-coach-name">{team.coaches.oc.name}</span><span className="ov-coach-ovr">{team.coaches.oc.overall}</span></>
+                  : <span className="ov-coach-vacant">Vacant</span>}
+              </div>
+              <div className="ov-coach-row">
+                <span className="ov-coach-role">DC</span>
+                {team.coaches.dc
+                  ? <><span className="ov-coach-name">{team.coaches.dc.name}</span><span className="ov-coach-ovr">{team.coaches.dc.overall}</span></>
+                  : <span className="ov-coach-vacant">Vacant</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Next Game */}
+          <div className="ov-sidebar-card">
+            <div className="ov-sidebar-card-title">Next Game</div>
+            {nextGame ? (
+              <div className="ov-next-game">
+                <div className="ov-next-game-week">Week {nextGame.week}</div>
+                <div className="ov-next-game-matchup">
+                  <TeamLogo abbr={(nextGame.homeTeam.id === myTeamId ? nextGame.awayTeam : nextGame.homeTeam).abbreviation} size={32} />
+                  <div className="ov-next-game-info">
+                    <span className="ov-next-game-label">{nextGame.homeTeam.id === myTeamId ? 'vs' : '@'}</span>
+                    <span className="ov-next-game-opp">{nextGame.homeTeam.id === myTeamId ? nextGame.awayTeam.name : nextGame.homeTeam.name}</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="muted" style={{ padding: 'var(--sp-2) 0' }}>{league.phase === 'offseason' ? 'Offseason' : 'No upcoming games'}</div>
+            )}
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -7467,15 +7576,16 @@ function ContractsView({ team, isOffseason, busy, onExtend, onRelease, onViewPla
       </div>
 
       {/* View tabs */}
-      <div className="contracts-tabs">
-        <button className={view === 'groups' ? 'active' : ''} onClick={() => setView('groups')}>By Position</button>
-        <button className={view === 'demands' ? 'active' : ''} onClick={() => setView('demands')} disabled={withDemands.length === 0}>
-          Demands{withDemands.length > 0 && <span className="ui-count">{withDemands.length}</span>}
-        </button>
-        <button className={view === 'expiring' ? 'active' : ''} onClick={() => setView('expiring')} disabled={expiring.length === 0}>
-          Expiring{expiring.length > 0 && <span className="ui-count">{expiring.length}</span>}
-        </button>
-      </div>
+      <TabBar
+        tabs={[
+          { id: 'groups', label: 'By Position' },
+          { id: 'demands', label: 'Demands', badge: withDemands.length > 0 ? withDemands.length : undefined, disabled: withDemands.length === 0 },
+          { id: 'expiring', label: 'Expiring', badge: expiring.length > 0 ? expiring.length : undefined, disabled: expiring.length === 0 },
+        ]}
+        activeId={view}
+        onSelect={(id) => setView(id as 'groups' | 'demands' | 'expiring')}
+        size="sm"
+      />
 
       {/* ── Demands view ───────────────────────────────────────── */}
       {view === 'demands' && (
@@ -7487,7 +7597,7 @@ function ContractsView({ team, isOffseason, busy, onExtend, onRelease, onViewPla
               <tbody>{withDemands.sort((a, b) => b.salary - a.salary).map(p => <CRow key={p.id} p={p} />)}</tbody>
             </table>
           </div>
-        ) : <div className="ui-empty">No contract demands at this time.</div>
+        ) : <EmptyState message="No contract demands at this time." />
       )}
 
       {/* ── Expiring view ──────────────────────────────────────── */}
@@ -7500,7 +7610,7 @@ function ContractsView({ team, isOffseason, busy, onExtend, onRelease, onViewPla
               <tbody>{expiring.sort((a, b) => b.scoutedOverall - a.scoutedOverall).map(p => <CRow key={p.id} p={p} />)}</tbody>
             </table>
           </div>
-        ) : <div className="ui-empty">No expiring contracts.</div>
+        ) : <EmptyState message="No expiring contracts." />
       )}
 
       {/* ── Position groups view ───────────────────────────────── */}
@@ -8207,24 +8317,54 @@ function ScoutingView({ draftClass, myTeam, busy, onScout, focusProspectId, onFo
     return c === 'low' ? 'Low' : c === 'medium' ? 'Med' : 'High';
   }
 
+  // Compute progress percentage
+  const totalProspects = draftClass.prospects.length;
+  const scoutProgress = totalProspects > 0 ? Math.round((scoutedCount / totalProspects) * 100) : 0;
+
   return (
-    <section className="roster-page">
+    <section className="scout-page">
 
       {/* ── Header ─────────────────────────────────────────────── */}
-      <div className="roster-header">
-        <div className="roster-header-left">
-          <h2 className="roster-title">Scouting</h2>
-          {scout && <span className="muted" style={{ fontSize: 'var(--text-sm)' }}>Scout: {scout.name} ({scout.overall} OVR)</span>}
+      <div className="scout-header">
+        <div className="scout-header-top">
+          <div className="scout-header-left">
+            <h2 className="scout-title">Scouting</h2>
+            {scout && (
+              <div className="scout-assigned">
+                <span className="scout-assigned-name">{scout.name}</span>
+                <span className="scout-assigned-ovr">{scout.overall} OVR</span>
+              </div>
+            )}
+          </div>
+          <div className="scout-header-stats">
+            <div className="scout-stat">
+              <span className="scout-stat-val">{totalProspects}</span>
+              <span className="scout-stat-lbl">Prospects</span>
+            </div>
+            <div className="scout-stat">
+              <span className="scout-stat-val">{scoutedCount}<span className="scout-stat-sub">/{totalProspects}</span></span>
+              <span className="scout-stat-lbl">Scouted</span>
+            </div>
+            <div className="scout-stat">
+              <span className="scout-stat-val scout-stat-full">{fullyScoutedCount}</span>
+              <span className="scout-stat-lbl">Full Intel</span>
+            </div>
+            <div className="scout-stat">
+              <span className={`scout-stat-val${scoutingPoints < 10 ? ' neg' : ''}`}>{scoutingPoints}</span>
+              <span className="scout-stat-lbl">Scout Pts</span>
+            </div>
+          </div>
         </div>
-        <div className="roster-header-stats">
-          <div className="roster-header-stat"><span className="roster-header-val">{draftClass.prospects.length}</span><span className="roster-header-lbl">Prospects</span></div>
-          <div className="roster-header-stat"><span className="roster-header-val">{scoutedCount}</span><span className="roster-header-lbl">Scouted</span></div>
-          <div className="roster-header-stat"><span className="roster-header-val">{fullyScoutedCount}</span><span className="roster-header-lbl">Full Intel</span></div>
-          <div className="roster-header-stat"><span className={`roster-header-val${scoutingPoints < 10 ? ' neg' : ''}`}>{scoutingPoints}</span><span className="roster-header-lbl">Scout Pts</span></div>
+        {/* Progress bar */}
+        <div className="scout-progress">
+          <div className="scout-progress-track">
+            <div className="scout-progress-fill" style={{ width: `${scoutProgress}%` }} />
+          </div>
+          <span className="scout-progress-label">{scoutProgress}% scouted</span>
         </div>
       </div>
 
-      {scoutingPoints === 0 && <div className="ui-empty ui-empty--compact">No scouting points remaining. Wait for next season allocation.</div>}
+      {scoutingPoints === 0 && <EmptyState message="No scouting points remaining. Wait for next season allocation." compact />}
 
       {/* ── Position groups ────────────────────────────────────── */}
       <div className="roster-groups">
@@ -8246,7 +8386,12 @@ function ScoutingView({ draftClass, myTeam, busy, onScout, focusProspectId, onFo
                 <span className="roster-group-toggle">{isCollapsed ? '▸' : '▾'}</span>
                 <span className="roster-group-name">{group.label}</span>
                 <span className="roster-group-count">{prospects.length}</span>
-                {scoutedInGroup > 0 && <span className="roster-group-ovr">{scoutedInGroup}/{prospects.length} scouted</span>}
+                <span className="scout-group-progress">
+                  <span className="scout-group-bar-track">
+                    <span className="scout-group-bar-fill" style={{ width: `${prospects.length > 0 ? (scoutedInGroup / prospects.length) * 100 : 0}%` }} />
+                  </span>
+                  <span className="scout-group-bar-text">{scoutedInGroup}/{prospects.length}</span>
+                </span>
               </button>
               {!isCollapsed && (
                 <div className="scouting-group-body">
@@ -8269,7 +8414,7 @@ function ScoutingView({ draftClass, myTeam, busy, onScout, focusProspectId, onFo
                           <span className="scouting-row-college muted">{p.college}</span>
                           <span className="scouting-row-grade num text-mono">{rpt?.grade ?? '—'}</span>
                           <span className="scouting-row-proj num">{projRange(p)}</span>
-                          <span>{lvl > 0 ? <span className={`scout-level-badge level-${lvl}`}>{LEVEL_SHORT[lvl]}</span> : <span className="muted">—</span>}</span>
+                          <span>{lvl > 0 ? <span className={`scout-level-badge level-${lvl}`}>{LEVEL_SHORT[lvl]}</span> : <span className="scout-level-badge level-0">—</span>}</span>
                           {nextCost !== null ? (
                             <button
                               className="btn-sm btn-scout-inline"
@@ -8279,7 +8424,7 @@ function ScoutingView({ draftClass, myTeam, busy, onScout, focusProspectId, onFo
                               Scout ({nextCost})
                             </button>
                           ) : (
-                            <span className="scouting-row-full muted">Full</span>
+                            <span className="scout-full-tag">Full</span>
                           )}
                           <span className="scouting-row-arrow">{isOpen ? '▾' : '▸'}</span>
                         </div>
@@ -8287,40 +8432,65 @@ function ScoutingView({ draftClass, myTeam, busy, onScout, focusProspectId, onFo
                         {/* Expanded detail */}
                         {isOpen && (
                           <div className="scouting-detail">
-                            <div className="scouting-detail-meta">
-                              <span>{p.height} · {p.weight} lbs · Age {p.age}</span>
-                              {rpt && <span className={`report-conf ${rpt.confidence}`}>{confidenceLabel(rpt.confidence)} confidence</span>}
+                            <div className="scouting-detail-grid">
+                              {/* Left: bio + combine */}
+                              <div className="scouting-detail-bio">
+                                <div className="scouting-detail-meta">
+                                  <div className="scouting-bio-row"><span className="scouting-bio-label">Height</span><span>{p.height}</span></div>
+                                  <div className="scouting-bio-row"><span className="scouting-bio-label">Weight</span><span>{p.weight} lbs</span></div>
+                                  <div className="scouting-bio-row"><span className="scouting-bio-label">Age</span><span>{p.age}</span></div>
+                                  {rpt && <div className="scouting-bio-row"><span className="scouting-bio-label">Confidence</span><span className={`report-conf ${rpt.confidence}`}>{confidenceLabel(rpt.confidence)}</span></div>}
+                                </div>
+                                {p.combine && (
+                                  <div className="scouting-combine-card">
+                                    <div className="scouting-combine-title">Combine Results</div>
+                                    <div className="scouting-combine-grid">
+                                      <div className="scouting-combine-item">
+                                        <span className="scouting-combine-val">{p.combine.fortyYard.toFixed(2)}s</span>
+                                        <span className="scouting-combine-lbl">40-Yard</span>
+                                      </div>
+                                      <div className="scouting-combine-item">
+                                        <span className="scouting-combine-val">{p.combine.benchPress}</span>
+                                        <span className="scouting-combine-lbl">Bench</span>
+                                      </div>
+                                      <div className="scouting-combine-item">
+                                        <span className="scouting-combine-val">{p.combine.vertJump}"</span>
+                                        <span className="scouting-combine-lbl">Vert</span>
+                                      </div>
+                                    </div>
+                                    <div className={`scouting-stock scouting-stock--${p.combine.stockMove}`}>
+                                      {p.combine.stockMove === 'rising' ? '↑ Rising' : p.combine.stockMove === 'falling' ? '↓ Falling' : '→ Neutral'}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Right: scouting report */}
+                              <div className="scouting-detail-report">
+                                {rpt ? (
+                                  <div className="scout-report">
+                                    {rpt.strengths.length > 0 && (
+                                      <div className="report-section">
+                                        <span className="report-label strength-lbl">Strengths</span>
+                                        <div className="report-tags">{rpt.strengths.map((s, i) => <span key={i} className="report-tag strength">{s}</span>)}</div>
+                                      </div>
+                                    )}
+                                    {rpt.weaknesses.length > 0 && (
+                                      <div className="report-section">
+                                        <span className="report-label weakness-lbl">Concerns</span>
+                                        <div className="report-tags">{rpt.weaknesses.map((w, i) => <span key={i} className="report-tag weakness">{w}</span>)}</div>
+                                      </div>
+                                    )}
+                                    {rpt.notes && <p className="report-notes">{rpt.notes}</p>}
+                                  </div>
+                                ) : (
+                                  <div className="scouting-no-report">
+                                    <span className="scouting-no-report-icon">?</span>
+                                    <span>Scout this prospect to reveal strengths, weaknesses, and projected draft position.</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            {p.combine && (
-                              <div className="scouting-combine">
-                                <span className="scouting-combine-label">Combine:</span>
-                                <span className="scouting-combine-stat">40: {p.combine.fortyYard.toFixed(2)}s</span>
-                                <span className="scouting-combine-stat">Bench: {p.combine.benchPress}</span>
-                                <span className="scouting-combine-stat">Vert: {p.combine.vertJump}"</span>
-                                <span className={`combine-stock combine-stock--${p.combine.stockMove}`}>
-                                  {p.combine.stockMove === 'rising' ? '↑' : p.combine.stockMove === 'falling' ? '↓' : '→'}
-                                </span>
-                              </div>
-                            )}
-                            {rpt ? (
-                              <div className="scout-report">
-                                {rpt.strengths.length > 0 && (
-                                  <div className="report-section">
-                                    <span className="report-label strength-lbl">Strengths</span>
-                                    {rpt.strengths.map((s, i) => <span key={i} className="report-tag strength">{s}</span>)}
-                                  </div>
-                                )}
-                                {rpt.weaknesses.length > 0 && (
-                                  <div className="report-section">
-                                    <span className="report-label weakness-lbl">Concerns</span>
-                                    {rpt.weaknesses.map((w, i) => <span key={i} className="report-tag weakness">{w}</span>)}
-                                  </div>
-                                )}
-                                {rpt.notes && <p className="report-notes">{rpt.notes}</p>}
-                              </div>
-                            ) : (
-                              <p className="muted" style={{ padding: 'var(--sp-2) 0' }}>No scouting report yet. Scout this prospect to reveal strengths, weaknesses, and projected draft position.</p>
-                            )}
                           </div>
                         )}
                       </div>
@@ -8389,135 +8559,191 @@ function DraftBoardView({ draftClass, myTeam, onUpdateBoard }: {
 
   const LEVEL_LABELS = ['', 'L1', 'L2', 'Full'];
 
+  // Needs analysis — which position groups have fewest players
+  const myTeamRoster = myTeam.roster;
+  const positionNeeds = useMemo(() => {
+    const needs: { pos: string; count: number; avgOvr: number }[] = [];
+    for (const g of ROSTER_POS_GROUPS) {
+      const players = myTeamRoster.filter(p => g.positions.includes(p.position));
+      const avgOvr = players.length > 0 ? Math.round(players.reduce((s, p) => s + p.scoutedOverall, 0) / players.length) : 0;
+      needs.push({ pos: g.label, count: players.length, avgOvr });
+    }
+    return needs.sort((a, b) => a.avgOvr - b.avgOvr);
+  }, [myTeamRoster]);
+
   return (
-    <section className="roster-page">
+    <section className="board-page">
 
       {/* ── Header ─────────────────────────────────────────────── */}
-      <div className="roster-header">
-        <div className="roster-header-left">
-          <h2 className="roster-title">Draft Board</h2>
+      <div className="board-header">
+        <div className="board-header-left">
+          <h2 className="board-title">Draft Board</h2>
+          <span className="board-subtitle">Rank and organize your targets</span>
         </div>
-        <div className="roster-header-stats">
-          <div className="roster-header-stat"><span className="roster-header-val">{draftClass.prospects.length}</span><span className="roster-header-lbl">Prospects</span></div>
-          <div className="roster-header-stat"><span className="roster-header-val">{onBoard.length}</span><span className="roster-header-lbl">Ranked</span></div>
-          <div className="roster-header-stat"><span className="roster-header-val">{scoutedCount}</span><span className="roster-header-lbl">Scouted</span></div>
-          <div className="roster-header-stat"><span className="roster-header-val">{scoutingPoints}</span><span className="roster-header-lbl">Scout Pts</span></div>
+        <div className="board-header-stats">
+          <div className="board-stat"><span className="board-stat-val">{draftClass.prospects.length}</span><span className="board-stat-lbl">Prospects</span></div>
+          <div className="board-stat"><span className="board-stat-val board-stat-accent">{onBoard.length}</span><span className="board-stat-lbl">Ranked</span></div>
+          <div className="board-stat"><span className="board-stat-val">{scoutedCount}</span><span className="board-stat-lbl">Scouted</span></div>
+          <div className="board-stat"><span className="board-stat-val">{scoutingPoints}</span><span className="board-stat-lbl">Scout Pts</span></div>
         </div>
       </div>
 
       {/* View tabs */}
-      <div className="contracts-tabs">
-        <button className={boardView === 'ranked' ? 'active' : ''} onClick={() => setBoardView('ranked')}>
+      <div className="board-tabs">
+        <button className={`board-tab${boardView === 'ranked' ? ' board-tab-active' : ''}`} onClick={() => setBoardView('ranked')}>
           My Board{onBoard.length > 0 && <span className="ui-count">{onBoard.length}</span>}
         </button>
-        <button className={boardView === 'browse' ? 'active' : ''} onClick={() => setBoardView('browse')}>
+        <button className={`board-tab${boardView === 'browse' ? ' board-tab-active' : ''}`} onClick={() => setBoardView('browse')}>
           Browse by Position
         </button>
       </div>
 
-      {/* ── Ranked Board ───────────────────────────────────────── */}
-      {boardView === 'ranked' && (
-        <div className="roster-group">
-          {onBoard.length > 0 ? (
-            <table className="ui-table roster-table">
-              <thead>
-                <tr>
-                  <th className="num">#</th><th>Name</th><th>Pos</th><th>College</th>
-                  <th className="num">Grade</th><th className="num">Proj</th><th>Scout</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {onBoard.map((p, idx) => {
-                  const lvl = scoutLevel(p);
-                  return (
-                    <tr key={p.id}>
-                      <td className="num text-mono">{idx + 1}</td>
-                      <td>{p.name}</td>
-                      <td className="roster-pos-cell">{p.position}</td>
-                      <td className="muted">{p.college}</td>
-                      <td className="num text-mono">{gradeStr(p)}</td>
-                      <td className="num">{projRange(p)}</td>
-                      <td>{lvl > 0 ? <span className={`scout-level-badge level-${lvl}`}>{LEVEL_LABELS[lvl]}</span> : <span className="muted">—</span>}</td>
-                      <td className="board-actions">
-                        <button className="btn-sm" onClick={() => moveUp(idx)} disabled={idx === 0} title="Move up">↑</button>
-                        <button className="btn-sm" onClick={() => moveDown(idx)} disabled={idx === onBoard.length - 1} title="Move down">↓</button>
-                        <button className="btn-sm btn-danger" onClick={() => removeFromBoard(p.id)} title="Remove">✕</button>
-                      </td>
+      <div className="board-layout">
+
+        {/* ── Main content ─────────────────────────────────────── */}
+        <div className="board-main">
+
+          {/* Ranked Board */}
+          {boardView === 'ranked' && (
+            <div className="board-ranked">
+              {onBoard.length > 0 ? (
+                <table className="ui-table roster-table board-table">
+                  <thead>
+                    <tr>
+                      <th className="num">#</th><th>Name</th><th>Pos</th><th>College</th>
+                      <th className="num">Grade</th><th className="num">Proj</th><th>Scout</th><th></th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : (
-            <div className="ui-empty">No prospects ranked yet. Browse by position to add players to your board.</div>
+                  </thead>
+                  <tbody>
+                    {onBoard.map((p, idx) => {
+                      const lvl = scoutLevel(p);
+                      return (
+                        <tr key={p.id} className="board-ranked-row">
+                          <td className="num text-mono board-rank">{idx + 1}</td>
+                          <td className="board-player-name">{p.name}</td>
+                          <td className="roster-pos-cell">{p.position}</td>
+                          <td className="muted">{p.college}</td>
+                          <td className="num text-mono">{gradeStr(p)}</td>
+                          <td className="num">{projRange(p)}</td>
+                          <td>{lvl > 0 ? <span className={`scout-level-badge level-${lvl}`}>{LEVEL_LABELS[lvl]}</span> : <span className="muted">—</span>}</td>
+                          <td className="board-actions">
+                            <button className="btn-sm" onClick={() => moveUp(idx)} disabled={idx === 0} title="Move up">↑</button>
+                            <button className="btn-sm" onClick={() => moveDown(idx)} disabled={idx === onBoard.length - 1} title="Move down">↓</button>
+                            <button className="btn-sm btn-danger" onClick={() => removeFromBoard(p.id)} title="Remove">✕</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="board-empty">
+                  <div className="board-empty-icon">📋</div>
+                  <div className="board-empty-title">No prospects ranked yet</div>
+                  <div className="board-empty-msg">Switch to "Browse by Position" to add players to your board.</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Browse by Position */}
+          {boardView === 'browse' && (
+            <div className="roster-groups">
+              {ROSTER_POS_GROUPS.map(group => {
+                const prospects = draftClass.prospects
+                  .filter(p => group.positions.includes(p.position))
+                  .sort((a, b) => {
+                    const aLvl = scoutLevel(a), bLvl = scoutLevel(b);
+                    if (aLvl !== bLvl) return bLvl - aLvl;
+                    return 0;
+                  });
+                if (prospects.length === 0) return null;
+                const scoutedInGroup = prospects.filter(p => scoutLevel(p) > 0).length;
+                const isCollapsed = !!collapsed[group.label];
+
+                return (
+                  <div key={group.label} className="roster-group">
+                    <button className={`roster-group-header${isCollapsed ? ' roster-group-collapsed' : ''}`} onClick={() => toggleGroup(group.label)}>
+                      <span className="roster-group-toggle">{isCollapsed ? '▸' : '▾'}</span>
+                      <span className="roster-group-name">{group.label}</span>
+                      <span className="roster-group-count">{prospects.length}</span>
+                      {scoutedInGroup > 0 && <span className="roster-group-ovr">{scoutedInGroup} scouted</span>}
+                    </button>
+                    {!isCollapsed && (
+                      <table className="ui-table roster-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th><th>Pos</th><th>College</th><th>Size</th>
+                            <th className="num">Grade</th><th className="num">Proj</th><th>Scout</th><th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {prospects.map(p => {
+                            const lvl = scoutLevel(p);
+                            const isRanked = draftBoard.includes(p.id);
+                            return (
+                              <tr key={p.id} className={isRanked ? 'roster-row-starter' : ''}>
+                                <td className="roster-name-cell">
+                                  <span>{p.name}</span>
+                                  {isRanked && <span className="ui-badge ui-badge--primary">#{draftBoard.indexOf(p.id) + 1}</span>}
+                                </td>
+                                <td className="roster-pos-cell">{p.position}</td>
+                                <td className="muted">{p.college}</td>
+                                <td className="muted">{p.height} · {p.weight}</td>
+                                <td className="num text-mono">{gradeStr(p)}</td>
+                                <td className="num">{projRange(p)}</td>
+                                <td>{lvl > 0 ? <span className={`scout-level-badge level-${lvl}`}>{LEVEL_LABELS[lvl]}</span> : <span className="muted">—</span>}</td>
+                                <td>
+                                  {isRanked
+                                    ? <button className="btn-sm btn-danger" onClick={() => removeFromBoard(p.id)}>Remove</button>
+                                    : <button className="btn-sm btn-positive" onClick={() => addToBoard(p.id)}>+ Board</button>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
-      )}
 
-      {/* ── Browse by Position ─────────────────────────────────── */}
-      {boardView === 'browse' && (
-        <div className="roster-groups">
-          {ROSTER_POS_GROUPS.map(group => {
-            const prospects = draftClass.prospects
-              .filter(p => group.positions.includes(p.position))
-              .sort((a, b) => {
-                // Scouted prospects first, then by grade/projection
-                const aLvl = scoutLevel(a), bLvl = scoutLevel(b);
-                if (aLvl !== bLvl) return bLvl - aLvl;
-                return 0; // preserve server order within same scout level
-              });
-            if (prospects.length === 0) return null;
-            const scoutedInGroup = prospects.filter(p => scoutLevel(p) > 0).length;
-            const isCollapsed = !!collapsed[group.label];
+        {/* ── Sidebar — Team Needs ─────────────────────────────── */}
+        <div className="board-sidebar">
+          <div className="board-needs">
+            <div className="board-needs-title">Team Needs</div>
+            <div className="board-needs-list">
+              {positionNeeds.map(n => (
+                <div key={n.pos} className={`board-need-row${n.avgOvr < 60 ? ' board-need-critical' : n.avgOvr < 70 ? ' board-need-moderate' : ''}`}>
+                  <span className="board-need-pos">{n.pos}</span>
+                  <div className="board-need-bar-track">
+                    <div className="board-need-bar-fill" style={{ width: `${n.avgOvr}%` }} />
+                  </div>
+                  <span className="board-need-ovr">{n.avgOvr}</span>
+                  <span className="board-need-count">{n.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
 
-            return (
-              <div key={group.label} className="roster-group">
-                <button className={`roster-group-header${isCollapsed ? ' roster-group-collapsed' : ''}`} onClick={() => toggleGroup(group.label)}>
-                  <span className="roster-group-toggle">{isCollapsed ? '▸' : '▾'}</span>
-                  <span className="roster-group-name">{group.label}</span>
-                  <span className="roster-group-count">{prospects.length}</span>
-                  {scoutedInGroup > 0 && <span className="roster-group-ovr">{scoutedInGroup} scouted</span>}
-                </button>
-                {!isCollapsed && (
-                  <table className="ui-table roster-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th><th>Pos</th><th>College</th><th>Size</th>
-                        <th className="num">Grade</th><th className="num">Proj</th><th>Scout</th><th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {prospects.map(p => {
-                        const lvl = scoutLevel(p);
-                        const isRanked = draftBoard.includes(p.id);
-                        return (
-                          <tr key={p.id} className={isRanked ? 'roster-row-starter' : ''}>
-                            <td className="roster-name-cell">
-                              <span>{p.name}</span>
-                              {isRanked && <span className="ui-badge ui-badge--primary">#{draftBoard.indexOf(p.id) + 1}</span>}
-                            </td>
-                            <td className="roster-pos-cell">{p.position}</td>
-                            <td className="muted">{p.college}</td>
-                            <td className="muted">{p.height} · {p.weight}</td>
-                            <td className="num text-mono">{gradeStr(p)}</td>
-                            <td className="num">{projRange(p)}</td>
-                            <td>{lvl > 0 ? <span className={`scout-level-badge level-${lvl}`}>{LEVEL_LABELS[lvl]}</span> : <span className="muted">—</span>}</td>
-                            <td>
-                              {isRanked
-                                ? <button className="btn-sm btn-danger" onClick={() => removeFromBoard(p.id)}>Remove</button>
-                                : <button className="btn-sm btn-positive" onClick={() => addToBoard(p.id)}>+ Board</button>}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            );
-          })}
+          {/* Top Board Targets quick-view */}
+          {onBoard.length > 0 && boardView === 'browse' && (
+            <div className="board-targets">
+              <div className="board-needs-title">Top Targets</div>
+              {onBoard.slice(0, 5).map((p, idx) => (
+                <div key={p.id} className="board-target-row">
+                  <span className="board-target-rank">#{idx + 1}</span>
+                  <span className="board-target-name">{p.name}</span>
+                  <span className="roster-pos-cell">{p.position}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 }
